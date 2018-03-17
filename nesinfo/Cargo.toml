@@ -3,4 +3,15 @@ name = "nesinfo"
 version = "0.1.0"
 authors = ["Natesh Narain <nnaraindev@gmail.com>"]
 
+[[bin]]
+name = "nesinfo"
+path = "src/main.rs"
+required-features = ["binaries"]
+
 [dependencies]
+docopt = {version = "0.8.1", optional = true}
+serde = {version = "1.0", optional = true}
+serde_derive = {version = "1.0", optional = true}
+
+[features]
+binaries = ["docopt", "serde", "serde_derive"]
