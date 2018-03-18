@@ -240,8 +240,77 @@ fn verify_signature(sig: &[u8]) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
+mod nesinfo_tests {
     use super::*;
+
+    fn init_header() -> [u8; 16] {
+        [
+            0x4E, 0x45, 0x53, 0x1A, // NES<EOF>
+            0x00,                   // PRG ROM
+            0x00,                   // CHR ROM
+            0x00,                   // Flag 6
+            0x00,                   // Flag 7
+            0x00,                   // Flag 8
+            0x00,                   // Flag 9
+            0x00,                   // Flag 10
+            0x00,                   // Flag 11
+            0x00,                   // Flag 12
+            0x00,                   // Flag 13
+            0x00,                   // Flag 14
+            0x00,                   // Flag 15
+        ]
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_invalid_format() {
+        let mut header = init_header();
+        header[12] = 1;
+
+        parse_header(&header[..]).unwrap();
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_invalid_sig() {
+        let header: [u8; 16] = [0; 16];
+        parse_header(&header[..]).unwrap();
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_not_enough_data() {
+        let header: [u8; 10] = [0; 10];
+        parse_header(&header[..]).unwrap();
+    }
+
+    #[test]
+    fn test_mirroring_vertical() {
+        let mut header = init_header();
+        header[6] |= 0x01;
+
+        let info = parse_header(&header[..]).unwrap();
+        assert_eq!(info.mirror_v, true);
+    }
+
+    #[test]
+    fn test_mirroring_horizontal() {
+        let mut header = init_header();
+        header[6] |= 0x00;
+
+        let info = parse_header(&header[..]).unwrap();
+        assert_eq!(info.mirror_v, false);
+    }
+
+    #[test]
+    fn test_mapper_number() {
+        let mut header = init_header();
+        header[7] |= 0xD0;
+        header[6] |= 0xE0;
+
+        let info = parse_header(&header[..]).unwrap();
+        assert_eq!(info.mapper, 0xDE);
+    }
 
     #[test]
     fn test_get_format_nes2() {
