@@ -24,7 +24,7 @@ fn main() {
         Ok(rom_header) => {
             match nesinfo::parse_header(&rom_header[..]) {
                 Ok(header) => {
-                    println!("{:?}", header);
+                    println!("{}", header);
                 },
                 Err(e) => println!("{:?}", e)
             }

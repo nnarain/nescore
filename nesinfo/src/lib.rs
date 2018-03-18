@@ -7,6 +7,15 @@ pub enum Format {
     NES2
 }
 
+impl fmt::Display for Format {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Format::INES => write!(f, "INES"),
+            Format::NES2 => write!(f, "NES2"),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Info {
     pub format: Format,
@@ -29,6 +38,30 @@ pub struct Info {
     pub prg_ram: usize,          // Amount of non-battery backed PRG RAM
     pub batt_chr_ram: usize,     // Amount of battery backed CHR RAM
     pub chr_ram: usize,          // Amount of non-battery backed CHR RAM
+}
+
+impl fmt::Display for Info {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mirroring = if self.mirror_v {
+            String::from("Vertical")
+        }
+        else {
+            String::from("Horizontal")
+        };
+
+        write!(f, 
+        "
+        Format:              {}
+        PRG ROM Banks:       {}
+        CHR ROM Banks:       {}
+        Mapper:              {}
+        Four Screen Mode:    {}
+        Trainer:             {}
+        Battery Backed SRAM: {}
+        Mirroring:           {}
+        ", 
+        self.format, self.prg_rom_banks, self.chr_rom_banks, self.mapper, self.four_screen_mode, self.trainer, self.battback_sram, mirroring)
+    }
 }
 
 pub enum ParseError {
