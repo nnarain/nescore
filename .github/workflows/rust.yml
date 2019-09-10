@@ -4,11 +4,17 @@ on: [push]
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    name: Build and test on ${{ matrix.os }}
+
+    runs-on: ${{ matrix.os }}
 
     steps:
     - uses: actions/checkout@v1
     - name: Build
-      run: cargo build --verbose
-    - name: Run tests
-      run: cargo test --verbose
+      run: cargo build
+    - name: Test
+      run: cargo test
