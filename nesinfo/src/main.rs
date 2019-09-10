@@ -1,35 +1,34 @@
 extern crate nesinfo;
 
-#[macro_use]
-extern crate serde_derive;
-extern crate docopt;
+extern crate clap;
+use clap::{App, Arg};
 
 use std::io::prelude::*;
 use std::fs::File;
-use std::error::Error;
+use std::io::Error;
 
-use docopt::Docopt;
-
-
-#[derive(Debug, Deserialize)]
+#[derive(Debug)]
 struct ProgramOptions {
-    pub arg_input: String
+    pub filepath: String
 }
 
 fn main() {
     // get command line options
-    let options = get_options();
-    // load the rom header
-    match load_header(&options.arg_input) {
-        Ok(rom_header) => {
-            match nesinfo::parse_header(&rom_header[..]) {
-                Ok(header) => {
-                    println!("{}", header);
+    match get_options() {
+        Ok(options) => {
+            match load_header(&options.filepath) {
+                Ok(rom_header) => {
+                    match nesinfo::parse_header(&rom_header[..]) {
+                        Ok(info) => println!("{}", info),
+                        Err(e) => println!("{:?}", e)
+                    }
                 },
                 Err(e) => println!("{:?}", e)
             }
         },
-        Err(e) => println!("{}", e)
+        Err(e) => {
+            println!("{}", e);
+        }
     }
 }
 
@@ -41,17 +40,28 @@ fn load_header(file: &String) -> Result<[u8; 32], Box<Error>> {
     Ok(buffer)
 }
 
-fn get_options() -> ProgramOptions {
-    const USAGE: &'static str = "
-    nesinfo
+fn get_options() -> Result<ProgramOptions, String> {
+    let matches = App::new("nesinfo")
+                        .version("1.0.0")
+                        .author("Natesh Narain")
+                        .about("Print iNES and NES2.0 cartridge header information")
+                        .arg(Arg::with_name("file")
+                                .short("f")
+                                .long("file")
+                                .value_name("FILE")
+                                .help("NES ROM file")
+                                .takes_value(true)
+                                .required(true))
+                        .get_matches();
 
-    Usage:
-      nesinfo <input>
-      nesinfo (-h | --help)
-
-    Options:
-      -h --help     Show help
-    ";
-
-    Docopt::new(USAGE).and_then(|d| d.deserialize()).unwrap_or_else(|e| e.exit())
+    if let Some(opt) = matches.value_of("file") {
+        Ok(
+            ProgramOptions{
+                filepath: opt.to_string()
+            }
+        )
+    }
+    else {
+        Err(String::from("Error parsing options"))
+    }
 }
