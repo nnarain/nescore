@@ -1,6 +1,3 @@
-extern crate nesinfo;
-
-extern crate clap;
 use clap::{App, Arg};
 
 use std::io::prelude::*;
@@ -18,7 +15,7 @@ fn main() {
         Ok(options) => {
             match load_header(&options.filepath) {
                 Ok(rom_header) => {
-                    match nesinfo::parse_header(&rom_header[..]) {
+                    match nescore::cart::CartridgeInfo::from(&rom_header[..]) {
                         Ok(info) => println!("{}", info),
                         Err(e) => println!("{:?}", e)
                     }

@@ -4,12 +4,17 @@
 /// @author Natesh Narain <nnaraindev@gmail.com>
 /// 
 
+// nescore submodules
 mod io;
 mod clk;
 mod cpu;
 mod ppu;
-mod cart;
 mod mapper;
+
+pub mod cart;
+
+// Public re-exports
+pub use cart::Cartridge;
 
 use cpu::Cpu;
 use cpu::bus::CpuIoBus;
@@ -17,7 +22,6 @@ use cpu::bus::CpuIoBus;
 use ppu::Ppu;
 
 use mapper::Mapper;
-use cart::Cartridge;
 
 use clk::Clockable;
 
@@ -43,6 +47,7 @@ impl Nes {
         if let Some(ref mapper) = self.mapper {
             // TODO: Iterate for number of cycles to produce a frame. Simulate component clocks
             // TODO: Mapper as part of the CPU IO interface
+            // TODO: Send audio and video data back to host
             let mut cpu_io_bus = CpuIoBus::new(&mut self.ppu);
             self.cpu.tick(&mut cpu_io_bus);
         }
