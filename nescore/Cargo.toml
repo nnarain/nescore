@@ -2,6 +2,4 @@
 name = "nescore"
 version = "0.1.0"
 authors = ["Natesh Narain <nnaraindev@gmail.com>"]
-
-[dependencies]
-nesinfo = {path="../nesinfo"}
+edition = "2018"
