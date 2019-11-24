@@ -1,0 +1,27 @@
+name: Build
+
+on: [push]
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    name: Build and test on ${{ matrix.os }}
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - uses: actions/checkout@v1
+    - name: Build
+      run: cargo build
+    - name: Test
+      run: cargo test
+    - name: Generate Coverage Report
+      run: cargo install cargo-tarpaulin && cargo tarpaulin --out Xml --all-features
+      if: matrix.os == 'ubuntu-latest'
+    - uses: codecov/codecov-action@v1
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+      if: matrix.os == 'ubuntu-latest'
