@@ -261,7 +261,7 @@ fn verify_signature(sig: &[u8]) -> bool {
 }
 
 #[cfg(test)]
-mod nesinfo_tests {
+mod tests {
     use super::*;
 
     fn init_header() -> [u8; 16] {
