@@ -31,6 +31,7 @@ pub struct Cpu {
     state: State,                 // Internal CPU cycle state
 
     address_bus: u16,             // Value for the address bus
+    pointer_address: u16,         // Pointer address for indirect addressing
     addressing_complete: bool,    // Indicate addressing is complete
 }
 
@@ -49,6 +50,7 @@ impl Cpu {
             state: State::Reset,
 
             address_bus: 0,
+            pointer_address: 0,
             addressing_complete: false
         }
     }
@@ -65,12 +67,21 @@ impl Cpu {
                 Cpu::get_execute_state(self.fetch(io))
             },
             State::Execute(ref instr, ref mode, ref total_cycles, ref cycle) => {
-
                 // Apply instruction address
                 if let Some(mode) = mode {
                     if !self.addressing_complete {
                         match mode {
-                            _ => {}
+                            AddressingMode::Immediate       => self.immediate(),
+                            AddressingMode::Absolute        => self.absolute(io, *cycle),
+                            AddressingMode::ZeroPage        => self.zeropage(io),
+                            AddressingMode::ZeroPageX       => self.zeropage_x(io, *cycle),
+                            AddressingMode::ZeroPageY       => self.zeropage_y(io, *cycle),
+                            AddressingMode::AbsoluteX       => self.absolute_x(io, *cycle),
+                            AddressingMode::AbsoluteY       => self.absolute_y(io, *cycle),
+                            AddressingMode::IndexedIndirect => self.indexed_indirect(io, *cycle),
+                            AddressingMode::IndirectIndexed => self.indirect_indexed(io, *cycle),
+
+                            _ => panic!("Addressing Mode not implemented!!!")
                         }
                     }
                 }
@@ -78,8 +89,10 @@ impl Cpu {
                 // Once addressing is complete, run the instruction
                 if self.addressing_complete {
                     let normalized_cycle = *cycle; // TODO: 
+
                     match instr {
-                        Instruction::LDA => { self.lda(normalized_cycle); }
+                        Instruction::NOP => { /* NOP */ },
+                        Instruction::LDA => { self.lda(io); }
                     }
                 }
                 
@@ -99,30 +112,24 @@ impl Cpu {
         }
     }
 
-    /// Load Accumulator
-    fn lda(&mut self, cycle: u8) {
-        
-    }
-
-    fn jmp(&mut self) -> State {
-        State::Fetch
-    }
-
-    // Addressing Modes
-    fn absolute(&mut self, cycle: u8) {
-
-    }
-
-    fn read_bus(&self) -> u8 {
-        // self.read_u8(io: &mut dyn IoAccess, addr: u16)
-        0
-    }
+    //------------------------------------------------------------------------------------------------------------------
+    // Opcode Decoding
+    //------------------------------------------------------------------------------------------------------------------
 
     /// Convert opcode into instruction and addressing mode and return an execute state
-    fn get_execute_state(opcode: u16) -> State {
+    fn get_execute_state(opcode: u8) -> State {
         let (instr, mode, total_cycles) = match opcode {
+            // NOP
+            0xEA => (Instruction::NOP, None, 2),
             // LDA
-            0xA9 => { (Instruction::LDA, Some(AddressingMode::Absolute), 3) },
+            0xA9 => (Instruction::LDA, Some(AddressingMode::Immediate), 1),
+            0xA5 => (Instruction::LDA, Some(AddressingMode::ZeroPage),  2),
+            0xB5 => (Instruction::LDA, Some(AddressingMode::ZeroPageX), 3),
+            0xAD => (Instruction::LDA, Some(AddressingMode::Absolute), 3),
+            0xBD => (Instruction::LDA, Some(AddressingMode::AbsoluteX), 4),       // +1 cycle if page crossed
+            0xB9 => (Instruction::LDA, Some(AddressingMode::AbsoluteY), 4),       // +1 cycle if page crossed
+            0xA1 => (Instruction::LDA, Some(AddressingMode::IndexedIndirect), 6),
+            0xB1 => (Instruction::LDA, Some(AddressingMode::IndirectIndexed), 6), // +1 cycles for page crossed
 
             _ => {
                 panic!("Invalid opcode");
@@ -132,12 +139,174 @@ impl Cpu {
         State::Execute(instr, mode, total_cycles, 0)
     }
 
+    //------------------------------------------------------------------------------------------------------------------
+    // Instruction Implementation
+    //------------------------------------------------------------------------------------------------------------------
+
+    /// Load Accumulator
+    fn lda(&mut self, io: &mut dyn IoAccess) {
+        self.a = self.read_bus(io);
+
+        // TODO: Update Flags
+    }
+
+    //------------------------------------------------------------------------------------------------------------------
+    // Addressing Modes
+    //------------------------------------------------------------------------------------------------------------------
+
+    /// Immediate Addressing.
+    /// Put current PC value on the address bus
+    fn immediate(&mut self) {
+        self.address_bus = self.pc.0;
+        self.pc += Wrapping(1);
+
+        self.addressing_complete = true;
+    }
+
+    /// Absolute Addressing.
+    /// Fetch the address to read from the next two bytes
+    fn absolute(&mut self, io: &mut dyn IoAccess, cycle: u8) {
+        match cycle {
+            0 => {
+                // Fetch lower byte of address
+                self.address_bus = (self.address_bus & 0xF0) | (self.read_next_u8(io) as u16);
+            },
+            1 => {
+                // Fetch the higher byte of address
+                self.address_bus = (self.address_bus & 0x0F) | ((self.read_next_u8(io) as u16) << 8);
+                self.addressing_complete = true;
+            }
+            _ => panic!("Invalid cycle for absolute addressing mode")
+        }
+    }
+
+    /// Absolute Addressing Indexed by X
+    fn absolute_x(&mut self, io: &mut dyn IoAccess, cycle: u8) {
+        self.absolute_i(io, cycle, self.x);
+    }
+
+    /// Absolute Addressing Indexed by Y
+    fn absolute_y(&mut self, io: &mut dyn IoAccess, cycle: u8) {
+        self.absolute_i(io, cycle, self.y);
+    }
+
+    fn absolute_i(&mut self, io: &mut dyn IoAccess, cycle: u8, i: u16) {
+        match cycle {
+            0 => {
+                // Fetch lower byte of address
+                self.address_bus = (self.address_bus & 0xF0) | (self.read_next_u8(io) as u16);
+            },
+            1 => {
+                // Fetch the higher byte of address
+                self.address_bus = (self.address_bus & 0x0F) | ((self.read_next_u8(io) as u16) << 8);
+            },
+            2 => {
+                // Add the index value to the address bus
+                self.address_bus += i;
+                self.addressing_complete = true;
+            }
+            _ => panic!("Invalid cycle for absolute addressing mode")
+        }
+    }
+
+    /// Zero Page Addressing
+    /// Fetch the next byte and put it on the address bus
+    fn zeropage(&mut self, io: &mut dyn IoAccess) {
+        self.address_bus = self.read_next_u8(io) as u16;
+        self.addressing_complete = true;
+    }
+
+    /// Zero Page Index X Addressing.
+    fn zeropage_x(&mut self, io: &mut dyn IoAccess, cycle: u8) {
+        self.zeropage_i(io, cycle, self.x);
+    }
+
+    /// Zero Page Index Y Addressing
+    fn zeropage_y(&mut self, io: &mut dyn IoAccess, cycle: u8) {
+        self.zeropage_i(io, cycle, self.y);
+    }
+
+    fn zeropage_i(&mut self, io: &mut dyn IoAccess, cycle: u8, i: u16) {
+        match cycle {
+            0 => {
+                self.address_bus = self.read_next_u8(io) as u16;
+            },
+            1 => {
+                // TODO: Wrapping?
+                self.address_bus += i;
+                self.addressing_complete = true;
+            }
+            _ => panic!("Invalid cycle for absolute addressing mode")
+        }
+    }
+
+    /// Indexed Indirect Addressing
+    fn indexed_indirect(&mut self, io: &mut dyn IoAccess, cycle: u8) {
+        match cycle {
+            0 => {
+                self.pointer_address = self.read_next_u8(io) as u16;
+            },
+            1 => {
+                // TODO: Wrapping?
+                self.pointer_address += self.x;
+            },
+            2 => {
+                // Fetch lower byte of address
+                self.address_bus = (self.address_bus & 0xF0) | (self.read_u8(io, self.pointer_address) as u16);
+            },
+            3 => {
+                // Fetch the higher byte of address
+                self.address_bus = (self.address_bus & 0x0F) | ((self.read_u8(io, self.pointer_address + 1) as u16) << 8);
+                self.addressing_complete = true;
+            }
+            _ => panic!("Invalid cycle for absolute addressing mode")
+        }
+    }
+
+    /// Indirect Indexed Addressing
+    fn indirect_indexed(&mut self, io: &mut dyn IoAccess, cycle: u8) {
+        match cycle {
+            0 => {
+                self.pointer_address = self.read_next_u8(io) as u16;
+            },
+            1 => {
+                // Fetch lower byte of address
+                self.address_bus = (self.address_bus & 0xF0) | (self.read_u8(io, self.pointer_address) as u16);
+            },
+            2 => {
+                // Fetch the higher byte of address
+                self.address_bus = (self.address_bus & 0x0F) | ((self.read_u8(io, self.pointer_address + 1) as u16) << 8);
+            },
+            3 => {
+                self.address_bus += self.y;
+                self.addressing_complete = true;
+            }
+            _ => panic!("Invalid cycle for absolute addressing mode")
+        }
+    }
+
+    //------------------------------------------------------------------------------------------------------------------
+    // Base CPU Read/Write Operations
+    //------------------------------------------------------------------------------------------------------------------
+
     /// Fetch the next opcode and increment the program counter
-    fn fetch(&mut self, io: &mut dyn IoAccess) -> u16 {
-        let opcode = self.read_u16(io, self.pc.0);
+    fn fetch(&mut self, io: &mut dyn IoAccess) -> u8 {
+        self.read_next_u8(io)
+    }
+
+    fn read_bus(&self, io: &mut dyn IoAccess) -> u8 {
+        self.read_u8(io, self.address_bus)
+    }
+
+    fn write_bus(&mut self, io: &mut dyn IoAccess, value: u8) {
+        self.write_u8(io, self.address_bus, value);
+    }
+
+    fn read_next_u8(&mut self, io: &mut dyn IoAccess) -> u8 {
+        let byte = self.read_u8(io, self.pc.0);
         self.pc += Wrapping(1u16);
 
-        opcode
+        byte
     }
 
     fn read_u16(&self, io: &mut dyn IoAccess, addr: u16) -> u16 {
@@ -163,8 +332,7 @@ impl Clockable for Cpu {
     fn tick(&mut self, io: &mut dyn IoAccess) {
         // Implement one cycle of the CPU using a state machince
         // Execute the cycle based on the current CPU state and return the next CPU state
-        self.state = self.run_cycle
-        (io, self.state);
+        self.state = self.run_cycle(io, self.state);
     }
 }
 
@@ -173,6 +341,16 @@ impl Clockable for Cpu {
 mod tests {
     use super::*;
     use helper::*;
+
+    #[test]
+    fn nop() {
+        let mut cpu = Cpu::new();
+        let mut io = CpuIoBus::from(vec![0xEA]);
+
+        run_cpu(&mut cpu, &mut io, 2);
+
+        assert_eq!(cpu.pc.0, 0x0001);
+    }
 
     #[test]
     fn pc_after_reset() {
@@ -184,9 +362,137 @@ mod tests {
         assert_eq!(cpu.pc.0, 0x0000);
     }
 
-    ///
+    #[test]
+    fn lda_immediate() {
+        let mut cpu = Cpu::new();
+        let mut io = CpuIoBus::from(vec![
+            0xA9, 0xA5 // LDA $A5
+        ]);
+
+        run_cpu(&mut cpu, &mut io, 2);
+
+        assert_eq!(cpu.a, 0xA5);
+    }
+
+    #[test]
+    fn lda_absolute() {
+        let mut cpu = Cpu::new();
+        let mut io = CpuIoBus::from(vec![
+            0xAD, 0x03, 0x00, // LDA ($0003)
+            0xDE,             // Data: $DE
+        ]);
+
+        run_cpu(&mut cpu, &mut io, 4);
+
+        assert_eq!(cpu.a, 0xDE);
+    }
+
+    #[test]
+    fn lda_zeropage() {
+        let mut cpu = Cpu::new();
+        let mut io = CpuIoBus::from(vec![
+            0xA5, 0x02, // LDA ($02)
+            0xDE,       // Data: $DE
+        ]);
+
+        run_cpu(&mut cpu, &mut io, 3);
+
+        assert_eq!(cpu.a, 0xDE);
+    }
+
+    #[test]
+    fn lda_zeropage_x() {
+        let mut cpu = Cpu::new();
+        cpu.x = 0x0001;
+
+        let mut io = CpuIoBus::from(vec![
+            0xB5, 0x02, // LDA $02, X
+            0x00, 0xDE, // Data: $DE
+        ]);
+
+        run_cpu(&mut cpu, &mut io, 4);
+
+        assert_eq!(cpu.a, 0xDE);
+    }
+
+    #[test]
+    fn lda_absolute_x() {
+        let mut cpu = Cpu::new();
+        cpu.x = 0x0001;
+
+        let mut io = CpuIoBus::from(vec![
+            0xB5, 0x03, 0x00, // LDA $0003, X
+            0x00, 0xDE,       // Data: $DE
+        ]);
+
+        run_cpu(&mut cpu, &mut io, 4);
+
+        assert_eq!(cpu.a, 0xDE);
+    }
+
+    #[test]
+    fn lda_absolute_y() {
+        let mut cpu = Cpu::new();
+        cpu.y = 0x0001;
+
+        let mut io = CpuIoBus::from(vec![
+            0xB9, 0x03, 0x00, // LDA $0003, Y
+            0x00, 0xDE,       // Data: $DE
+        ]);
+
+        run_cpu(&mut cpu, &mut io, 4);
+
+        assert_eq!(cpu.a, 0xDE);
+    }
+
+    #[test]
+    fn lda_indexed_indirect() {
+        let mut cpu = Cpu::new();
+        cpu.x = 0x0001;
+
+        let mut io = CpuIoBus::from(vec![
+            0xA1, 0x02, // LDA ($0002, X)
+            0x00,
+            0x05, 0x00, // Address: $0004
+            0xDE,       // Data: $DE
+        ]);
+
+        run_cpu(&mut cpu, &mut io, 6);
+
+        assert_eq!(cpu.a, 0xDE);
+    }
+
+    #[test]
+    fn lda_indirect_indexed() {
+        let mut cpu = Cpu::new();
+        cpu.y = 0x0001;
+
+        let mut io = CpuIoBus::from(vec![
+            0xB1, 0x02, // LDA ($0002), Y
+            0x04, 0x00, // Address: $0004
+            0x00, 0xDE, // Data: $DE
+        ]);
+
+        run_cpu(&mut cpu, &mut io, 6);
+
+        assert_eq!(cpu.a, 0xDE);
+    }
+
+    #[test]
+    fn lda_flags() {
+        let mut cpu = Cpu::new();
+        let mut io = CpuIoBus::from(vec![
+            0xA9, 0xA5 // LDA $A5
+        ]);
+
+        run_cpu(&mut cpu, &mut io, 2);
+
+        assert_eq!(cpu.p, 0xA5);
+    }
+
+    ///-----------------------------------------------------------------------------------------------------------------
     /// Helper functions
-    ///
+    ///-----------------------------------------------------------------------------------------------------------------
     mod helper {
         use super::*;
 
