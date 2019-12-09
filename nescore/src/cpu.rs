@@ -66,42 +66,40 @@ impl Cpu {
             State::Fetch => {
                 Cpu::get_execute_state(self.fetch(io))
             },
-            State::Execute(ref instr, ref mode, ref total_cycles, ref cycle) => {
+            State::Execute(ref instr, ref mode, ref cycle) => {
                 // Apply instruction address
-                if let Some(mode) = mode {
-                    if !self.addressing_complete {
-                        match mode {
-                            AddressingMode::Immediate       => self.immediate(),
-                            AddressingMode::Absolute        => self.absolute(io, *cycle),
-                            AddressingMode::ZeroPage        => self.zeropage(io),
-                            AddressingMode::ZeroPageX       => self.zeropage_x(io, *cycle),
-                            AddressingMode::ZeroPageY       => self.zeropage_y(io, *cycle),
-                            AddressingMode::AbsoluteX       => self.absolute_x(io, *cycle),
-                            AddressingMode::AbsoluteY       => self.absolute_y(io, *cycle),
-                            AddressingMode::IndexedIndirect => self.indexed_indirect(io, *cycle),
-                            AddressingMode::IndirectIndexed => self.indirect_indexed(io, *cycle),
+                let execute_complete = if !self.addressing_complete {
+                    match mode {
+                        AddressingMode::Implied         => self.implied(),
+                        AddressingMode::Immediate       => self.immediate(),
+                        AddressingMode::ZeroPage        => self.zeropage(io),
+                        AddressingMode::ZeroPageX       => self.zeropage_x(io, *cycle),
+                        AddressingMode::ZeroPageY       => self.zeropage_y(io, *cycle),
+                        AddressingMode::Absolute        => self.absolute(io, *cycle),
+                        AddressingMode::AbsoluteX       => self.absolute_x(io, *cycle),
+                        AddressingMode::AbsoluteY       => self.absolute_y(io, *cycle),
+                        AddressingMode::IndexedIndirect => self.indexed_indirect(io, *cycle),
+                        AddressingMode::IndirectIndexed => self.indirect_indexed(io, *cycle),
 
-                            _ => panic!("Addressing Mode not implemented!!!")
-                        }
+                        _ => panic!("Addressing Mode not implemented!!!")
                     }
-                }
 
-                // Once addressing is complete, run the instruction
-                if self.addressing_complete {
+                    false
+                }
+                else {
                     let normalized_cycle = *cycle; // TODO: 
 
                     match instr {
-                        Instruction::NOP => { /* NOP */ },
-                        Instruction::LDA => { self.lda(io); }
+                        Instruction::NOP => self.nop(*cycle),
+                        Instruction::LDA => self.lda(io)
                     }
-                }
-                
-                // Transition into the next state
-                let next_cycle = cycle + 1;
+                };
 
-                if *total_cycles != next_cycle {
+                if !execute_complete {
+                    // Transition into the next state
+                    let next_cycle = cycle + 1;
                     // If not finished this opcode execution, return an execute state with next cycle
-                    State::Execute(*instr, *mode, *total_cycles, next_cycle)
+                    State::Execute(*instr, *mode, next_cycle)
                 }
                 else {
                     // Finished opcode execute, enter fetch state
@@ -118,41 +116,50 @@ impl Cpu {
 
     /// Convert opcode into instruction and addressing mode and return an execute state
     fn get_execute_state(opcode: u8) -> State {
-        let (instr, mode, total_cycles) = match opcode {
+        let (instr, mode) = match opcode {
             // NOP
-            0xEA => (Instruction::NOP, None, 2),
+            0xEA => (Instruction::NOP, AddressingMode::Implied),
             // LDA
-            0xA9 => (Instruction::LDA, Some(AddressingMode::Immediate), 1),
-            0xA5 => (Instruction::LDA, Some(AddressingMode::ZeroPage),  2),
-            0xB5 => (Instruction::LDA, Some(AddressingMode::ZeroPageX), 3),
-            0xAD => (Instruction::LDA, Some(AddressingMode::Absolute), 3),
-            0xBD => (Instruction::LDA, Some(AddressingMode::AbsoluteX), 4),       // +1 cycle if page crossed
-            0xB9 => (Instruction::LDA, Some(AddressingMode::AbsoluteY), 4),       // +1 cycle if page crossed
-            0xA1 => (Instruction::LDA, Some(AddressingMode::IndexedIndirect), 6),
-            0xB1 => (Instruction::LDA, Some(AddressingMode::IndirectIndexed), 6), // +1 cycles for page crossed
+            0xA9 => (Instruction::LDA, AddressingMode::Immediate),
+            0xA5 => (Instruction::LDA, AddressingMode::ZeroPage),
+            0xB5 => (Instruction::LDA, AddressingMode::ZeroPageX),
+            0xAD => (Instruction::LDA, AddressingMode::Absolute),
+            0xBD => (Instruction::LDA, AddressingMode::AbsoluteX),       // +1 cycle if page crossed
+            0xB9 => (Instruction::LDA, AddressingMode::AbsoluteY),       // +1 cycle if page crossed
+            0xA1 => (Instruction::LDA, AddressingMode::IndexedIndirect),
+            0xB1 => (Instruction::LDA, AddressingMode::IndirectIndexed), // +1 cycles for page crossed
 
             _ => {
                 panic!("Invalid opcode");
             }
         };
 
-        State::Execute(instr, mode, total_cycles, 0)
+        State::Execute(instr, mode, 0)
     }
 
     //------------------------------------------------------------------------------------------------------------------
     // Instruction Implementation
     //------------------------------------------------------------------------------------------------------------------
 
+    fn nop(&mut self, cycle: u8) -> bool {
+        cycle == 2
+    }
+
     /// Load Accumulator
-    fn lda(&mut self, io: &mut dyn IoAccess) {
+    fn lda(&mut self, io: &mut dyn IoAccess) -> bool {
         self.a = self.read_bus(io);
 
         // TODO: Update Flags
+
+        true
     }
 
     //------------------------------------------------------------------------------------------------------------------
     // Addressing Modes
     //------------------------------------------------------------------------------------------------------------------
+    fn implied(&mut self) {
+        self.addressing_complete = true;
+    }
 
     /// Immediate Addressing.
     /// Put current PC value on the address bus
@@ -369,7 +376,7 @@ mod tests {
             0xA9, 0xA5 // LDA $A5
         ]);
 
-        run_cpu(&mut cpu, &mut io, 2);
+        run_cpu(&mut cpu, &mut io, 3);
 
         assert_eq!(cpu.a, 0xA5);
     }
@@ -440,7 +447,7 @@ mod tests {
             0x00, 0xDE,       // Data: $DE
         ]);
 
-        run_cpu(&mut cpu, &mut io, 4);
+        run_cpu(&mut cpu, &mut io, 5);
 
         assert_eq!(cpu.a, 0xDE);
     }

@@ -41,14 +41,8 @@ pub enum Instruction {
 }
 
 #[derive(Copy, Clone)]
-pub enum ExecuteSubState {
-    AddressingMode,
-    Instruction
-}
-
-#[derive(Copy, Clone)]
 pub enum State {
     Reset,
     Fetch,
-    Execute(Instruction, Option<AddressingMode>, u8, u8)
+    Execute(Instruction, AddressingMode, u8)
 }
