@@ -15,6 +15,16 @@ use std::num::Wrapping;
 
 use state::{State, Instruction, AddressingMode};
 
+// Flags
+enum Flags {
+    Carry            = 1 << 0,
+    Zero             = 1 << 1,
+    InterruptDisable = 1 << 2,
+    Decimal          = 1 << 3,
+    Overflow         = 1 << 6,
+    Negative         = 1 << 7,
+}
+
 const INTERNAL_RAM_SIZE: usize = 0x800;
 
 /// NES Central Processing Unit
@@ -142,21 +152,21 @@ impl Cpu {
     //------------------------------------------------------------------------------------------------------------------
 
     fn nop(&mut self, cycle: u8) -> bool {
-        cycle == 2
+        cycle == 1
     }
 
     /// Load Accumulator
     fn lda(&mut self, io: &mut dyn IoAccess) -> bool {
         self.a = self.read_bus(io);
-
-        // TODO: Update Flags
-
+        self.update_flags(self.a);
         true
     }
 
     //------------------------------------------------------------------------------------------------------------------
     // Addressing Modes
     //------------------------------------------------------------------------------------------------------------------
+
+    /// Some instruction have implied addressing
     fn implied(&mut self) {
         self.addressing_complete = true;
     }
@@ -289,6 +299,19 @@ impl Cpu {
                 self.addressing_complete = true;
             }
             _ => panic!("Invalid cycle for absolute addressing mode")
+        }
+    }
+
+    //------------------------------------------------------------------------------------------------------------------
+    // Flags Register
+    //------------------------------------------------------------------------------------------------------------------
+
+    fn update_flags(&mut self, a: u8) {
+        if a == 0 {
+            self.p |= Flags::Zero as u8;
+        }
+        if a & 0x80 != 0 {
+            self.p |= Flags::Negative as u8;
         }
     }
 
@@ -486,15 +509,29 @@ mod tests {
     }
 
     #[test]
-    fn lda_flags() {
+    fn lda_flags_zero() {
         let mut cpu = Cpu::new();
         let mut io = CpuIoBus::from(vec![
-            0xA9, 0xA5 // LDA $A5
+            0xA9, 0x00 // LDA $00
         ]);
 
-        run_cpu(&mut cpu, &mut io, 2);
+        run_cpu(&mut cpu, &mut io, 3);
 
-        assert_eq!(cpu.p, 0xA5);
+        assert_eq!(cpu.a, 0x00);
+        assert_eq!(cpu.p, Flags::Zero as u8);
+    }
+
+    #[test]
+    fn lda_flags_negative() {
+        let mut cpu = Cpu::new();
+        let mut io = CpuIoBus::from(vec![
+            0xA9, 0x80 // LDA $00
+        ]);
+
+        run_cpu(&mut cpu, &mut io, 3);
+
+        assert_eq!(cpu.a, 0x80);
+        assert_eq!(cpu.p, Flags::Negative as u8);
     }
 
     ///-----------------------------------------------------------------------------------------------------------------
