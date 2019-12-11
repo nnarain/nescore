@@ -489,11 +489,11 @@ mod tests {
         cpu.x = 0x0001;
 
         let mut io = CpuIoBus::from(vec![
-            0xB5, 0x03, 0x00, // LDA $0003, X
+            0xBD, 0x03, 0x00, // LDA $0003, X
             0x00, 0xDE,       // Data: $DE
         ]);
 
-        run_cpu(&mut cpu, &mut io, 4);
+        run_cpu(&mut cpu, &mut io, 5);
 
         assert_eq!(cpu.a, 0xDE);
     }
