@@ -16,7 +16,7 @@ impl AddressingModeData for AbsoluteAddressingMode {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq)]
 pub enum AddressingMode {
     Implied,
     Immediate,
@@ -26,6 +26,7 @@ pub enum AddressingMode {
     ZeroPageY,
     AbsoluteX,
     AbsoluteY,
+    Indirect,
     IndexedIndirect,
     IndirectIndexed
 }
@@ -37,7 +38,8 @@ impl AddressingMode {
 #[derive(Copy, Clone)]
 pub enum Instruction {
     NOP,
-    LDA
+    LDA,
+    JMP,
 }
 
 #[derive(Copy, Clone)]

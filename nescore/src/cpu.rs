@@ -77,10 +77,15 @@ impl Cpu {
                 Cpu::get_execute_state(self.fetch(io))
             },
             State::Execute(ref instr, ref mode, ref cycle) => {
-                // Apply instruction address
+                // Indicate addressing is complete because it is unnecessary in Implied addressing mode
+                if !self.addressing_complete {
+                    self.addressing_complete = *mode == AddressingMode::Implied;
+                }
+
                 let execute_complete = if !self.addressing_complete {
+                    // Apply addressing mode
                     match mode {
-                        AddressingMode::Implied         => self.implied(),
+                        AddressingMode::Implied         => self.implied(), // TODO: Remove
                         AddressingMode::Immediate       => self.immediate(),
                         AddressingMode::ZeroPage        => self.zeropage(io),
                         AddressingMode::ZeroPageX       => self.zeropage_x(io, *cycle),
@@ -90,8 +95,7 @@ impl Cpu {
                         AddressingMode::AbsoluteY       => self.absolute_y(io, *cycle),
                         AddressingMode::IndexedIndirect => self.indexed_indirect(io, *cycle),
                         AddressingMode::IndirectIndexed => self.indirect_indexed(io, *cycle),
-
-                        _ => panic!("Addressing Mode not implemented!!!")
+                        AddressingMode::Indirect        => self.indirect(io, *cycle),
                     }
 
                     false
@@ -101,7 +105,8 @@ impl Cpu {
 
                     match instr {
                         Instruction::NOP => self.nop(*cycle),
-                        Instruction::LDA => self.lda(io)
+                        Instruction::LDA => self.lda(io),
+                        Instruction::JMP => self.jmp(),
                     }
                 };
 
@@ -138,6 +143,9 @@ impl Cpu {
             0xB9 => (Instruction::LDA, AddressingMode::AbsoluteY),       // +1 cycle if page crossed
             0xA1 => (Instruction::LDA, AddressingMode::IndexedIndirect),
             0xB1 => (Instruction::LDA, AddressingMode::IndirectIndexed), // +1 cycles for page crossed
+            // JMP
+            0x4C => (Instruction::JMP, AddressingMode::Absolute), // TODO: Not cycle accurate!
+            0x6C => (Instruction::JMP, AddressingMode::Indirect),
 
             _ => {
                 panic!("Invalid opcode");
@@ -159,6 +167,12 @@ impl Cpu {
     fn lda(&mut self, io: &mut dyn IoAccess) -> bool {
         self.a = self.read_bus(io);
         self.update_flags(self.a);
+        true
+    }
+
+    /// Jump
+    fn jmp(&mut self) -> bool {
+        self.pc = Wrapping(self.address_bus);
         true
     }
 
@@ -299,6 +313,30 @@ impl Cpu {
                 self.addressing_complete = true;
             }
             _ => panic!("Invalid cycle for absolute addressing mode")
+        }
+    }
+
+    /// Indirect
+    /// Only applicable to JMP instruction
+    fn indirect(&mut self, io: &mut dyn IoAccess, cycle: u8) {
+        match cycle {
+            0 => {
+                // Fetch lower byte of address
+                self.pointer_address = (self.pointer_address & 0xF0) | (self.read_next_u8(io) as u16);
+            },
+            1 => {
+                // Fetch the higher byte of address
+                self.pointer_address = (self.pointer_address & 0x0F) | ((self.read_next_u8(io) as u16) << 8);
+            },
+            2 => {
+                let lo = self.read_u8(io, self.pointer_address) as u16;
+                let hi = self.read_u8(io, self.pointer_address + 1) as u16;
+
+                self.address_bus = (hi << 8) | lo;
+
+                self.addressing_complete = true;
+            }
+            _ => panic!("Invalid cycle for indirect addressing"),
         }
     }
 
@@ -532,6 +570,31 @@ mod tests {
 
         assert_eq!(cpu.a, 0x80);
         assert_eq!(cpu.p, Flags::Negative as u8);
+    }
+
+    #[test]
+    fn jmp_absolute() {
+        let mut cpu = Cpu::new();
+        let mut io = CpuIoBus::from(vec![
+            0x4C, 0x00, 0x10 // LDA JMP $1000
+        ]);
+
+        run_cpu(&mut cpu, &mut io, 4); // TODO: JMP with absolute addressing should be 3 cycles
+
+        assert_eq!(cpu.pc.0, 0x1000);
+    }
+
+    #[test]
+    fn jmp_indirect() {
+        let mut cpu = Cpu::new();
+        let mut io = CpuIoBus::from(vec![
+            0x6C, 0x03, 0x00, // LDA JMP ($0003)
+            0x00, 0x10,       // Address: $1000
+        ]);
+
+        run_cpu(&mut cpu, &mut io, 5);
+
+        assert_eq!(cpu.pc.0, 0x1000);
     }
 
     ///-----------------------------------------------------------------------------------------------------------------
