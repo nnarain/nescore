@@ -411,59 +411,54 @@ mod tests {
     use helper::*;
 
     #[test]
-    fn nop() {
-        let mut cpu = Cpu::new();
-        let mut io = CpuIoBus::from(vec![0xEA]);
-
-        run_cpu(&mut cpu, &mut io, 2);
-
-        assert_eq!(cpu.pc.0, 0x0001);
-    }
-
-    #[test]
     fn pc_after_reset() {
         let mut cpu = Cpu::new();
-        let mut io = CpuIoBus::from(vec![]);
+        cpu.pc = Wrapping(0x0001);
 
-        run_cpu(&mut cpu, &mut io, 0);
+        simple_test_base(&mut cpu, vec![], 0);
 
         assert_eq!(cpu.pc.0, 0x0000);
     }
 
     #[test]
-    fn lda_immediate() {
-        let mut cpu = Cpu::new();
-        let mut io = CpuIoBus::from(vec![
-            0xA9, 0xA5 // LDA $A5
-        ]);
+    fn nop() {
+        let prg = vec![0xEA];
+        let cpu = simple_test(prg, 2);
 
-        run_cpu(&mut cpu, &mut io, 3);
+        assert_eq!(cpu.pc.0, 0x0001);
+    }
+
+    #[test]
+    fn lda_immediate() {
+        let prg = vec![
+            0xA9, 0xA5 // LDA $A5
+        ];
+
+        let cpu = simple_test(prg, 3);
 
         assert_eq!(cpu.a, 0xA5);
     }
 
     #[test]
     fn lda_absolute() {
-        let mut cpu = Cpu::new();
-        let mut io = CpuIoBus::from(vec![
+        let prg = vec![
             0xAD, 0x03, 0x00, // LDA ($0003)
             0xDE,             // Data: $DE
-        ]);
+        ];
 
-        run_cpu(&mut cpu, &mut io, 4);
+        let cpu = simple_test(prg, 4);
 
         assert_eq!(cpu.a, 0xDE);
     }
 
     #[test]
     fn lda_zeropage() {
-        let mut cpu = Cpu::new();
-        let mut io = CpuIoBus::from(vec![
+        let prg = vec![
             0xA5, 0x02, // LDA ($02)
             0xDE,       // Data: $DE
-        ]);
+        ];
 
-        run_cpu(&mut cpu, &mut io, 3);
+        let cpu = simple_test(prg, 3);
 
         assert_eq!(cpu.a, 0xDE);
     }
@@ -473,12 +468,12 @@ mod tests {
         let mut cpu = Cpu::new();
         cpu.x = 0x0001;
 
-        let mut io = CpuIoBus::from(vec![
+        let prg = vec![
             0xB5, 0x02, // LDA $02, X
             0x00, 0xDE, // Data: $DE
-        ]);
+        ];
 
-        run_cpu(&mut cpu, &mut io, 4);
+        simple_test_base(&mut cpu, prg, 4);
 
         assert_eq!(cpu.a, 0xDE);
     }
@@ -488,12 +483,12 @@ mod tests {
         let mut cpu = Cpu::new();
         cpu.x = 0x0001;
 
-        let mut io = CpuIoBus::from(vec![
+        let prg = vec![
             0xBD, 0x03, 0x00, // LDA $0003, X
             0x00, 0xDE,       // Data: $DE
-        ]);
+        ];
 
-        run_cpu(&mut cpu, &mut io, 5);
+        simple_test_base(&mut cpu, prg, 5);
 
         assert_eq!(cpu.a, 0xDE);
     }
@@ -503,12 +498,12 @@ mod tests {
         let mut cpu = Cpu::new();
         cpu.y = 0x0001;
 
-        let mut io = CpuIoBus::from(vec![
+        let prg = vec![
             0xB9, 0x03, 0x00, // LDA $0003, Y
             0x00, 0xDE,       // Data: $DE
-        ]);
+        ];
 
-        run_cpu(&mut cpu, &mut io, 5);
+        simple_test_base(&mut cpu, prg, 5);
 
         assert_eq!(cpu.a, 0xDE);
     }
@@ -518,14 +513,14 @@ mod tests {
         let mut cpu = Cpu::new();
         cpu.x = 0x0001;
 
-        let mut io = CpuIoBus::from(vec![
+        let prg = vec![
             0xA1, 0x02, // LDA ($0002, X)
             0x00,
             0x05, 0x00, // Address: $0004
             0xDE,       // Data: $DE
-        ]);
+        ];
 
-        run_cpu(&mut cpu, &mut io, 6);
+        simple_test_base(&mut cpu, prg, 6);
 
         assert_eq!(cpu.a, 0xDE);
     }
@@ -535,25 +530,24 @@ mod tests {
         let mut cpu = Cpu::new();
         cpu.y = 0x0001;
 
-        let mut io = CpuIoBus::from(vec![
+        let prg = vec![
             0xB1, 0x02, // LDA ($0002), Y
             0x04, 0x00, // Address: $0004
             0x00, 0xDE, // Data: $DE
-        ]);
+        ];
 
-        run_cpu(&mut cpu, &mut io, 6);
+        simple_test_base(&mut cpu, prg, 6);
 
         assert_eq!(cpu.a, 0xDE);
     }
 
     #[test]
     fn lda_flags_zero() {
-        let mut cpu = Cpu::new();
-        let mut io = CpuIoBus::from(vec![
+        let prg = vec![
             0xA9, 0x00 // LDA $00
-        ]);
+        ];
 
-        run_cpu(&mut cpu, &mut io, 3);
+        let cpu = simple_test(prg, 3);
 
         assert_eq!(cpu.a, 0x00);
         assert_eq!(cpu.p, Flags::Zero as u8);
@@ -561,12 +555,11 @@ mod tests {
 
     #[test]
     fn lda_flags_negative() {
-        let mut cpu = Cpu::new();
-        let mut io = CpuIoBus::from(vec![
+        let prg = vec![
             0xA9, 0x80 // LDA $00
-        ]);
+        ];
 
-        run_cpu(&mut cpu, &mut io, 3);
+        let cpu = simple_test(prg, 3);
 
         assert_eq!(cpu.a, 0x80);
         assert_eq!(cpu.p, Flags::Negative as u8);
@@ -574,25 +567,23 @@ mod tests {
 
     #[test]
     fn jmp_absolute() {
-        let mut cpu = Cpu::new();
-        let mut io = CpuIoBus::from(vec![
+        let prg = vec![
             0x4C, 0x00, 0x10 // LDA JMP $1000
-        ]);
+        ];
 
-        run_cpu(&mut cpu, &mut io, 4); // TODO: JMP with absolute addressing should be 3 cycles
+       let cpu = simple_test(prg, 4); // TODO: JMP with absolute addressing should be 3 cycles
 
         assert_eq!(cpu.pc.0, 0x1000);
     }
 
     #[test]
     fn jmp_indirect() {
-        let mut cpu = Cpu::new();
-        let mut io = CpuIoBus::from(vec![
+        let prg = vec![
             0x6C, 0x03, 0x00, // LDA JMP ($0003)
             0x00, 0x10,       // Address: $1000
-        ]);
+        ];
 
-        run_cpu(&mut cpu, &mut io, 5);
+        let cpu = simple_test(prg, 5);
 
         assert_eq!(cpu.pc.0, 0x1000);
     }
@@ -633,6 +624,18 @@ mod tests {
             fn write_byte(&mut self, addr: u16, data: u8) {
 
             }
+        }
+
+        pub fn simple_test(prg: Vec<u8>, ticks: usize) -> Cpu {
+            let mut cpu = Cpu::new();
+            simple_test_base(&mut cpu, prg, ticks);
+
+            cpu
+        }
+
+        pub fn simple_test_base(cpu: &mut Cpu, prg: Vec<u8>, ticks: usize) {
+            let mut io = CpuIoBus::from(prg);
+            run_cpu(cpu, &mut io, ticks);
         }
 
         pub fn run_cpu(cpu: &mut Cpu, io: &mut dyn IoAccess, ticks: usize) {
