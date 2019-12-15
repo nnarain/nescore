@@ -85,6 +85,7 @@ impl Cpu {
                 let execute_complete = if !self.addressing_complete {
                     // Apply addressing mode
                     match mode {
+                        AddressingMode::Accumulator     => self.accumulator(),
                         AddressingMode::Implied         => self.implied(), // TODO: Remove
                         AddressingMode::Immediate       => self.immediate(),
                         AddressingMode::ZeroPage        => self.zeropage(io),
@@ -101,12 +102,11 @@ impl Cpu {
                     false
                 }
                 else {
-                    let normalized_cycle = *cycle; // TODO: 
-
                     match instr {
                         Instruction::NOP => self.nop(*cycle),
                         Instruction::LDA => self.lda(io),
                         Instruction::JMP => self.jmp(),
+                        Instruction::ADC => self.adc(io),
                     }
                 };
 
@@ -146,6 +146,15 @@ impl Cpu {
             // JMP
             0x4C => (Instruction::JMP, AddressingMode::Absolute), // TODO: Not cycle accurate!
             0x6C => (Instruction::JMP, AddressingMode::Indirect),
+            // ADC
+            0x69 => (Instruction::ADC, AddressingMode::Immediate),
+            0x65 => (Instruction::ADC, AddressingMode::ZeroPage),
+            0x75 => (Instruction::ADC, AddressingMode::ZeroPageX),
+            0x6D => (Instruction::ADC, AddressingMode::Absolute),
+            0x7D => (Instruction::ADC, AddressingMode::AbsoluteX),
+            0x79 => (Instruction::ADC, AddressingMode::AbsoluteY),
+            0x61 => (Instruction::ADC, AddressingMode::IndexedIndirect),
+            0x71 => (Instruction::ADC, AddressingMode::IndirectIndexed),
 
             _ => {
                 panic!("Invalid opcode");
@@ -176,9 +185,20 @@ impl Cpu {
         true
     }
 
+    /// ADC - Add with Carry
+    fn adc(&mut self, io: &mut dyn IoAccess) -> bool {
+        let v = self.read_bus(io);
+        // TODO: ADC
+        true
+    }
+
     //------------------------------------------------------------------------------------------------------------------
     // Addressing Modes
     //------------------------------------------------------------------------------------------------------------------
+
+    fn accumulator(&mut self) {
+        // TODO: Accumulator Addressing
+    }
 
     /// Some instruction have implied addressing
     fn implied(&mut self) {
