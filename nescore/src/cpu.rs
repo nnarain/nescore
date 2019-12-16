@@ -27,6 +27,7 @@ enum Flags {
 
 const INTERNAL_RAM_SIZE: usize = 0x800;
 
+
 /// NES Central Processing Unit
 pub struct Cpu {
     a: u8,                        // General Purpose Accumulator
@@ -77,16 +78,17 @@ impl Cpu {
                 Cpu::get_execute_state(self.fetch(io))
             },
             State::Execute(ref instr, ref mode, ref cycle) => {
-                // Indicate addressing is complete because it is unnecessary in Implied addressing mode
+                // Indicate addressing is complete because it is unnecessary in Implied and Accumulator addressing modes
                 if !self.addressing_complete {
-                    self.addressing_complete = *mode == AddressingMode::Implied;
+                    self.addressing_complete = match *mode {
+                        AddressingMode::Implied | AddressingMode::Accumulator => true,
+                        _ => false,
+                    };
                 }
 
                 let execute_complete = if !self.addressing_complete {
                     // Apply addressing mode
                     match mode {
-                        AddressingMode::Accumulator     => self.accumulator(),
-                        AddressingMode::Implied         => self.implied(), // TODO: Remove
                         AddressingMode::Immediate       => self.immediate(),
                         AddressingMode::ZeroPage        => self.zeropage(io),
                         AddressingMode::ZeroPageX       => self.zeropage_x(io, *cycle),
@@ -97,6 +99,8 @@ impl Cpu {
                         AddressingMode::IndexedIndirect => self.indexed_indirect(io, *cycle),
                         AddressingMode::IndirectIndexed => self.indirect_indexed(io, *cycle),
                         AddressingMode::Indirect        => self.indirect(io, *cycle),
+
+                        _ => panic!("Addressing mode not handled!!")
                     }
 
                     false
@@ -195,15 +199,6 @@ impl Cpu {
     //------------------------------------------------------------------------------------------------------------------
     // Addressing Modes
     //------------------------------------------------------------------------------------------------------------------
-
-    fn accumulator(&mut self) {
-        // TODO: Accumulator Addressing
-    }
-
-    /// Some instruction have implied addressing
-    fn implied(&mut self) {
-        self.addressing_complete = true;
-    }
 
     /// Immediate Addressing.
     /// Put current PC value on the address bus
@@ -383,7 +378,17 @@ impl Cpu {
     }
 
     fn read_bus(&self, io: &mut dyn IoAccess) -> u8 {
-        self.read_u8(io, self.address_bus)
+        let mode = match self.state {
+            State::Execute(_, mode, _) => mode,
+            _ => panic!("Must be in execution state!"),
+        };
+
+        if mode == AddressingMode::Accumulator {
+            self.a
+        }
+        else {
+            self.read_u8(io, self.address_bus)
+        }
     }
 
     fn write_bus(&mut self, io: &mut dyn IoAccess, value: u8) {
