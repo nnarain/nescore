@@ -191,8 +191,19 @@ impl Cpu {
 
     /// ADC - Add with Carry
     fn adc(&mut self, io: &mut dyn IoAccess) -> bool {
-        let v = self.read_bus(io);
-        // TODO: ADC
+        // A,Z,C,N = A+M+C
+        let a = self.a as u16;
+        let m = self.read_bus(io) as u16;
+        let c = self.get_carry() as u16;
+
+        let r = a + m + c;
+        let is_carry = r > 0xFF;
+        self.a = (r & 0x0FF) as u8;
+
+        println!("{}", self.a);
+
+        self.update_flags_with_carry(self.a, is_carry);
+
         true
     }
 
@@ -359,6 +370,17 @@ impl Cpu {
     // Flags Register
     //------------------------------------------------------------------------------------------------------------------
 
+    fn update_flags_with_carry(&mut self, a: u8, c: bool) {
+        self.update_flags(a);
+
+        if c {
+            mask_set!(self.p, Flags::Carry as u8);
+        }
+        else {
+            mask_clear!(self.p, Flags::Carry as u8);
+        }
+    }
+
     fn update_flags(&mut self, a: u8) {
         if a == 0 {
             self.p |= Flags::Zero as u8;
@@ -366,6 +388,10 @@ impl Cpu {
         if a & 0x80 != 0 {
             self.p |= Flags::Negative as u8;
         }
+    }
+
+    fn get_carry(&self) -> u8 {
+        if mask_is_set!(self.p, Flags::Carry as u8) { 1 } else { 0 }
     }
 
     //------------------------------------------------------------------------------------------------------------------
@@ -611,6 +637,49 @@ mod tests {
         let cpu = simple_test(prg, 5);
 
         assert_eq!(cpu.pc.0, 0x1000);
+    }
+
+    #[test]
+    fn adc_immediate_no_carry() {
+        let prg = vec![
+            0x69, 0x05, // ADC $05
+        ];
+
+        let cpu = simple_test(prg, 3);
+
+        assert_eq!(cpu.a, 0x05);
+        assert_eq!(mask_is_clear!(cpu.p, Flags::Carry as u8), true);
+    }
+
+    #[test]
+    fn adc_immediate_carry() {
+        let mut cpu = Cpu::new();
+        cpu.a = 0xFF;
+
+        let prg = vec![
+            0x69, 0x01, // ADC $01
+        ];
+
+        simple_test_base(&mut cpu, prg, 3);
+
+        assert_eq!(cpu.a, 0x00);
+        assert_eq!(mask_is_set!(cpu.p, Flags::Carry as u8), true);
+    }
+
+    #[test]
+    fn adc_immediate_with_carry_set() {
+        let mut cpu = Cpu::new();
+
+        let prg = vec![
+            0x69, 0xFF, // ADC $FF; a=$0  -> a=$FF
+            0x69, 0x01, // ADC $01; a=$FF -> a=00, c=1
+            0x69, 0x00, // ADC $00; a=$00 -> a=$01, c=0
+        ];
+
+        simple_test_base(&mut cpu, prg, 9);
+
+        assert_eq!(cpu.a, 0x01);
+        assert_eq!(mask_is_clear!(cpu.p, Flags::Carry as u8), true);
     }
 
     ///-----------------------------------------------------------------------------------------------------------------

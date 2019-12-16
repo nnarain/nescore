@@ -5,6 +5,9 @@
 ///
 
 // nescore submodules
+
+#[macro_use] mod bit;
+
 mod io;
 mod clk;
 mod cpu;
