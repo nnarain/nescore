@@ -38,6 +38,7 @@ pub enum Instruction {
     LDA,
     JMP,
     ADC,
+    AND,
 }
 
 #[derive(Copy, Clone)]

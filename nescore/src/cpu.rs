@@ -111,6 +111,7 @@ impl Cpu {
                         Instruction::LDA => self.lda(io),
                         Instruction::JMP => self.jmp(),
                         Instruction::ADC => self.adc(io),
+                        Instruction::AND => self.and(io),
                     }
                 };
 
@@ -159,6 +160,15 @@ impl Cpu {
             0x79 => (Instruction::ADC, AddressingMode::AbsoluteY),
             0x61 => (Instruction::ADC, AddressingMode::IndexedIndirect),
             0x71 => (Instruction::ADC, AddressingMode::IndirectIndexed),
+            // AND
+            0x29 => (Instruction::AND, AddressingMode::Immediate),
+            0x25 => (Instruction::AND, AddressingMode::ZeroPage),
+            0x35 => (Instruction::AND, AddressingMode::ZeroPageX),
+            0x2D => (Instruction::AND, AddressingMode::Absolute),
+            0x3D => (Instruction::AND, AddressingMode::AbsoluteX),
+            0x39 => (Instruction::AND, AddressingMode::AbsoluteY),
+            0x21 => (Instruction::AND, AddressingMode::IndexedIndirect),
+            0x31 => (Instruction::AND, AddressingMode::IndirectIndexed),
 
             _ => {
                 panic!("Invalid opcode");
@@ -200,9 +210,20 @@ impl Cpu {
         let is_carry = r > 0xFF;
         self.a = (r & 0x0FF) as u8;
 
-        println!("{}", self.a);
-
         self.update_flags_with_carry(self.a, is_carry);
+
+        true
+    }
+
+    /// AND - Logical AND
+    fn and(&mut self, io: &mut dyn IoAccess) -> bool {
+        // A,Z,N = A&M
+        let a = self.a;
+        let m = self.read_bus(io);
+
+        self.a = a & m;
+
+        self.update_flags(self.a);
 
         true
     }
@@ -383,10 +404,17 @@ impl Cpu {
 
     fn update_flags(&mut self, a: u8) {
         if a == 0 {
-            self.p |= Flags::Zero as u8;
+            mask_set!(self.p, Flags::Zero as u8);
         }
+        else {
+            mask_clear!(self.p, Flags::Zero as u8);
+        }
+
         if a & 0x80 != 0 {
-            self.p |= Flags::Negative as u8;
+            mask_set!(self.p, Flags::Negative as u8);
+        }
+        else {
+            mask_clear!(self.p, Flags::Negative as u8);
         }
     }
 
@@ -418,7 +446,17 @@ impl Cpu {
     }
 
     fn write_bus(&mut self, io: &mut dyn IoAccess, value: u8) {
-        self.write_u8(io, self.address_bus, value);
+        let mode = match self.state {
+            State::Execute(_, mode, _) => mode,
+            _ => panic!("Must be in execution state!"),
+        };
+
+        if mode == AddressingMode::Accumulator {
+            self.a = value;
+        }
+        else {
+            self.write_u8(io, self.address_bus, value);
+        }
     }
 
     fn read_next_u8(&mut self, io: &mut dyn IoAccess) -> u8 {
@@ -680,6 +718,50 @@ mod tests {
 
         assert_eq!(cpu.a, 0x01);
         assert_eq!(mask_is_clear!(cpu.p, Flags::Carry as u8), true);
+    }
+
+    #[test]
+    fn and_immediate() {
+        let mut cpu = Cpu::new();
+        cpu.a = 0xFF;
+
+        let prg = vec![
+            0x29, 0xF0, // AND $F0
+        ];
+
+        simple_test_base(&mut cpu, prg, 3);
+
+        assert_eq!(cpu.a, 0xF0);
+        assert_eq!(mask_is_set!(cpu.p, Flags::Negative as u8), true);
+    }
+
+    #[test]
+    fn and_immediate_zero_set() {
+        let mut cpu = Cpu::new();
+        cpu.a = 0xFF;
+
+        let prg = vec![
+            0x29, 0x00, // AND $F0
+        ];
+
+        simple_test_base(&mut cpu, prg, 3);
+
+        assert_eq!(cpu.a, 0x00);
+        assert_eq!(mask_is_set!(cpu.p, Flags::Negative as u8), false);
+        assert_eq!(mask_is_set!(cpu.p, Flags::Zero as u8), true);
+    }
+
+    #[test]
+    fn zero_flag_cleared() {
+        let prg = vec![
+            0xA9, 0x00, // LDA $00; a=$0,z=1
+            0xA9, 0x01, // LDA $01; a=$1,z=0
+        ];
+
+        let cpu = simple_test(prg, 6);
+
+        assert_eq!(cpu.a, 0x01);
+        assert_eq!(mask_is_clear!(cpu.p, Flags::Zero as u8), true);
     }
 
     ///-----------------------------------------------------------------------------------------------------------------
