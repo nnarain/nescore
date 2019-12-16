@@ -26,7 +26,3 @@ Display cartridge information contained in the `.nes` rom file.
 nesinfo -f <file path>
 ```
 
-nesdisasm
----------
-
-An NES ROM disassembly tool.

@@ -112,6 +112,7 @@ impl Cpu {
                         Instruction::JMP => self.jmp(),
                         Instruction::ADC => self.adc(io),
                         Instruction::AND => self.and(io),
+                        Instruction::ASL => self.asl(io),
                     }
                 };
 
@@ -169,6 +170,12 @@ impl Cpu {
             0x39 => (Instruction::AND, AddressingMode::AbsoluteY),
             0x21 => (Instruction::AND, AddressingMode::IndexedIndirect),
             0x31 => (Instruction::AND, AddressingMode::IndirectIndexed),
+            // ASL
+            0x0A => (Instruction::ASL, AddressingMode::Accumulator),
+            0x06 => (Instruction::ASL, AddressingMode::ZeroPage),
+            0x16 => (Instruction::ASL, AddressingMode::ZeroPageX),
+            0x0E => (Instruction::ASL, AddressingMode::Absolute),
+            0x1E => (Instruction::ASL, AddressingMode::AbsoluteX),
 
             _ => {
                 panic!("Invalid opcode");
@@ -224,6 +231,22 @@ impl Cpu {
         self.a = a & m;
 
         self.update_flags(self.a);
+
+        true
+    }
+
+    /// ASL - Arithmetic shift left
+    fn asl(&mut self, io: &mut dyn IoAccess) -> bool {
+        let m = self.read_bus(io);
+        let c = bit_is_set!(m, 7);
+
+        let r = m << 1;
+
+        self.write_bus(io, r);
+
+        self.set_zero_flag(self.a);
+        self.set_negative_flag(r);
+        self.set_flag_bit(Flags::Carry, c);
 
         true
     }
@@ -393,33 +416,40 @@ impl Cpu {
 
     fn update_flags_with_carry(&mut self, a: u8, c: bool) {
         self.update_flags(a);
-
-        if c {
-            mask_set!(self.p, Flags::Carry as u8);
-        }
-        else {
-            mask_clear!(self.p, Flags::Carry as u8);
-        }
+        self.set_flag_bit(Flags::Carry, c);
     }
 
     fn update_flags(&mut self, a: u8) {
-        if a == 0 {
-            mask_set!(self.p, Flags::Zero as u8);
-        }
-        else {
-            mask_clear!(self.p, Flags::Zero as u8);
-        }
-
-        if a & 0x80 != 0 {
-            mask_set!(self.p, Flags::Negative as u8);
-        }
-        else {
-            mask_clear!(self.p, Flags::Negative as u8);
-        }
+        self.set_zero_flag(a);
+        self.set_negative_flag(a);
     }
 
+    fn set_zero_flag(&mut self, a: u8) {
+        self.set_flag_bit(Flags::Zero, a == 0);
+    }
+
+    fn set_negative_flag(&mut self, a: u8) {
+        self.set_flag_bit(Flags::Negative, bit_is_set!(a, 7));
+    }
+
+    /// Get carry flag as a u8 for arthimetic operations
     fn get_carry(&self) -> u8 {
-        if mask_is_set!(self.p, Flags::Carry as u8) { 1 } else { 0 }
+        if self.get_flag_bit(Flags::Carry) { 1 } else { 0 }
+    }
+
+    /// Get flag bit
+    fn get_flag_bit(&self, f: Flags) -> bool {
+        mask_is_set!(self.p, f as u8)
+    }
+
+    /// Set a flag bit
+    fn set_flag_bit(&mut self, f: Flags, v: bool) {
+        if v {
+            mask_set!(self.p, f as u8);
+        }
+        else {
+            mask_clear!(self.p, f as u8);
+        }
     }
 
     //------------------------------------------------------------------------------------------------------------------
@@ -762,6 +792,40 @@ mod tests {
 
         assert_eq!(cpu.a, 0x01);
         assert_eq!(mask_is_clear!(cpu.p, Flags::Zero as u8), true);
+    }
+
+    #[test]
+    fn asl_accumulator() {
+        let mut cpu = Cpu::new();
+        cpu.a = 0x01;
+
+        let prg = vec![
+            0x0A, // ASL
+        ];
+
+        simple_test_base(&mut cpu, prg, 2);
+
+        assert_eq!(cpu.a, 0x02);
+        assert_eq!(cpu.get_flag_bit(Flags::Carry), false);
+        assert_eq!(cpu.get_flag_bit(Flags::Zero), false);
+        assert_eq!(cpu.get_flag_bit(Flags::Negative), false);
+    }
+
+    #[test]
+    fn asl_accumulator_carry_and_negative_set() {
+        let mut cpu = Cpu::new();
+        cpu.a = 0xC0;
+
+        let prg = vec![
+            0x0A, // ASL
+        ];
+
+        simple_test_base(&mut cpu, prg, 2);
+
+        assert_eq!(cpu.a, 0x80);
+        assert_eq!(cpu.get_flag_bit(Flags::Carry), true);
+        assert_eq!(cpu.get_flag_bit(Flags::Zero), false);
+        assert_eq!(cpu.get_flag_bit(Flags::Negative), true);
     }
 
     ///-----------------------------------------------------------------------------------------------------------------

@@ -39,6 +39,7 @@ pub enum Instruction {
     JMP,
     ADC,
     AND,
+    ASL,
 }
 
 #[derive(Copy, Clone)]
