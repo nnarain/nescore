@@ -270,11 +270,11 @@ impl Cpu {
         match cycle {
             0 => {
                 // Fetch lower byte of address
-                self.address_bus = (self.address_bus & 0xF0) | (self.read_next_u8(io) as u16);
+                self.address_bus = (self.address_bus & 0xFF00) | (self.read_next_u8(io) as u16);
             },
             1 => {
                 // Fetch the higher byte of address
-                self.address_bus = (self.address_bus & 0x0F) | ((self.read_next_u8(io) as u16) << 8);
+                self.address_bus = (self.address_bus & 0x00FF) | ((self.read_next_u8(io) as u16) << 8);
                 self.addressing_complete = true;
             }
             _ => panic!("Invalid cycle for absolute addressing mode")
@@ -295,11 +295,11 @@ impl Cpu {
         match cycle {
             0 => {
                 // Fetch lower byte of address
-                self.address_bus = (self.address_bus & 0xF0) | (self.read_next_u8(io) as u16);
+                self.address_bus = (self.address_bus & 0xFF00) | (self.read_next_u8(io) as u16);
             },
             1 => {
                 // Fetch the higher byte of address
-                self.address_bus = (self.address_bus & 0x0F) | ((self.read_next_u8(io) as u16) << 8);
+                self.address_bus = (self.address_bus & 0x00FF) | ((self.read_next_u8(io) as u16) << 8);
             },
             2 => {
                 // Add the index value to the address bus
@@ -353,11 +353,11 @@ impl Cpu {
             },
             2 => {
                 // Fetch lower byte of address
-                self.address_bus = (self.address_bus & 0xF0) | (self.read_u8(io, self.pointer_address) as u16);
+                self.address_bus = (self.address_bus & 0xFF00) | (self.read_u8(io, self.pointer_address) as u16);
             },
             3 => {
                 // Fetch the higher byte of address
-                self.address_bus = (self.address_bus & 0x0F) | ((self.read_u8(io, self.pointer_address + 1) as u16) << 8);
+                self.address_bus = (self.address_bus & 0x00FF) | ((self.read_u8(io, self.pointer_address + 1) as u16) << 8);
                 self.addressing_complete = true;
             }
             _ => panic!("Invalid cycle for absolute addressing mode")
@@ -372,11 +372,11 @@ impl Cpu {
             },
             1 => {
                 // Fetch lower byte of address
-                self.address_bus = (self.address_bus & 0xF0) | (self.read_u8(io, self.pointer_address) as u16);
+                self.address_bus = (self.address_bus & 0xFF00) | (self.read_u8(io, self.pointer_address) as u16);
             },
             2 => {
                 // Fetch the higher byte of address
-                self.address_bus = (self.address_bus & 0x0F) | ((self.read_u8(io, self.pointer_address + 1) as u16) << 8);
+                self.address_bus = (self.address_bus & 0x00FF) | ((self.read_u8(io, self.pointer_address + 1) as u16) << 8);
             },
             3 => {
                 self.address_bus += self.y;
@@ -392,11 +392,11 @@ impl Cpu {
         match cycle {
             0 => {
                 // Fetch lower byte of address
-                self.pointer_address = (self.pointer_address & 0xF0) | (self.read_next_u8(io) as u16);
+                self.pointer_address = (self.pointer_address & 0xFF00) | (self.read_next_u8(io) as u16);
             },
             1 => {
                 // Fetch the higher byte of address
-                self.pointer_address = (self.pointer_address & 0x0F) | ((self.read_next_u8(io) as u16) << 8);
+                self.pointer_address = (self.pointer_address & 0x00FF) | ((self.read_next_u8(io) as u16) << 8);
             },
             2 => {
                 let lo = self.read_u8(io, self.pointer_address) as u16;
@@ -504,13 +504,21 @@ impl Cpu {
     }
 
     fn read_u8(&self, io: &mut dyn IoAccess, addr: u16) -> u8 {
-        // TODO: Read RAM
-        io.read_byte(addr)
+        if (addr as usize) < INTERNAL_RAM_SIZE {
+            self.ram[(addr as usize) % 0x200]
+        }
+        else {
+            io.read_byte(addr)
+        }
     }
 
     fn write_u8(&mut self, io: &mut dyn IoAccess, addr: u16, value: u8) {
-        // TODO: Implement Write
-        unimplemented!();
+        if (addr as usize) < INTERNAL_RAM_SIZE {
+            self.ram[(addr as usize) % 0x200] = value;
+        }
+        else {
+            io.write_byte(addr, value);
+        }
     }
 }
 
@@ -536,7 +544,7 @@ mod tests {
 
         simple_test_base(&mut cpu, vec![], 0);
 
-        assert_eq!(cpu.pc.0, 0x0000);
+        assert_eq!(cpu.pc.0, 0x4020);
     }
 
     #[test]
@@ -544,7 +552,7 @@ mod tests {
         let prg = vec![0xEA];
         let cpu = simple_test(prg, 2);
 
-        assert_eq!(cpu.pc.0, 0x0001);
+        assert_eq!(cpu.pc.0, 0x4021);
     }
 
     #[test]
@@ -561,7 +569,7 @@ mod tests {
     #[test]
     fn lda_absolute() {
         let prg = vec![
-            0xAD, 0x03, 0x00, // LDA ($0003)
+            0xAD, 0x23, 0x40, // LDA ($4023)
             0xDE,             // Data: $DE
         ];
 
@@ -572,12 +580,14 @@ mod tests {
 
     #[test]
     fn lda_zeropage() {
+        let mut cpu = Cpu::new();
+        cpu.ram[0x02] = 0xDE;
+
         let prg = vec![
             0xA5, 0x02, // LDA ($02)
-            0xDE,       // Data: $DE
         ];
 
-        let cpu = simple_test(prg, 3);
+        simple_test_base(&mut cpu, prg, 3);
 
         assert_eq!(cpu.a, 0xDE);
     }
@@ -585,11 +595,11 @@ mod tests {
     #[test]
     fn lda_zeropage_x() {
         let mut cpu = Cpu::new();
+        cpu.ram[0x03] = 0xDE;
         cpu.x = 0x0001;
 
         let prg = vec![
             0xB5, 0x02, // LDA $02, X
-            0x00, 0xDE, // Data: $DE
         ];
 
         simple_test_base(&mut cpu, prg, 4);
@@ -603,7 +613,7 @@ mod tests {
         cpu.x = 0x0001;
 
         let prg = vec![
-            0xBD, 0x03, 0x00, // LDA $0003, X
+            0xBD, 0x23, 0x40, // LDA $0003, X
             0x00, 0xDE,       // Data: $DE
         ];
 
@@ -618,7 +628,7 @@ mod tests {
         cpu.y = 0x0001;
 
         let prg = vec![
-            0xB9, 0x03, 0x00, // LDA $0003, Y
+            0xB9, 0x23, 0x40, // LDA $0003, Y
             0x00, 0xDE,       // Data: $DE
         ];
 
@@ -630,13 +640,14 @@ mod tests {
     #[test]
     fn lda_indexed_indirect() {
         let mut cpu = Cpu::new();
+        cpu.ram[0x03] = 0x05;
+        cpu.ram[0x04] = 0x00;
+        cpu.ram[0x05] = 0xDE;
+
         cpu.x = 0x0001;
 
         let prg = vec![
             0xA1, 0x02, // LDA ($0002, X)
-            0x00,
-            0x05, 0x00, // Address: $0004
-            0xDE,       // Data: $DE
         ];
 
         simple_test_base(&mut cpu, prg, 6);
@@ -647,12 +658,14 @@ mod tests {
     #[test]
     fn lda_indirect_indexed() {
         let mut cpu = Cpu::new();
+        cpu.ram[0x02] = 0x05;
+        cpu.ram[0x03] = 0x00;
+        cpu.ram[0x06] = 0xDE;
+
         cpu.y = 0x0001;
 
         let prg = vec![
             0xB1, 0x02, // LDA ($0002), Y
-            0x04, 0x00, // Address: $0004
-            0x00, 0xDE, // Data: $DE
         ];
 
         simple_test_base(&mut cpu, prg, 6);
@@ -698,7 +711,7 @@ mod tests {
     #[test]
     fn jmp_indirect() {
         let prg = vec![
-            0x6C, 0x03, 0x00, // LDA JMP ($0003)
+            0x6C, 0x23, 0x40, // LDA JMP ($0003)
             0x00, 0x10,       // Address: $1000
         ];
 
@@ -835,25 +848,30 @@ mod tests {
         use super::*;
 
         pub struct CpuIoBus {
-            prg_rom: Vec<u8> // ROM
+            prg_rom: Vec<u8>, // ROM
+            rom_offest: usize,
         }
 
         impl CpuIoBus {
             pub fn from(prg_rom: Vec<u8>) -> Self {
                 CpuIoBus {
-                    prg_rom: prg_rom
+                    prg_rom: prg_rom,
+                    rom_offest: 0x4020,
                 }
             }
         }
 
         impl IoAccess for CpuIoBus {
             fn read_byte(&self, addr: u16) -> u8 {
-                if addr == 0xFFFC || addr == 0xFFFD {
-                    0x00
+                if addr == 0xFFFC {
+                    0x20
+                }
+                else if addr == 0xFFFD {
+                    0x40
                 }
                 else {
-                    if (addr as usize) < self.prg_rom.len() {
-                        self.prg_rom[addr as usize]
+                    if addr >= 0x4020 {
+                        self.prg_rom[(addr as usize) - self.rom_offest]
                     }
                     else {
                         panic!("Address out of supplied program ROM range");
