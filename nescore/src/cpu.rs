@@ -20,7 +20,7 @@ enum Flags {
     Carry            = 1 << 0,
     Zero             = 1 << 1,
     InterruptDisable = 1 << 2,
-    Decimal          = 1 << 3,
+    // Decimal          = 1 << 3,
     Overflow         = 1 << 6,
     Negative         = 1 << 7,
 }
@@ -99,6 +99,7 @@ impl Cpu {
                         AddressingMode::IndexedIndirect => self.indexed_indirect(io, *cycle),
                         AddressingMode::IndirectIndexed => self.indirect_indexed(io, *cycle),
                         AddressingMode::Indirect        => self.indirect(io, *cycle),
+                        AddressingMode::Relative        => self.relative(io),
 
                         _ => panic!("Addressing mode not handled!!")
                     }
@@ -113,6 +114,9 @@ impl Cpu {
                         Instruction::ADC => self.adc(io),
                         Instruction::AND => self.and(io),
                         Instruction::ASL => self.asl(io),
+                        Instruction::STA => self.sta(io),
+                        Instruction::BCC => self.bcc(),
+                        Instruction::BCS => self.bcs(),
                     }
                 };
 
@@ -176,6 +180,18 @@ impl Cpu {
             0x16 => (Instruction::ASL, AddressingMode::ZeroPageX),
             0x0E => (Instruction::ASL, AddressingMode::Absolute),
             0x1E => (Instruction::ASL, AddressingMode::AbsoluteX),
+            // STA
+            0x85 => (Instruction::STA, AddressingMode::ZeroPage),
+            0x95 => (Instruction::STA, AddressingMode::ZeroPageX),
+            0x8D => (Instruction::STA, AddressingMode::Absolute),
+            0x9D => (Instruction::STA, AddressingMode::AbsoluteX),
+            0x99 => (Instruction::STA, AddressingMode::AbsoluteY),
+            0x81 => (Instruction::STA, AddressingMode::IndexedIndirect),
+            0x91 => (Instruction::STA, AddressingMode::IndirectIndexed),
+            // BCC
+            0x90 => (Instruction::BCC, AddressingMode::Relative),
+            // BCS
+            0xB0 => (Instruction::BCS, AddressingMode::Relative),
 
             _ => {
                 panic!("Invalid opcode");
@@ -248,6 +264,21 @@ impl Cpu {
         self.set_negative_flag(r);
         self.set_flag_bit(Flags::Carry, c);
 
+        true
+    }
+
+    fn sta(&mut self, io: &mut dyn IoAccess) -> bool {
+        self.write_bus(io, self.a);
+        true
+    }
+
+    fn bcc(&mut self) -> bool {
+        self.branch(self.get_flag_bit(Flags::Carry) == false);
+        true
+    }
+
+    fn bcs(&mut self) -> bool {
+        self.branch(self.get_flag_bit(Flags::Carry));
         true
     }
 
@@ -410,6 +441,11 @@ impl Cpu {
         }
     }
 
+    fn relative(&mut self, io: &mut dyn IoAccess) {
+        self.pointer_address = self.read_next_u8(io) as u16;
+        self.addressing_complete = true;
+    }
+
     //------------------------------------------------------------------------------------------------------------------
     // Flags Register
     //------------------------------------------------------------------------------------------------------------------
@@ -449,6 +485,19 @@ impl Cpu {
         }
         else {
             mask_clear!(self.p, f as u8);
+        }
+    }
+
+    //------------------------------------------------------------------------------------------------------------------
+    // CPU Opertions
+    //------------------------------------------------------------------------------------------------------------------
+
+    /// Branch
+    fn branch(&mut self, cond_met: bool) {
+        if cond_met {
+            let offset = Wrapping(self.pointer_address as i16);
+            let pc = Wrapping(self.pc.0 as i16);
+            self.pc = Wrapping((pc + offset).0 as u16);
         }
     }
 
@@ -839,6 +888,76 @@ mod tests {
         assert_eq!(cpu.get_flag_bit(Flags::Carry), true);
         assert_eq!(cpu.get_flag_bit(Flags::Zero), false);
         assert_eq!(cpu.get_flag_bit(Flags::Negative), true);
+    }
+
+    #[test]
+    fn sta_zeropage() {
+        let mut cpu = Cpu::new();
+        cpu.a = 0xDE;
+
+        let prg = vec![
+            0x85, 0x05, // STA $05
+        ];
+
+        simple_test_base(&mut cpu, prg, 3);
+
+        assert_eq!(cpu.ram[0x05], 0xDE);
+    }
+
+    #[test]
+    fn bcc_carry_not_set() {
+        let mut cpu = Cpu::new();
+        mask_clear!(cpu.p, Flags::Carry as u8);
+
+        let prg = vec![
+            0x90, 0x02, // BCC $02
+        ];
+
+        simple_test_base(&mut cpu, prg, 3);
+
+        assert_eq!(cpu.pc.0, 0x4024);
+    }
+
+    #[test]
+    fn bcc_carry_set() {
+        let mut cpu = Cpu::new();
+        mask_set!(cpu.p, Flags::Carry as u8);
+
+        let prg = vec![
+            0x90, 0x02, // BCC $02
+        ];
+
+        simple_test_base(&mut cpu, prg, 3);
+
+        assert_eq!(cpu.pc.0, 0x4022);
+    }
+
+    #[test]
+    fn bcs_carry_not_set() {
+        let mut cpu = Cpu::new();
+        mask_clear!(cpu.p, Flags::Carry as u8);
+
+        let prg = vec![
+            0xB0, 0x02, // BSC $02
+        ];
+
+        simple_test_base(&mut cpu, prg, 3);
+
+        assert_eq!(cpu.pc.0, 0x4022);
+    }
+
+    #[test]
+    fn bcs_carry_set() {
+        let mut cpu = Cpu::new();
+        mask_set!(cpu.p, Flags::Carry as u8);
+
+        let prg = vec![
+            0xB0, 0x02, // BSC $02
+        ];
+
+        simple_test_base(&mut cpu, prg, 3);
+
+        assert_eq!(cpu.pc.0, 0x4024);
     }
 
     ///-----------------------------------------------------------------------------------------------------------------

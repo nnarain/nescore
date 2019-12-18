@@ -29,7 +29,8 @@ pub enum AddressingMode {
     AbsoluteY,
     Indirect,
     IndexedIndirect,
-    IndirectIndexed
+    IndirectIndexed,
+    Relative,
 }
 
 #[derive(Copy, Clone)]
@@ -40,6 +41,9 @@ pub enum Instruction {
     ADC,
     AND,
     ASL,
+    STA,
+    BCC,
+    BCS,
 }
 
 #[derive(Copy, Clone)]
