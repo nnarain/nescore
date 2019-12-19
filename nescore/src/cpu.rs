@@ -118,6 +118,7 @@ impl Cpu {
                         Instruction::BCC => self.bcc(),
                         Instruction::BCS => self.bcs(),
                         Instruction::BEQ => self.beq(),
+                        Instruction::BNE => self.bne(),
                     }
                 };
 
@@ -195,6 +196,8 @@ impl Cpu {
             0xB0 => (Instruction::BCS, AddressingMode::Relative),
             // BEQ
             0xF0 => (Instruction::BEQ, AddressingMode::Relative),
+            // BNE
+            0xD0 => (Instruction::BNE, AddressingMode::Relative),
 
             _ => {
                 panic!("Invalid opcode");
@@ -287,6 +290,11 @@ impl Cpu {
 
     fn beq(&mut self) -> bool {
         self.branch(self.get_flag_bit(Flags::Zero));
+        true
+    }
+
+    fn bne(&mut self) -> bool {
+        self.branch(self.get_flag_bit(Flags::Zero) == false);
         true
     }
 
@@ -994,6 +1002,34 @@ mod tests {
         simple_test_base(&mut cpu, prg, 3);
 
         assert_eq!(cpu.pc.0, 0x4024);
+    }
+
+    #[test]
+    fn bne_zero_not_set() {
+        let mut cpu = Cpu::new();
+        mask_clear!(cpu.p, Flags::Zero as u8);
+
+        let prg = vec![
+            0xD0, 0x02, // BNE $02
+        ];
+
+        simple_test_base(&mut cpu, prg, 3);
+
+        assert_eq!(cpu.pc.0, 0x4024);
+    }
+
+    #[test]
+    fn bne_zero_set() {
+        let mut cpu = Cpu::new();
+        mask_set!(cpu.p, Flags::Zero as u8);
+
+        let prg = vec![
+            0xD0, 0x02, // BNE $02
+        ];
+
+        simple_test_base(&mut cpu, prg, 3);
+
+        assert_eq!(cpu.pc.0, 0x4022);
     }
 
     ///-----------------------------------------------------------------------------------------------------------------
