@@ -46,6 +46,8 @@ pub enum Instruction {
     BCS,
     BEQ,
     BNE,
+    BMI,
+    BPL,
 }
 
 #[derive(Copy, Clone)]

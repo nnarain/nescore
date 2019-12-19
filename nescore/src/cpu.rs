@@ -119,6 +119,8 @@ impl Cpu {
                         Instruction::BCS => self.bcs(),
                         Instruction::BEQ => self.beq(),
                         Instruction::BNE => self.bne(),
+                        Instruction::BMI => self.bmi(),
+                        Instruction::BPL => self.bpl(),
                     }
                 };
 
@@ -198,6 +200,10 @@ impl Cpu {
             0xF0 => (Instruction::BEQ, AddressingMode::Relative),
             // BNE
             0xD0 => (Instruction::BNE, AddressingMode::Relative),
+            // BMI
+            0x30 => (Instruction::BMI, AddressingMode::Relative),
+            // BPL
+            0x10 => (Instruction::BPL, AddressingMode::Relative),
 
             _ => {
                 panic!("Invalid opcode");
@@ -295,6 +301,16 @@ impl Cpu {
 
     fn bne(&mut self) -> bool {
         self.branch(self.get_flag_bit(Flags::Zero) == false);
+        true
+    }
+
+    fn bmi(&mut self) -> bool {
+        self.branch(self.get_flag_bit(Flags::Negative));
+        true
+    }
+
+    fn bpl(&mut self) -> bool {
+        self.branch(self.get_flag_bit(Flags::Negative) == false);
         true
     }
 
@@ -1025,6 +1041,62 @@ mod tests {
 
         let prg = vec![
             0xD0, 0x02, // BNE $02
+        ];
+
+        simple_test_base(&mut cpu, prg, 3);
+
+        assert_eq!(cpu.pc.0, 0x4022);
+    }
+
+    #[test]
+    fn bmi_negative_not_set() {
+        let mut cpu = Cpu::new();
+        mask_clear!(cpu.p, Flags::Negative as u8);
+
+        let prg = vec![
+            0x30, 0x02, // BMI $02
+        ];
+
+        simple_test_base(&mut cpu, prg, 3);
+
+        assert_eq!(cpu.pc.0, 0x4022);
+    }
+
+    #[test]
+    fn bmi_negative_set() {
+        let mut cpu = Cpu::new();
+        mask_set!(cpu.p, Flags::Negative as u8);
+
+        let prg = vec![
+            0x30, 0x02, // BMI $02
+        ];
+
+        simple_test_base(&mut cpu, prg, 3);
+
+        assert_eq!(cpu.pc.0, 0x4024);
+    }
+
+    #[test]
+    fn bpl_negative_not_set() {
+        let mut cpu = Cpu::new();
+        mask_clear!(cpu.p, Flags::Negative as u8);
+
+        let prg = vec![
+            0x10, 0x02, // BPL $02
+        ];
+
+        simple_test_base(&mut cpu, prg, 3);
+
+        assert_eq!(cpu.pc.0, 0x4024);
+    }
+
+    #[test]
+    fn bpl_negative_set() {
+        let mut cpu = Cpu::new();
+        mask_set!(cpu.p, Flags::Negative as u8);
+
+        let prg = vec![
+            0x10, 0x02, // BPL $02
         ];
 
         simple_test_base(&mut cpu, prg, 3);
