@@ -48,6 +48,7 @@ pub enum Instruction {
     BNE,
     BMI,
     BPL,
+    BIT,
 }
 
 #[derive(Copy, Clone)]

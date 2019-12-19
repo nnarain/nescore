@@ -121,6 +121,7 @@ impl Cpu {
                         Instruction::BNE => self.bne(),
                         Instruction::BMI => self.bmi(),
                         Instruction::BPL => self.bpl(),
+                        Instruction::BIT => self.bit(io),
                     }
                 };
 
@@ -204,6 +205,9 @@ impl Cpu {
             0x30 => (Instruction::BMI, AddressingMode::Relative),
             // BPL
             0x10 => (Instruction::BPL, AddressingMode::Relative),
+            // BIT
+            0x24 => (Instruction::BIT, AddressingMode::ZeroPage),
+            0x2C => (Instruction::BIT, AddressingMode::Absolute),
 
             _ => {
                 panic!("Invalid opcode");
@@ -309,10 +313,26 @@ impl Cpu {
         true
     }
 
+    /// BPL - Branch if Positive
     fn bpl(&mut self) -> bool {
         self.branch(self.get_flag_bit(Flags::Negative) == false);
         true
     }
+
+    /// BIT - Bit Test
+    fn bit(&mut self, io: &mut dyn IoAccess) -> bool {
+        let m = self.read_bus(io);
+        let r = self.a & m;
+
+        // Copy bit 6 to V flag, and bit 7 to N flag
+        self.set_flag_bit(Flags::Overflow, bit_is_set!(r, 6));
+        self.set_flag_bit(Flags::Negative, bit_is_set!(r, 7));
+
+        self.set_flag_bit(Flags::Zero, r == 0);
+
+        true
+    }
+
 
     //------------------------------------------------------------------------------------------------------------------
     // Addressing Modes
@@ -1102,6 +1122,51 @@ mod tests {
         simple_test_base(&mut cpu, prg, 3);
 
         assert_eq!(cpu.pc.0, 0x4022);
+    }
+
+    #[test]
+    fn bit_check_mask() {
+        let mut cpu = Cpu::new();
+        cpu.a = 0x01;
+        cpu.ram[0x02] = 0x01;
+
+        let prg = vec![
+            0x24, 0x02, // BIT $02
+        ];
+
+        simple_test_base(&mut cpu, prg, 3);
+
+        assert_eq!(cpu.get_flag_bit(Flags::Zero), false);
+    }
+
+    #[test]
+    fn bit_check_mask_not_set() {
+        let mut cpu = Cpu::new();
+        cpu.a = 0x01;
+        cpu.ram[0x02] = 0x00;
+
+        let prg = vec![
+            0x24, 0x02, // BIT $02
+        ];
+
+        simple_test_base(&mut cpu, prg, 3);
+
+        assert_eq!(cpu.get_flag_bit(Flags::Zero), true);
+    }
+
+    #[test]
+    fn bit_check_mask_absolute() {
+        let mut cpu = Cpu::new();
+        cpu.a = 0x01;
+        cpu.ram[0x02] = 0x01;
+
+        let prg = vec![
+            0x2C, 0x02, 0x00, // BIT $02
+        ];
+
+        simple_test_base(&mut cpu, prg, 4);
+
+        assert_eq!(cpu.get_flag_bit(Flags::Zero), false);
     }
 
     ///-----------------------------------------------------------------------------------------------------------------
