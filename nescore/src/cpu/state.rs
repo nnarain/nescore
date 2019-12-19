@@ -44,6 +44,7 @@ pub enum Instruction {
     STA,
     BCC,
     BCS,
+    BEQ,
 }
 
 #[derive(Copy, Clone)]
