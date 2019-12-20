@@ -124,6 +124,10 @@ impl Cpu {
                         Instruction::BIT => self.bit(io),
                         Instruction::BVC => self.bvc(),
                         Instruction::BVS => self.bvs(),
+                        Instruction::CLC => self.clc(),
+                        Instruction::CLD => self.cld(),
+                        Instruction::CLI => self.cli(),
+                        Instruction::CLV => self.clv(),
 
                         _ => panic!("incomplete")
                     }
@@ -216,6 +220,14 @@ impl Cpu {
             0x50 => (Instruction::BVC, AddressingMode::Relative),
             // BVS
             0x70 => (Instruction::BVS, AddressingMode::Relative),
+            // CLC
+            0x18 => (Instruction::CLC, AddressingMode::Implied),
+            // CLD
+            0xD8 => (Instruction::CLD, AddressingMode::Implied),
+            // CLI
+            0x58 => (Instruction::CLI, AddressingMode::Implied),
+            // CLV
+            0xB8 => (Instruction::CLV, AddressingMode::Implied),
 
             _ => {
                 panic!("Invalid opcode: {opcode}", opcode=opcode);
@@ -351,6 +363,25 @@ impl Cpu {
         true
     }
 
+    fn clc(&mut self) -> bool {
+        self.set_flag_bit(Flags::Carry, false);
+        true
+    }
+
+    fn cld(&mut self) -> bool {
+        self.set_flag_bit(Flags::Decimal, false);
+        true
+    }
+
+    fn cli(&mut self) -> bool {
+        self.set_flag_bit(Flags::InterruptDisable, false);
+        true
+    }
+
+    fn clv(&mut self) -> bool {
+        self.set_flag_bit(Flags::Overflow, false);
+        true
+    }
 
     //------------------------------------------------------------------------------------------------------------------
     // Addressing Modes
@@ -1241,6 +1272,29 @@ mod tests {
         simple_test_base(&mut cpu, prg, 4);
 
         assert_eq!(cpu.get_flag_bit(Flags::Zero), false);
+    }
+
+    #[test]
+    fn clear_instructions() {
+        let mut cpu = Cpu::new();
+        mask_set!(cpu.p, Flags::Carry as u8);
+        mask_set!(cpu.p, Flags::Decimal as u8);
+        mask_set!(cpu.p, Flags::InterruptDisable as u8);
+        mask_set!(cpu.p, Flags::Overflow as u8);
+
+        let prg = vec![
+            0x18, // CLC
+            0xD8, // CLD
+            0x58, // CLI
+            0xB8, // CLV
+        ];
+
+        simple_test_base(&mut cpu, prg, 8);
+
+        assert_eq!(cpu.get_flag_bit(Flags::Carry), false);
+        assert_eq!(cpu.get_flag_bit(Flags::Decimal), false);
+        assert_eq!(cpu.get_flag_bit(Flags::InterruptDisable), false);
+        assert_eq!(cpu.get_flag_bit(Flags::Overflow), false);
     }
 
     ///-----------------------------------------------------------------------------------------------------------------
