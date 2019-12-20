@@ -20,7 +20,7 @@ enum Flags {
     Carry            = 1 << 0,
     Zero             = 1 << 1,
     InterruptDisable = 1 << 2,
-    // Decimal          = 1 << 3,
+    Decimal          = 1 << 3,
     Overflow         = 1 << 6,
     Negative         = 1 << 7,
 }
@@ -122,6 +122,10 @@ impl Cpu {
                         Instruction::BMI => self.bmi(),
                         Instruction::BPL => self.bpl(),
                         Instruction::BIT => self.bit(io),
+                        Instruction::BVC => self.bvc(),
+                        Instruction::BVS => self.bvs(),
+
+                        _ => panic!("incomplete")
                     }
                 };
 
@@ -208,9 +212,13 @@ impl Cpu {
             // BIT
             0x24 => (Instruction::BIT, AddressingMode::ZeroPage),
             0x2C => (Instruction::BIT, AddressingMode::Absolute),
+            // BVC
+            0x50 => (Instruction::BVC, AddressingMode::Relative),
+            // BVS
+            0x70 => (Instruction::BVS, AddressingMode::Relative),
 
             _ => {
-                panic!("Invalid opcode");
+                panic!("Invalid opcode: {opcode}", opcode=opcode);
             }
         };
 
@@ -316,6 +324,16 @@ impl Cpu {
     /// BPL - Branch if Positive
     fn bpl(&mut self) -> bool {
         self.branch(self.get_flag_bit(Flags::Negative) == false);
+        true
+    }
+
+    fn bvc(&mut self) -> bool {
+        self.branch(!self.get_flag_bit(Flags::Overflow));
+        true
+    }
+
+    fn bvs(&mut self) -> bool {
+        self.branch(self.get_flag_bit(Flags::Overflow));
         true
     }
 
@@ -1122,6 +1140,62 @@ mod tests {
         simple_test_base(&mut cpu, prg, 3);
 
         assert_eq!(cpu.pc.0, 0x4022);
+    }
+
+    #[test]
+    fn bvc_overflow_not_set() {
+        let mut cpu = Cpu::new();
+        mask_clear!(cpu.p, Flags::Overflow as u8);
+
+        let prg = vec![
+            0x50, 0x02, // BVC $02
+        ];
+
+        simple_test_base(&mut cpu, prg, 3);
+
+        assert_eq!(cpu.pc.0, 0x4024);
+    }
+
+    #[test]
+    fn bvc_overflow_set() {
+        let mut cpu = Cpu::new();
+        mask_set!(cpu.p, Flags::Overflow as u8);
+
+        let prg = vec![
+            0x50, 0x02, // BVC $02
+        ];
+
+        simple_test_base(&mut cpu, prg, 3);
+
+        assert_eq!(cpu.pc.0, 0x4022);
+    }
+
+    #[test]
+    fn bvs_overflow_not_set() {
+        let mut cpu = Cpu::new();
+        mask_clear!(cpu.p, Flags::Overflow as u8);
+
+        let prg = vec![
+            0x70, 0x02, // BVS $02
+        ];
+
+        simple_test_base(&mut cpu, prg, 3);
+
+        assert_eq!(cpu.pc.0, 0x4022);
+    }
+
+    #[test]
+    fn bvs_overflow_set() {
+        let mut cpu = Cpu::new();
+        mask_set!(cpu.p, Flags::Overflow as u8);
+
+        let prg = vec![
+            0x70, 0x02, // BVS $02
+        ];
+
+        simple_test_base(&mut cpu, prg, 3);
+
+        assert_eq!(cpu.pc.0, 0x4024);
     }
 
     #[test]

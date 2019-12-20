@@ -4,18 +4,6 @@
 // @author Natesh Narain <nnaraindev@gmail.com>
 // @date Dec 03 2019
 //
-pub trait AddressingModeData {
-    fn value(&mut self) -> u8;
-}
-
-#[derive(Copy, Clone)]
-struct AbsoluteAddressingMode;
-impl AddressingModeData for AbsoluteAddressingMode {
-    fn value(&mut self) -> u8 {
-        0
-    }
-}
-
 #[derive(Copy, Clone, PartialEq)]
 pub enum AddressingMode {
     Accumulator,
@@ -35,20 +23,10 @@ pub enum AddressingMode {
 
 #[derive(Copy, Clone)]
 pub enum Instruction {
-    NOP,
-    LDA,
-    JMP,
-    ADC,
-    AND,
-    ASL,
-    STA,
-    BCC,
-    BCS,
-    BEQ,
-    BNE,
-    BMI,
-    BPL,
-    BIT,
+    ADC, AND, ASL, BCC, BCS, BEQ, BIT, BMI, BNE, BPL, BRK, BVC, BVS, CLC,
+    CLD, CLI, CLV, CMP, CPX, CPY, DEC, DEX, DEY, EOR, INC, INX, INY, JMP,
+    JSR, LDA, LDX, LDY, LSR, NOP, ORA, PHA, PHP, PLA, PLP, ROL, ROR, RTI,
+    RTS, SBC, SEC, SED, SEI, STA, STX, STY, TAX, TAY, TSX, TXA, TXS, TYA,
 }
 
 #[derive(Copy, Clone)]
