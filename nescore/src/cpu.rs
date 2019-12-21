@@ -31,8 +31,8 @@ const INTERNAL_RAM_SIZE: usize = 0x800;
 /// NES Central Processing Unit
 pub struct Cpu {
     a: u8,                        // General Purpose Accumulator
-    x: u16,                       // Index register X
-    y: u16,                       // Index register Y
+    x: u8,                       // Index register X
+    y: u8,                       // Index register Y
     pc: Wrapping<u16>,            // Program Counter
     sp: u16,                      // Stack Pointer
     p: u8,                        // Flag register
@@ -128,6 +128,9 @@ impl Cpu {
                         Instruction::CLD => self.cld(),
                         Instruction::CLI => self.cli(),
                         Instruction::CLV => self.clv(),
+                        Instruction::CMP => self.cmp(io),
+                        Instruction::CPX => self.cpx(io),
+                        Instruction::CPY => self.cpy(io),
 
                         _ => panic!("incomplete")
                     }
@@ -228,6 +231,29 @@ impl Cpu {
             0x58 => (Instruction::CLI, AddressingMode::Implied),
             // CLV
             0xB8 => (Instruction::CLV, AddressingMode::Implied),
+            // CMP
+            0xC9 => (Instruction::CMP, AddressingMode::Immediate),
+            0xC5 => (Instruction::CMP, AddressingMode::ZeroPage),
+            0xD5 => (Instruction::CMP, AddressingMode::ZeroPageX),
+            0xCD => (Instruction::CMP, AddressingMode::Absolute),
+            0xDD => (Instruction::CMP, AddressingMode::AbsoluteX),
+            0xD9 => (Instruction::CMP, AddressingMode::AbsoluteY),
+            0xC1 => (Instruction::CMP, AddressingMode::IndexedIndirect),
+            0xD1 => (Instruction::CMP, AddressingMode::IndirectIndexed),
+            // CPX
+            0xE0 => (Instruction::CPX, AddressingMode::Immediate),
+            0xE4 => (Instruction::CPX, AddressingMode::ZeroPage),
+            0xEC => (Instruction::CPX, AddressingMode::Absolute),
+            // CPY
+            0xC0 => (Instruction::CPX, AddressingMode::Immediate),
+            0xC4 => (Instruction::CPY, AddressingMode::ZeroPage),
+            0xCC => (Instruction::CPY, AddressingMode::Absolute),
+            // DEC
+            0xC6 => (Instruction::DEC, AddressingMode::ZeroPage),
+            0xD6 => (Instruction::DEC, AddressingMode::ZeroPageX),
+            0xCE => (Instruction::DEC, AddressingMode::Absolute),
+            0xDE => (Instruction::DEC, AddressingMode::AbsoluteX),
+
 
             _ => {
                 panic!("Invalid opcode: {opcode}", opcode=opcode);
@@ -383,6 +409,21 @@ impl Cpu {
         true
     }
 
+    fn cmp(&mut self, io: &mut dyn IoAccess) -> bool {
+        self.compare(self.a, self.read_bus(io));
+        true
+    }
+
+    fn cpx(&mut self, io: &mut dyn IoAccess) -> bool {
+        self.compare(self.x, self.read_bus(io));
+        true
+    }
+
+    fn cpy(&mut self, io: &mut dyn IoAccess) -> bool {
+        self.compare(self.y, self.read_bus(io));
+        true
+    }
+
     //------------------------------------------------------------------------------------------------------------------
     // Addressing Modes
     //------------------------------------------------------------------------------------------------------------------
@@ -423,7 +464,7 @@ impl Cpu {
         self.absolute_i(io, cycle, self.y);
     }
 
-    fn absolute_i(&mut self, io: &mut dyn IoAccess, cycle: u8, i: u16) {
+    fn absolute_i(&mut self, io: &mut dyn IoAccess, cycle: u8, i: u8) {
         match cycle {
             0 => {
                 // Fetch lower byte of address
@@ -435,7 +476,7 @@ impl Cpu {
             },
             2 => {
                 // Add the index value to the address bus
-                self.address_bus += i;
+                self.address_bus += i as u16;
                 self.addressing_complete = true;
             }
             _ => panic!("Invalid cycle for absolute addressing mode")
@@ -459,14 +500,14 @@ impl Cpu {
         self.zeropage_i(io, cycle, self.y);
     }
 
-    fn zeropage_i(&mut self, io: &mut dyn IoAccess, cycle: u8, i: u16) {
+    fn zeropage_i(&mut self, io: &mut dyn IoAccess, cycle: u8, i: u8) {
         match cycle {
             0 => {
                 self.address_bus = self.read_next_u8(io) as u16;
             },
             1 => {
                 // TODO: Wrapping?
-                self.address_bus += i;
+                self.address_bus += i as u16;
                 self.addressing_complete = true;
             }
             _ => panic!("Invalid cycle for absolute addressing mode")
@@ -481,7 +522,7 @@ impl Cpu {
             },
             1 => {
                 // TODO: Wrapping?
-                self.pointer_address += self.x;
+                self.pointer_address += self.x as u16;
             },
             2 => {
                 // Fetch lower byte of address
@@ -511,7 +552,7 @@ impl Cpu {
                 self.address_bus = (self.address_bus & 0x00FF) | ((self.read_u8(io, self.pointer_address + 1) as u16) << 8);
             },
             3 => {
-                self.address_bus += self.y;
+                self.address_bus += self.y as u16;
                 self.addressing_complete = true;
             }
             _ => panic!("Invalid cycle for absolute addressing mode")
@@ -600,6 +641,15 @@ impl Cpu {
             let pc = Wrapping(self.pc.0 as i16);
             self.pc = Wrapping((pc + offset).0 as u16);
         }
+    }
+
+    /// Do and compare operation on the given arguments and set appropriate flags
+    fn compare(&mut self, a: u8, m: u8) {
+        let r = (Wrapping(a) - Wrapping(m)).0;
+
+        self.set_flag_bit(Flags::Carry, a >= m);
+        self.set_flag_bit(Flags::Zero, a == m);
+        self.set_flag_bit(Flags::Negative, bit_is_set!(r, 7));
     }
 
     //------------------------------------------------------------------------------------------------------------------
@@ -1295,6 +1345,34 @@ mod tests {
         assert_eq!(cpu.get_flag_bit(Flags::Decimal), false);
         assert_eq!(cpu.get_flag_bit(Flags::InterruptDisable), false);
         assert_eq!(cpu.get_flag_bit(Flags::Overflow), false);
+    }
+
+    #[test]
+    fn cmp_zero_set() {
+        let mut cpu = Cpu::new();
+        cpu.a = 0x02;
+
+        let prg = vec![
+            0xC9, 0x02, // CMP $02
+        ];
+
+        simple_test_base(&mut cpu, prg, 3);
+
+        assert_eq!(cpu.get_flag_bit(Flags::Zero), true);
+    }
+
+    #[test]
+    fn cmp_negative_set() {
+        let mut cpu = Cpu::new();
+        cpu.a = 0x00;
+
+        let prg = vec![
+            0xC9, 0x01, // CMP $02
+        ];
+
+        simple_test_base(&mut cpu, prg, 3);
+
+        assert_eq!(cpu.get_flag_bit(Flags::Negative), true);
     }
 
     ///-----------------------------------------------------------------------------------------------------------------
