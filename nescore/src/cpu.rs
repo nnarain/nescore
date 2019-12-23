@@ -134,6 +134,9 @@ impl Cpu {
                         Instruction::DEC => self.dec(io, *cycle),
                         Instruction::DEX => self.dex(),
                         Instruction::DEY => self.dey(),
+                        Instruction::INC => self.inc(io),
+                        Instruction::INX => self.inx(),
+                        Instruction::INY => self.iny(),
 
                         _ => panic!("incomplete")
                     }
@@ -260,6 +263,15 @@ impl Cpu {
             0xCa => (Instruction::DEX, AddressingMode::Implied),
             // DEY
             0x88 => (Instruction::DEY, AddressingMode::Implied),
+            // INC
+            0xE6 => (Instruction::INC, AddressingMode::ZeroPage),
+            0xF6 => (Instruction::INC, AddressingMode::ZeroPageX),
+            0xEE => (Instruction::INC, AddressingMode::Absolute),
+            0xFE => (Instruction::INC, AddressingMode::AbsoluteX),
+            // INX
+            0xE8 => (Instruction::INX, AddressingMode::Implied),
+            // INY
+            0xC8 => (Instruction::INY, AddressingMode::Implied),
 
             _ => {
                 panic!("Invalid opcode: {opcode}", opcode=opcode);
@@ -445,6 +457,24 @@ impl Cpu {
 
     fn dey(&mut self) -> bool {
         self.y = self.decrement(self.y);
+        true
+    }
+
+    fn inc(&mut self, io: &mut dyn IoAccess) -> bool {
+        let mut m = self.read_bus(io);
+        m = self.increment(m);
+        self.write_bus(io, m);
+
+        true
+    }
+
+    fn inx(&mut self) -> bool {
+        self.x = self.increment(self.x);
+        true
+    }
+
+    fn iny(&mut self) -> bool {
+        self.y = self.increment(self.y);
         true
     }
 
@@ -678,6 +708,14 @@ impl Cpu {
 
     fn decrement(&mut self, a: u8) -> u8 {
         let new_a = (Wrapping(a) - Wrapping(1u8)).0;
+        self.set_zero_flag(new_a);
+        self.set_negative_flag(new_a);
+
+        new_a
+    }
+
+    fn increment(&mut self, a: u8) -> u8 {
+        let new_a = (Wrapping(a) + Wrapping(1u8)).0;
         self.set_zero_flag(new_a);
         self.set_negative_flag(new_a);
 
@@ -1446,6 +1484,52 @@ mod tests {
 
         let prg = vec![
             0x88, // DEY
+        ];
+
+        simple_test_base(&mut cpu, prg, 2);
+
+        assert_eq!(cpu.y, 0x00);
+        assert_eq!(cpu.get_flag_bit(Flags::Zero), true);
+    }
+
+    #[test]
+    fn inc_mem() {
+        let mut cpu = Cpu::new();
+        cpu.ram[0x02] = 0xFF;
+
+        let prg = vec![
+            0xE6, 0x02, // INC $02
+        ];
+
+        // FIXME: Cycle accuracy
+        simple_test_base(&mut cpu, prg, 3);
+
+        assert_eq!(cpu.get_flag_bit(Flags::Zero), true);
+        assert_eq!(cpu.ram[0x02], 0x00);
+    }
+
+    #[test]
+    fn inx() {
+        let mut cpu = Cpu::new();
+        cpu.x = 0xFF;
+
+        let prg = vec![
+            0xE8, // INX
+        ];
+
+        simple_test_base(&mut cpu, prg, 2);
+
+        assert_eq!(cpu.x, 0x00);
+        assert_eq!(cpu.get_flag_bit(Flags::Zero), true);
+    }
+
+    #[test]
+    fn iny() {
+        let mut cpu = Cpu::new();
+        cpu.y = 0xFF;
+
+        let prg = vec![
+            0xC8, // INY
         ];
 
         simple_test_base(&mut cpu, prg, 2);
