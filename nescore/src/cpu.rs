@@ -138,6 +138,8 @@ impl Cpu {
                         Instruction::INX => self.inx(),
                         Instruction::INY => self.iny(),
                         Instruction::EOR => self.eor(io),
+                        Instruction::LDX => self.ldx(io),
+                        Instruction::LDY => self.ldy(io),
 
                         _ => panic!("incomplete")
                     }
@@ -172,12 +174,12 @@ impl Cpu {
             0xA5 => (Instruction::LDA, AddressingMode::ZeroPage),
             0xB5 => (Instruction::LDA, AddressingMode::ZeroPageX),
             0xAD => (Instruction::LDA, AddressingMode::Absolute),
-            0xBD => (Instruction::LDA, AddressingMode::AbsoluteX),       // +1 cycle if page crossed
-            0xB9 => (Instruction::LDA, AddressingMode::AbsoluteY),       // +1 cycle if page crossed
+            0xBD => (Instruction::LDA, AddressingMode::AbsoluteX),
+            0xB9 => (Instruction::LDA, AddressingMode::AbsoluteY),
             0xA1 => (Instruction::LDA, AddressingMode::IndexedIndirect),
-            0xB1 => (Instruction::LDA, AddressingMode::IndirectIndexed), // +1 cycles for page crossed
+            0xB1 => (Instruction::LDA, AddressingMode::IndirectIndexed),
             // JMP
-            0x4C => (Instruction::JMP, AddressingMode::Absolute), // TODO: Not cycle accurate!
+            0x4C => (Instruction::JMP, AddressingMode::Absolute),
             0x6C => (Instruction::JMP, AddressingMode::Indirect),
             // ADC
             0x69 => (Instruction::ADC, AddressingMode::Immediate),
@@ -282,6 +284,19 @@ impl Cpu {
             0x59 => (Instruction::EOR, AddressingMode::AbsoluteY),
             0x41 => (Instruction::EOR, AddressingMode::IndexedIndirect),
             0x51 => (Instruction::EOR, AddressingMode::IndirectIndexed),
+            // LDX
+            0xA2 => (Instruction::LDX, AddressingMode::Immediate),
+            0xA6 => (Instruction::LDX, AddressingMode::ZeroPage),
+            0xB6 => (Instruction::LDX, AddressingMode::ZeroPageY),
+            0xAE => (Instruction::LDX, AddressingMode::Absolute),
+            0xBE => (Instruction::LDX, AddressingMode::AbsoluteY),
+            // LDY
+            0xA0 => (Instruction::LDY, AddressingMode::Immediate),
+            0xA4 => (Instruction::LDY, AddressingMode::ZeroPage),
+            0xB4 => (Instruction::LDY, AddressingMode::ZeroPageX),
+            0xAC => (Instruction::LDY, AddressingMode::Absolute),
+            0xBC => (Instruction::LDY, AddressingMode::AbsoluteX),
+            
 
             _ => {
                 panic!("Invalid opcode: {opcode}", opcode=opcode);
@@ -452,7 +467,7 @@ impl Cpu {
         true
     }
 
-    fn dec(&mut self, io: &mut dyn IoAccess, cycle: u8) -> bool {
+    fn dec(&mut self, io: &mut dyn IoAccess, _cycle: u8) -> bool {
         let mut m = self.read_bus(io);
         m = self.decrement(m);
         self.write_bus(io, m);
@@ -493,7 +508,20 @@ impl Cpu {
         self.a ^= m;
         self.set_zero_flag(self.a);
         self.set_negative_flag(self.a);
-        println!("A: {}", self.a);
+        true
+    }
+
+    fn ldx(&mut self, io: &mut dyn IoAccess) -> bool {
+        self.x = self.read_bus(io);
+        self.set_zero_flag(self.x);
+        self.set_negative_flag(self.x);
+        true
+    }
+
+    fn ldy(&mut self, io: &mut dyn IoAccess) -> bool {
+        self.y = self.read_bus(io);
+        self.set_zero_flag(self.y);
+        self.set_negative_flag(self.y);
         true
     }
 
@@ -1572,6 +1600,28 @@ mod tests {
         assert_eq!(cpu.get_flag_bit(Flags::Zero), true);
     }
 
+    #[test]
+    fn ldx_immediate() {
+        let prg = vec![
+            0xA2, 0xA5 // LDX $A5
+        ];
+
+        let cpu = simple_test(prg, 3);
+
+        assert_eq!(cpu.x, 0xA5);
+    }
+
+    #[test]
+    fn ldy_immediate() {
+        let prg = vec![
+            0xA0, 0xA5 // LDY $A5
+        ];
+
+        let cpu = simple_test(prg, 3);
+
+        assert_eq!(cpu.y, 0xA5);
+    }
+
     ///-----------------------------------------------------------------------------------------------------------------
     /// Helper functions
     ///-----------------------------------------------------------------------------------------------------------------
@@ -1610,7 +1660,7 @@ mod tests {
                 }
             }
 
-            fn write_byte(&mut self, addr: u16, data: u8) {
+            fn write_byte(&mut self, _addr: u16, _data: u8) {
 
             }
         }
