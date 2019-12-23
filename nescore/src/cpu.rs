@@ -131,6 +131,9 @@ impl Cpu {
                         Instruction::CMP => self.cmp(io),
                         Instruction::CPX => self.cpx(io),
                         Instruction::CPY => self.cpy(io),
+                        Instruction::DEC => self.dec(io, *cycle),
+                        Instruction::DEX => self.dex(),
+                        Instruction::DEY => self.dey(),
 
                         _ => panic!("incomplete")
                     }
@@ -253,7 +256,10 @@ impl Cpu {
             0xD6 => (Instruction::DEC, AddressingMode::ZeroPageX),
             0xCE => (Instruction::DEC, AddressingMode::Absolute),
             0xDE => (Instruction::DEC, AddressingMode::AbsoluteX),
-
+            // DEX
+            0xCa => (Instruction::DEX, AddressingMode::Implied),
+            // DEY
+            0x88 => (Instruction::DEY, AddressingMode::Implied),
 
             _ => {
                 panic!("Invalid opcode: {opcode}", opcode=opcode);
@@ -421,6 +427,24 @@ impl Cpu {
 
     fn cpy(&mut self, io: &mut dyn IoAccess) -> bool {
         self.compare(self.y, self.read_bus(io));
+        true
+    }
+
+    fn dec(&mut self, io: &mut dyn IoAccess, cycle: u8) -> bool {
+        let mut m = self.read_bus(io);
+        m = self.decrement(m);
+        self.write_bus(io, m);
+
+        true
+    }
+
+    fn dex(&mut self) -> bool {
+        self.x = self.decrement(self.x);
+        true
+    }
+
+    fn dey(&mut self) -> bool {
+        self.y = self.decrement(self.y);
         true
     }
 
@@ -648,8 +672,16 @@ impl Cpu {
         let r = (Wrapping(a) - Wrapping(m)).0;
 
         self.set_flag_bit(Flags::Carry, a >= m);
-        self.set_flag_bit(Flags::Zero, a == m);
-        self.set_flag_bit(Flags::Negative, bit_is_set!(r, 7));
+        self.set_zero_flag(r);
+        self.set_negative_flag(r);
+    }
+
+    fn decrement(&mut self, a: u8) -> u8 {
+        let new_a = (Wrapping(a) - Wrapping(1u8)).0;
+        self.set_zero_flag(new_a);
+        self.set_negative_flag(new_a);
+
+        new_a
     }
 
     //------------------------------------------------------------------------------------------------------------------
@@ -903,7 +935,8 @@ mod tests {
             0x4C, 0x00, 0x10 // LDA JMP $1000
         ];
 
-       let cpu = simple_test(prg, 4); // TODO: JMP with absolute addressing should be 3 cycles
+       // FIXME: JMP with absolute addressing should be 3 cycles
+       let cpu = simple_test(prg, 4);
 
         assert_eq!(cpu.pc.0, 0x1000);
     }
@@ -1373,6 +1406,52 @@ mod tests {
         simple_test_base(&mut cpu, prg, 3);
 
         assert_eq!(cpu.get_flag_bit(Flags::Negative), true);
+    }
+
+    #[test]
+    fn dec_mem() {
+        let mut cpu = Cpu::new();
+        cpu.ram[0x02] = 0x01;
+
+        let prg = vec![
+            0xC6, 0x02, // DEC $02
+        ];
+
+        // FIXME: Cycle accuracy
+        simple_test_base(&mut cpu, prg, 3);
+
+        assert_eq!(cpu.get_flag_bit(Flags::Zero), true);
+        assert_eq!(cpu.ram[0x02], 0x00);
+    }
+
+    #[test]
+    fn dex() {
+        let mut cpu = Cpu::new();
+        cpu.x = 0x01;
+
+        let prg = vec![
+            0xCA, // DEX
+        ];
+
+        simple_test_base(&mut cpu, prg, 2);
+
+        assert_eq!(cpu.x, 0x00);
+        assert_eq!(cpu.get_flag_bit(Flags::Zero), true);
+    }
+
+    #[test]
+    fn dey() {
+        let mut cpu = Cpu::new();
+        cpu.y = 0x01;
+
+        let prg = vec![
+            0x88, // DEY
+        ];
+
+        simple_test_base(&mut cpu, prg, 2);
+
+        assert_eq!(cpu.y, 0x00);
+        assert_eq!(cpu.get_flag_bit(Flags::Zero), true);
     }
 
     ///-----------------------------------------------------------------------------------------------------------------

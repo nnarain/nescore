@@ -33,5 +33,5 @@ pub enum Instruction {
 pub enum State {
     Reset,
     Fetch,
-    Execute(Instruction, AddressingMode, u8)
+    Execute(Instruction, AddressingMode, u8),
 }
