@@ -146,6 +146,8 @@ impl Cpu {
                         Instruction::PLP => self.plp(io, *cycle),
                         Instruction::LSR => self.lsr(io),
                         Instruction::ORA => self.ora(io),
+                        Instruction::ROR => self.ror(io),
+                        Instruction::ROL => self.rol(io),
 
                         _ => panic!("incomplete")
                     }
@@ -325,6 +327,18 @@ impl Cpu {
             0x19 => (Instruction::ORA, AddressingMode::AbsoluteY),
             0x01 => (Instruction::ORA, AddressingMode::IndexedIndirect),
             0x11 => (Instruction::ORA, AddressingMode::IndirectIndexed),
+            // ROR
+            0x6A => (Instruction::ROR, AddressingMode::Accumulator),
+            0x66 => (Instruction::ROR, AddressingMode::ZeroPage),
+            0x76 => (Instruction::ROR, AddressingMode::ZeroPageX),
+            0x6E => (Instruction::ROR, AddressingMode::Absolute),
+            0x7E => (Instruction::ROR, AddressingMode::AbsoluteX),
+            // ROL
+            0x2A => (Instruction::ROL, AddressingMode::Accumulator),
+            0x26 => (Instruction::ROL, AddressingMode::ZeroPage),
+            0x36 => (Instruction::ROL, AddressingMode::ZeroPageX),
+            0x2E => (Instruction::ROL, AddressingMode::Absolute),
+            0x3E => (Instruction::ROL, AddressingMode::AbsoluteX),
 
             _ => {
                 panic!("Invalid opcode: {opcode}", opcode=opcode);
@@ -337,6 +351,8 @@ impl Cpu {
     //------------------------------------------------------------------------------------------------------------------
     // Instruction Implementation
     //------------------------------------------------------------------------------------------------------------------
+
+    // TODO: BRK
 
     fn nop(&mut self, cycle: u8) -> bool {
         cycle == 1
@@ -621,6 +637,46 @@ impl Cpu {
 
         self.set_zero_flag(self.a);
         self.set_negative_flag(self.a);
+
+        true
+    }
+
+    fn ror(&mut self, io: &mut dyn IoAccess) -> bool {
+        let m = self.read_bus(io);
+        let current_carry = self.get_flag_bit(Flags::Carry);
+        let new_carry = bit_is_set!(m, 0);
+
+        let mut r = m >> 1;
+        
+        if current_carry {
+            bit_set!(r, 7);
+        }
+
+        self.write_bus(io, r);
+
+        self.set_flag_bit(Flags::Carry, new_carry);
+        self.set_zero_flag(r);
+        self.set_negative_flag(r);
+
+        true
+    }
+
+    fn rol(&mut self, io: &mut dyn IoAccess) -> bool {
+        let m = self.read_bus(io);
+        let current_carry = self.get_flag_bit(Flags::Carry);
+        let new_carry = bit_is_set!(m, 7);
+
+        let mut r = m << 1;
+
+        if current_carry {
+            bit_set!(r, 0);
+        }
+
+        self.write_bus(io, r);
+
+        self.set_flag_bit(Flags::Carry, new_carry);
+        self.set_zero_flag(r);
+        self.set_negative_flag(r);
 
         true
     }
@@ -1840,6 +1896,39 @@ mod tests {
         simple_test_base(&mut cpu, prg, 3);
 
         assert_eq!(cpu.a, 0xFF);
+    }
+
+    #[test]
+    fn ror_carry() {
+        let mut cpu = Cpu::new();
+        mask_set!(cpu.p, Flags::Carry as u8);
+        cpu.a = 0x01;
+
+        let prg = vec![
+            0x6A, // ROR A
+        ];
+
+        simple_test_base(&mut cpu, prg, 2);
+
+        assert_eq!(cpu.a, 0x80);
+        assert_eq!(cpu.get_flag_bit(Flags::Carry), true);
+        assert_eq!(cpu.get_flag_bit(Flags::Negative), true);
+    }
+
+    #[test]
+    fn rol_carry() {
+        let mut cpu = Cpu::new();
+        mask_set!(cpu.p, Flags::Carry as u8);
+        cpu.a = 0x81;
+
+        let prg = vec![
+            0x2A, // ROL A
+        ];
+
+        simple_test_base(&mut cpu, prg, 2);
+
+        assert_eq!(cpu.a, 0x03);
+        assert_eq!(cpu.get_flag_bit(Flags::Carry), true);
     }
 
     ///-----------------------------------------------------------------------------------------------------------------

@@ -54,6 +54,20 @@ macro_rules! mask_clear {
     };
 }
 
+#[macro_export]
+macro_rules! bit_set {
+    ($x:expr, $y:expr) => {
+        mask_set!($x, bv!($y))
+    };
+}
+
+#[macro_export]
+macro_rules! bit_clear {
+    ($x:expr, $y:expr) => {
+        mask_clear!($x, bv!($y))
+    };
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
