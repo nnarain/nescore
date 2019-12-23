@@ -145,6 +145,7 @@ impl Cpu {
                         Instruction::PLA => self.pla(io, *cycle),
                         Instruction::PLP => self.plp(io, *cycle),
                         Instruction::LSR => self.lsr(io),
+                        Instruction::ORA => self.ora(io),
 
                         _ => panic!("incomplete")
                     }
@@ -315,6 +316,15 @@ impl Cpu {
             0x56 => (Instruction::LSR, AddressingMode::ZeroPageX),
             0x4E => (Instruction::LSR, AddressingMode::Absolute),
             0x5E => (Instruction::LSR, AddressingMode::AbsoluteX),
+            // ORA
+            0x09 => (Instruction::ORA, AddressingMode::Immediate),
+            0x05 => (Instruction::ORA, AddressingMode::ZeroPage),
+            0x15 => (Instruction::ORA, AddressingMode::ZeroPageX),
+            0x0D => (Instruction::ORA, AddressingMode::Absolute),
+            0x1D => (Instruction::ORA, AddressingMode::AbsoluteX),
+            0x19 => (Instruction::ORA, AddressingMode::AbsoluteY),
+            0x01 => (Instruction::ORA, AddressingMode::IndexedIndirect),
+            0x11 => (Instruction::ORA, AddressingMode::IndirectIndexed),
 
             _ => {
                 panic!("Invalid opcode: {opcode}", opcode=opcode);
@@ -601,6 +611,16 @@ impl Cpu {
         self.set_zero_flag(r);
         self.set_negative_flag(r);
         self.set_flag_bit(Flags::Carry, c);
+
+        true
+    }
+
+    fn ora(&mut self, io: &mut dyn IoAccess) -> bool {
+        let m = self.read_bus(io);
+        self.a = self.a | m;
+
+        self.set_zero_flag(self.a);
+        self.set_negative_flag(self.a);
 
         true
     }
@@ -1806,6 +1826,20 @@ mod tests {
         assert_eq!(cpu.a, 0x00);
         assert_eq!(cpu.get_flag_bit(Flags::Zero), true);
         assert_eq!(cpu.get_flag_bit(Flags::Carry), true);
+    }
+
+    #[test]
+    fn ora() {
+        let mut cpu = Cpu::new();
+        cpu.a = 0xF0;
+
+        let prg = vec![
+            0x09, 0x0F, // ORA $0F
+        ];
+
+        simple_test_base(&mut cpu, prg, 3);
+
+        assert_eq!(cpu.a, 0xFF);
     }
 
     ///-----------------------------------------------------------------------------------------------------------------
