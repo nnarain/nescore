@@ -142,6 +142,8 @@ impl Cpu {
                         Instruction::LDY => self.ldy(io),
                         Instruction::PHA => self.pha(io, *cycle),
                         Instruction::PHP => self.php(io, *cycle),
+                        Instruction::PLA => self.pla(io, *cycle),
+                        Instruction::PLP => self.plp(io, *cycle),
 
                         _ => panic!("incomplete")
                     }
@@ -302,6 +304,10 @@ impl Cpu {
             0x48 => (Instruction::PHA, AddressingMode::Implied),
             // PHP
             0x08 => (Instruction::PHP, AddressingMode::Implied),
+            // PLA
+            0x68 => (Instruction::PLA, AddressingMode::Implied),
+            // PLP
+            0x28 => (Instruction::PLP, AddressingMode::Implied),
 
             _ => {
                 panic!("Invalid opcode: {opcode}", opcode=opcode);
@@ -546,6 +552,30 @@ impl Cpu {
         match cycle {
             2 => {
                 self.push(io, self.p);
+                true
+            },
+            _ => {
+                false
+            }
+        }
+    }
+
+    fn pla(&mut self, io: &mut dyn IoAccess, cycle: u8) -> bool {
+        match cycle {
+            3 => {
+                self.a = self.pull(io);
+                true
+            },
+            _ => {
+                false
+            }
+        }
+    }
+
+    fn plp(&mut self, io: &mut dyn IoAccess, cycle: u8) -> bool {
+        match cycle {
+            3 => {
+                self.p = self.pull(io);
                 true
             },
             _ => {
@@ -1686,6 +1716,23 @@ mod tests {
     }
 
     #[test]
+    fn pla() {
+        let mut cpu = Cpu::new();
+        cpu.ram[0x0A] = 0xFF;
+        cpu.sp = 0x09;
+
+        let prg = vec![
+            0x68,       // PLA
+        ];
+
+        simple_test_base(&mut cpu, prg, 5);
+
+        assert_eq!(cpu.a, 0xFF);
+        assert_eq!(cpu.sp, 0x0A);
+    }
+
+
+    #[test]
     fn php() {
         let mut cpu = Cpu::new();
         cpu.p = 0xFF;
@@ -1701,6 +1748,21 @@ mod tests {
         assert_eq!(cpu.ram[0x0A], 0xFF);
     }
 
+    #[test]
+    fn plp() {
+        let mut cpu = Cpu::new();
+        cpu.ram[0x0A] = 0xFF;
+        cpu.sp = 0x09;
+
+        let prg = vec![
+            0x28, // PLP
+        ];
+
+        simple_test_base(&mut cpu, prg, 5);
+
+        assert_eq!(cpu.p, 0xFF);
+        assert_eq!(cpu.sp, 0x0A);
+    }
 
     ///-----------------------------------------------------------------------------------------------------------------
     /// Helper functions
