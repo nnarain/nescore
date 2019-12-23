@@ -137,6 +137,7 @@ impl Cpu {
                         Instruction::INC => self.inc(io),
                         Instruction::INX => self.inx(),
                         Instruction::INY => self.iny(),
+                        Instruction::EOR => self.eor(io),
 
                         _ => panic!("incomplete")
                     }
@@ -272,6 +273,15 @@ impl Cpu {
             0xE8 => (Instruction::INX, AddressingMode::Implied),
             // INY
             0xC8 => (Instruction::INY, AddressingMode::Implied),
+            // EOR
+            0x49 => (Instruction::EOR, AddressingMode::Immediate),
+            0x45 => (Instruction::EOR, AddressingMode::ZeroPage),
+            0x55 => (Instruction::EOR, AddressingMode::ZeroPageX),
+            0x4D => (Instruction::EOR, AddressingMode::Absolute),
+            0x5D => (Instruction::EOR, AddressingMode::AbsoluteX),
+            0x59 => (Instruction::EOR, AddressingMode::AbsoluteY),
+            0x41 => (Instruction::EOR, AddressingMode::IndexedIndirect),
+            0x51 => (Instruction::EOR, AddressingMode::IndirectIndexed),
 
             _ => {
                 panic!("Invalid opcode: {opcode}", opcode=opcode);
@@ -475,6 +485,15 @@ impl Cpu {
 
     fn iny(&mut self) -> bool {
         self.y = self.increment(self.y);
+        true
+    }
+
+    fn eor(&mut self, io: &mut dyn IoAccess) -> bool {
+        let m = self.read_bus(io);
+        self.a ^= m;
+        self.set_zero_flag(self.a);
+        self.set_negative_flag(self.a);
+        println!("A: {}", self.a);
         true
     }
 
@@ -1535,6 +1554,21 @@ mod tests {
         simple_test_base(&mut cpu, prg, 2);
 
         assert_eq!(cpu.y, 0x00);
+        assert_eq!(cpu.get_flag_bit(Flags::Zero), true);
+    }
+
+    #[test]
+    fn eor() {
+        let mut cpu = Cpu::new();
+        cpu.a = 0xFF;
+
+        let prg = vec![
+            0x49, 0xFF, // EOR $FF
+        ];
+
+        simple_test_base(&mut cpu, prg, 3);
+
+        assert_eq!(cpu.a, 0x00);
         assert_eq!(cpu.get_flag_bit(Flags::Zero), true);
     }
 
