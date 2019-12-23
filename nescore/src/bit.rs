@@ -68,6 +68,21 @@ macro_rules! bit_clear {
     };
 }
 
+#[macro_export]
+macro_rules! high_byte {
+    ($x:expr) => {
+        $x >> 8
+    };
+}
+
+#[macro_export]
+macro_rules! low_byte {
+    ($x:expr) => {
+        $x & 0x00FF
+    };
+}
+
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -109,6 +124,39 @@ mod tests {
 
         assert_eq!(x, 0x00);
     }
+
+    #[test]
+    fn test_bit_clear() {
+        let mut x = 0x01;
+        bit_clear!(x, 0);
+
+        assert_eq!(x, 0x00);
+    }
+
+    #[test]
+    fn test_bit_set() {
+        let mut x = 0x00;
+        bit_set!(x, 0);
+
+        assert_eq!(x, 0x01);
+    }
+
+    #[test]
+    fn test_low_byte() {
+        let x = 0x00A5u16;
+        let y = low_byte!(x);
+
+        assert_eq!(y, 0xA5);
+    }
+
+    #[test]
+    fn test_high_byte() {
+        let x = 0xA500u16;
+        let y = high_byte!(x);
+
+        assert_eq!(y, 0xA5);
+    }
+
 
     #[test]
     fn test_bit_value() {

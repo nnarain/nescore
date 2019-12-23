@@ -148,6 +148,7 @@ impl Cpu {
                         Instruction::ORA => self.ora(io),
                         Instruction::ROR => self.ror(io),
                         Instruction::ROL => self.rol(io),
+                        Instruction::RTI => self.rti(io, *cycle),
 
                         _ => panic!("incomplete")
                     }
@@ -339,6 +340,8 @@ impl Cpu {
             0x36 => (Instruction::ROL, AddressingMode::ZeroPageX),
             0x2E => (Instruction::ROL, AddressingMode::Absolute),
             0x3E => (Instruction::ROL, AddressingMode::AbsoluteX),
+            // RTI
+            0x40 => (Instruction::RTI, AddressingMode::Implied),
 
             _ => {
                 panic!("Invalid opcode: {opcode}", opcode=opcode);
@@ -681,6 +684,16 @@ impl Cpu {
         true
     }
 
+    fn rti(&mut self, io: &mut dyn IoAccess, cycle: u8) -> bool {
+        if cycle <= 4 {
+            return false;
+        }
+        self.p = self.pull(io);
+        self.pc = Wrapping(self.pull16(io));
+        println!("{:X} {:X}", self.p, self.pc);
+        true
+    }
+
     //------------------------------------------------------------------------------------------------------------------
     // Addressing Modes
     //------------------------------------------------------------------------------------------------------------------
@@ -936,7 +949,7 @@ impl Cpu {
         self.sp -= 1u16;
     }
 
-    /// PUll a value off the stack
+    /// Pull a value off the stack
     fn pull(&mut self, io: &mut dyn IoAccess) -> u8 {
         // Read the next instruction byte and throw it away
         self.pc += Wrapping(1u16);
@@ -945,6 +958,21 @@ impl Cpu {
         let data = self.read_u8(io, self.sp);
 
         data
+    }
+
+    fn push16(&mut self, io: &mut dyn IoAccess, data: u16) {
+        let hi = high_byte!(data) as u8;
+        let lo = low_byte!(data) as u8;
+
+        self.push(io, hi);
+        self.push(io, lo);
+    }
+
+    fn pull16(&mut self, io: &mut dyn IoAccess) -> u16 {
+        let hi = self.pull(io) as u16;
+        let lo = self.pull(io) as u16;
+
+        (hi << 8) | lo
     }
 
     //------------------------------------------------------------------------------------------------------------------
@@ -1929,6 +1957,24 @@ mod tests {
 
         assert_eq!(cpu.a, 0x03);
         assert_eq!(cpu.get_flag_bit(Flags::Carry), true);
+    }
+
+    #[test]
+    fn rti() {
+        let mut cpu = Cpu::new();
+        cpu.ram[0x0A] = 0xDE;
+        cpu.ram[0x09] = 0xAD;
+        cpu.ram[0x08] = 0xA5;
+        cpu.sp = 0x0007;
+
+        let prg = vec![
+            0x40, // RTI
+        ];
+
+        simple_test_base(&mut cpu, prg, 7);
+
+        assert_eq!(cpu.p, 0xA5);
+        assert_eq!(cpu.sp, 0x0A);
     }
 
     ///-----------------------------------------------------------------------------------------------------------------
