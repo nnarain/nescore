@@ -144,6 +144,7 @@ impl Cpu {
                         Instruction::PHP => self.php(io, *cycle),
                         Instruction::PLA => self.pla(io, *cycle),
                         Instruction::PLP => self.plp(io, *cycle),
+                        Instruction::LSR => self.lsr(io),
 
                         _ => panic!("incomplete")
                     }
@@ -308,6 +309,12 @@ impl Cpu {
             0x68 => (Instruction::PLA, AddressingMode::Implied),
             // PLP
             0x28 => (Instruction::PLP, AddressingMode::Implied),
+            // LSR
+            0x4A => (Instruction::LSR, AddressingMode::Accumulator),
+            0x46 => (Instruction::LSR, AddressingMode::ZeroPage),
+            0x56 => (Instruction::LSR, AddressingMode::ZeroPageX),
+            0x4E => (Instruction::LSR, AddressingMode::Absolute),
+            0x5E => (Instruction::LSR, AddressingMode::AbsoluteX),
 
             _ => {
                 panic!("Invalid opcode: {opcode}", opcode=opcode);
@@ -584,6 +591,20 @@ impl Cpu {
         }
     }
 
+    fn lsr(&mut self, io: &mut dyn IoAccess) -> bool {
+        let m = self.read_bus(io);
+        let c = bit_is_set!(m, 0);
+
+        let r = m >> 1;
+        self.write_bus(io, r);
+
+        self.set_zero_flag(r);
+        self.set_negative_flag(r);
+        self.set_flag_bit(Flags::Carry, c);
+
+        true
+    }
+
     //------------------------------------------------------------------------------------------------------------------
     // Addressing Modes
     //------------------------------------------------------------------------------------------------------------------
@@ -812,6 +833,7 @@ impl Cpu {
         self.set_negative_flag(r);
     }
 
+    /// Decrement value, setting flags
     fn decrement(&mut self, a: u8) -> u8 {
         let new_a = (Wrapping(a) - Wrapping(1u8)).0;
         self.set_zero_flag(new_a);
@@ -820,6 +842,7 @@ impl Cpu {
         new_a
     }
 
+    /// Increment value, setting flags
     fn increment(&mut self, a: u8) -> u8 {
         let new_a = (Wrapping(a) + Wrapping(1u8)).0;
         self.set_zero_flag(new_a);
@@ -828,6 +851,7 @@ impl Cpu {
         new_a
     }
 
+    /// Push a value onto the stack
     fn push(&mut self, io: &mut dyn IoAccess, data: u8) {
         // Read the next instruction byte and throw it away
         self.pc += Wrapping(1u16);
@@ -836,6 +860,7 @@ impl Cpu {
         self.sp -= 1u16;
     }
 
+    /// PUll a value off the stack
     fn pull(&mut self, io: &mut dyn IoAccess) -> u8 {
         // Read the next instruction byte and throw it away
         self.pc += Wrapping(1u16);
@@ -925,6 +950,9 @@ impl Clockable for Cpu {
     }
 }
 
+//----------------------------------------------------------------------------------------------------------------------
+// Tests
+//----------------------------------------------------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -1762,6 +1790,22 @@ mod tests {
 
         assert_eq!(cpu.p, 0xFF);
         assert_eq!(cpu.sp, 0x0A);
+    }
+
+    #[test]
+    fn lsr_zero_set() {
+        let mut cpu = Cpu::new();
+        cpu.a = 0x01;
+
+        let prg = vec![
+            0x4A, // LSR A
+        ];
+
+        simple_test_base(&mut cpu, prg, 2);
+
+        assert_eq!(cpu.a, 0x00);
+        assert_eq!(cpu.get_flag_bit(Flags::Zero), true);
+        assert_eq!(cpu.get_flag_bit(Flags::Carry), true);
     }
 
     ///-----------------------------------------------------------------------------------------------------------------
