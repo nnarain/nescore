@@ -140,6 +140,8 @@ impl Cpu {
                         Instruction::EOR => self.eor(io),
                         Instruction::LDX => self.ldx(io),
                         Instruction::LDY => self.ldy(io),
+                        Instruction::PHA => self.pha(io, *cycle),
+                        Instruction::PHP => self.php(io, *cycle),
 
                         _ => panic!("incomplete")
                     }
@@ -296,7 +298,10 @@ impl Cpu {
             0xB4 => (Instruction::LDY, AddressingMode::ZeroPageX),
             0xAC => (Instruction::LDY, AddressingMode::Absolute),
             0xBC => (Instruction::LDY, AddressingMode::AbsoluteX),
-            
+            // PHA
+            0x48 => (Instruction::PHA, AddressingMode::Implied),
+            // PHP
+            0x08 => (Instruction::PHP, AddressingMode::Implied),
 
             _ => {
                 panic!("Invalid opcode: {opcode}", opcode=opcode);
@@ -523,6 +528,30 @@ impl Cpu {
         self.set_zero_flag(self.y);
         self.set_negative_flag(self.y);
         true
+    }
+
+    fn pha(&mut self, io: &mut dyn IoAccess, cycle: u8) -> bool {
+        match cycle {
+            2 => {
+                self.push(io, self.a);
+                true
+            },
+            _ => {
+                false
+            }
+        }
+    }
+
+    fn php(&mut self, io: &mut dyn IoAccess, cycle: u8) -> bool {
+        match cycle {
+            2 => {
+                self.push(io, self.p);
+                true
+            },
+            _ => {
+                false
+            }
+        }
     }
 
     //------------------------------------------------------------------------------------------------------------------
@@ -767,6 +796,24 @@ impl Cpu {
         self.set_negative_flag(new_a);
 
         new_a
+    }
+
+    fn push(&mut self, io: &mut dyn IoAccess, data: u8) {
+        // Read the next instruction byte and throw it away
+        self.pc += Wrapping(1u16);
+
+        self.write_u8(io, self.sp, data);
+        self.sp -= 1u16;
+    }
+
+    fn pull(&mut self, io: &mut dyn IoAccess) -> u8 {
+        // Read the next instruction byte and throw it away
+        self.pc += Wrapping(1u16);
+
+        self.sp += 1u16;
+        let data = self.read_u8(io, self.sp);
+
+        data
     }
 
     //------------------------------------------------------------------------------------------------------------------
@@ -1621,6 +1668,39 @@ mod tests {
 
         assert_eq!(cpu.y, 0xA5);
     }
+
+    #[test]
+    fn pha() {
+        let mut cpu = Cpu::new();
+        cpu.a = 0xFF;
+        cpu.sp = 0x0A;
+
+        let prg = vec![
+            0x48, // PHA
+        ];
+
+        simple_test_base(&mut cpu, prg, 4);
+
+        assert_eq!(cpu.sp, 0x09);
+        assert_eq!(cpu.ram[0x0A], 0xFF);
+    }
+
+    #[test]
+    fn php() {
+        let mut cpu = Cpu::new();
+        cpu.p = 0xFF;
+        cpu.sp = 0x0A;
+
+        let prg = vec![
+            0x08, // PHP
+        ];
+
+        simple_test_base(&mut cpu, prg, 4);
+
+        assert_eq!(cpu.sp, 0x09);
+        assert_eq!(cpu.ram[0x0A], 0xFF);
+    }
+
 
     ///-----------------------------------------------------------------------------------------------------------------
     /// Helper functions
