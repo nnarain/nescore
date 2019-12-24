@@ -149,6 +149,7 @@ impl Cpu {
                         Instruction::ROR => self.ror(io),
                         Instruction::ROL => self.rol(io),
                         Instruction::RTI => self.rti(io, *cycle),
+                        Instruction::JSR => self.jsr(io, *cycle),
 
                         _ => panic!("incomplete")
                     }
@@ -342,6 +343,8 @@ impl Cpu {
             0x3E => (Instruction::ROL, AddressingMode::AbsoluteX),
             // RTI
             0x40 => (Instruction::RTI, AddressingMode::Implied),
+            // JSR
+            0x20 => (Instruction::JSR, AddressingMode::Absolute),
 
             _ => {
                 panic!("Invalid opcode: {opcode}", opcode=opcode);
@@ -691,6 +694,15 @@ impl Cpu {
         self.p = self.pull(io);
         self.pc = Wrapping(self.pull16(io));
         println!("{:X} {:X}", self.p, self.pc);
+        true
+    }
+
+    fn jsr(&mut self, io: &mut dyn IoAccess, cycle: u8) -> bool {
+        if cycle <= 4 {
+            return false;
+        }
+        self.push16(io, self.sp);
+        self.pc = Wrapping(self.address_bus);
         true
     }
 
@@ -1975,6 +1987,20 @@ mod tests {
 
         assert_eq!(cpu.p, 0xA5);
         assert_eq!(cpu.sp, 0x0A);
+    }
+
+    #[test]
+    fn jsr() {
+        let mut cpu = Cpu::new();
+        cpu.sp = 0x000A;
+
+        let prg = vec![
+            0x20, 0xAD, 0xDE, // JSR $DEAD
+        ];
+
+        simple_test_base(&mut cpu, prg, 7);
+
+        assert_eq!(cpu.pc.0, 0xDEAD);
     }
 
     ///-----------------------------------------------------------------------------------------------------------------
