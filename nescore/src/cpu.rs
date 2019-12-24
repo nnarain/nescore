@@ -150,6 +150,7 @@ impl Cpu {
                         Instruction::ROL => self.rol(io),
                         Instruction::RTI => self.rti(io, *cycle),
                         Instruction::JSR => self.jsr(io, *cycle),
+                        Instruction::RTS => self.rts(io, *cycle),
 
                         _ => panic!("incomplete")
                     }
@@ -345,6 +346,8 @@ impl Cpu {
             0x40 => (Instruction::RTI, AddressingMode::Implied),
             // JSR
             0x20 => (Instruction::JSR, AddressingMode::Absolute),
+            // RTS
+            0x60 => (Instruction::RTS, AddressingMode::Implied),
 
             _ => {
                 panic!("Invalid opcode: {opcode}", opcode=opcode);
@@ -703,6 +706,16 @@ impl Cpu {
         }
         self.push16(io, self.sp);
         self.pc = Wrapping(self.address_bus);
+        true
+    }
+
+    fn rts(&mut self, io: &mut dyn IoAccess, cycle: u8) -> bool {
+        if cycle <= 4 {
+            return false;
+        }
+
+        self.pc = Wrapping(self.pull16(io));
+
         true
     }
 
@@ -1974,8 +1987,8 @@ mod tests {
     #[test]
     fn rti() {
         let mut cpu = Cpu::new();
-        cpu.ram[0x0A] = 0xDE;
-        cpu.ram[0x09] = 0xAD;
+        cpu.ram[0x0A] = 0xAD;
+        cpu.ram[0x09] = 0xDE;
         cpu.ram[0x08] = 0xA5;
         cpu.sp = 0x0007;
 
@@ -1987,6 +2000,7 @@ mod tests {
 
         assert_eq!(cpu.p, 0xA5);
         assert_eq!(cpu.sp, 0x0A);
+        assert_eq!(cpu.pc.0, 0xDEAD);
     }
 
     #[test]
@@ -2000,6 +2014,23 @@ mod tests {
 
         simple_test_base(&mut cpu, prg, 7);
 
+        assert_eq!(cpu.pc.0, 0xDEAD);
+    }
+
+    #[test]
+    fn rts() {
+        let mut cpu = Cpu::new();
+        cpu.ram[0x0A] = 0xAD;
+        cpu.ram[0x09] = 0xDE;
+        cpu.sp = 0x0008;
+
+        let prg = vec![
+            0x60, // RTS
+        ];
+
+        simple_test_base(&mut cpu, prg, 7);
+
+        assert_eq!(cpu.sp, 0x0A);
         assert_eq!(cpu.pc.0, 0xDEAD);
     }
 
