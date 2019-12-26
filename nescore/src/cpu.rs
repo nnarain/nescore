@@ -151,6 +151,7 @@ impl Cpu {
                         Instruction::RTI => self.rti(io, *cycle),
                         Instruction::JSR => self.jsr(io, *cycle),
                         Instruction::RTS => self.rts(io, *cycle),
+                        Instruction::SBC => self.sbc(io),
 
                         _ => panic!("incomplete")
                     }
@@ -348,6 +349,16 @@ impl Cpu {
             0x20 => (Instruction::JSR, AddressingMode::Absolute),
             // RTS
             0x60 => (Instruction::RTS, AddressingMode::Implied),
+            // SBC
+            0xE9 => (Instruction::SBC, AddressingMode::Immediate),
+            0xE5 => (Instruction::SBC, AddressingMode::ZeroPage),
+            0xF5 => (Instruction::SBC, AddressingMode::ZeroPageX),
+            0xED => (Instruction::SBC, AddressingMode::Absolute),
+            0xFD => (Instruction::SBC, AddressingMode::AbsoluteX),
+            0xF9 => (Instruction::SBC, AddressingMode::AbsoluteY),
+            0xE1 => (Instruction::SBC, AddressingMode::IndexedIndirect),
+            0xF1 => (Instruction::SBC, AddressingMode::IndirectIndexed),
+
 
             _ => {
                 panic!("Invalid opcode: {opcode}", opcode=opcode);
@@ -715,6 +726,31 @@ impl Cpu {
         }
 
         self.pc = Wrapping(self.pull16(io));
+
+        true
+    }
+
+    fn sbc(&mut self, io: &mut dyn IoAccess) -> bool {
+        // TODO: Better way to do this?
+        let m = Wrapping(self.read_bus(io));
+        let c = Wrapping(self.get_carry());
+        let a = Wrapping(self.a);
+
+        let carry_from_bit6 = bit_is_set!(a.0, 6) && bit_is_set!(m.0, 6);
+        let bit7_a = bit_is_set!(a.0, 7);
+        let bit7_m = bit_is_set!(m.0, 7);
+
+        let v = (!bit7_a && !bit7_m && carry_from_bit6) || (bit7_a && bit7_m && !carry_from_bit6);
+        let new_c = {
+            (carry_from_bit6 as u8) + (bit7_a as u8) + (bit7_m as u8) > 2
+        };
+
+        self.a = (a - m - (Wrapping(1u8) - c)).0;
+
+        self.set_zero_flag(self.a);
+        self.set_negative_flag(self.a);
+        self.set_flag_bit(Flags::Overflow, v);
+        self.set_flag_bit(Flags::Carry, new_c);
 
         true
     }
@@ -2015,6 +2051,22 @@ mod tests {
         simple_test_base(&mut cpu, prg, 7);
 
         assert_eq!(cpu.pc.0, 0xDEAD);
+    }
+
+    #[test]
+    fn sbc() {
+        // TODO: This test could be better...
+        let mut cpu = Cpu::new();
+        cpu.a = 0x01;
+
+        let prg = vec![
+            0xE9, 0x01, // SBC $01
+        ];
+
+        simple_test_base(&mut cpu, prg, 3);
+
+        assert_eq!(cpu.a, 0xFF);
+        assert_eq!(cpu.get_flag_bit(Flags::Zero), true);
     }
 
     #[test]
