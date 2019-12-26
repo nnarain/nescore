@@ -152,6 +152,9 @@ impl Cpu {
                         Instruction::JSR => self.jsr(io, *cycle),
                         Instruction::RTS => self.rts(io, *cycle),
                         Instruction::SBC => self.sbc(io),
+                        Instruction::SEC => self.sec(),
+                        Instruction::SED => self.sed(),
+                        Instruction::SEI => self.sei(),
 
                         _ => panic!("incomplete")
                     }
@@ -358,7 +361,12 @@ impl Cpu {
             0xF9 => (Instruction::SBC, AddressingMode::AbsoluteY),
             0xE1 => (Instruction::SBC, AddressingMode::IndexedIndirect),
             0xF1 => (Instruction::SBC, AddressingMode::IndirectIndexed),
-
+            // SEC
+            0x38 => (Instruction::SEC, AddressingMode::Implied),
+            // SED
+            0xF8 => (Instruction::SED, AddressingMode::Implied),
+            // SEI
+            0x78 => (Instruction::SEI, AddressingMode::Implied),
 
             _ => {
                 panic!("Invalid opcode: {opcode}", opcode=opcode);
@@ -752,6 +760,21 @@ impl Cpu {
         self.set_flag_bit(Flags::Overflow, v);
         self.set_flag_bit(Flags::Carry, new_c);
 
+        true
+    }
+
+    fn sec(&mut self) -> bool {
+        self.set_flag_bit(Flags::Carry, true);
+        true
+    }
+
+    fn sed(&mut self) -> bool {
+        self.set_flag_bit(Flags::Decimal, true);
+        true
+    }
+
+    fn sei(&mut self) -> bool {
+        self.set_flag_bit(Flags::InterruptDisable, true);
         true
     }
 
@@ -1713,7 +1736,7 @@ mod tests {
     }
 
     #[test]
-    fn clear_instructions() {
+    fn clear_flags_instructions() {
         let mut cpu = Cpu::new();
         mask_set!(cpu.p, Flags::Carry as u8);
         mask_set!(cpu.p, Flags::Decimal as u8);
@@ -1733,6 +1756,27 @@ mod tests {
         assert_eq!(cpu.get_flag_bit(Flags::Decimal), false);
         assert_eq!(cpu.get_flag_bit(Flags::InterruptDisable), false);
         assert_eq!(cpu.get_flag_bit(Flags::Overflow), false);
+    }
+
+    #[test]
+    fn set_flags_instructions() {
+        let mut cpu = Cpu::new();
+        mask_clear!(cpu.p, Flags::Carry as u8);
+        mask_clear!(cpu.p, Flags::Decimal as u8);
+        mask_clear!(cpu.p, Flags::InterruptDisable as u8);
+        mask_clear!(cpu.p, Flags::Overflow as u8);
+
+        let prg = vec![
+            0x38, // SEC
+            0xF8, // SED
+            0x78, // SEI
+        ];
+
+        simple_test_base(&mut cpu, prg, 6);
+
+        assert_eq!(cpu.get_flag_bit(Flags::Carry), true);
+        assert_eq!(cpu.get_flag_bit(Flags::Decimal), true);
+        assert_eq!(cpu.get_flag_bit(Flags::InterruptDisable), true);
     }
 
     #[test]
@@ -2066,7 +2110,6 @@ mod tests {
         simple_test_base(&mut cpu, prg, 3);
 
         assert_eq!(cpu.a, 0xFF);
-        assert_eq!(cpu.get_flag_bit(Flags::Zero), true);
     }
 
     #[test]
