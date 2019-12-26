@@ -155,6 +155,8 @@ impl Cpu {
                         Instruction::SEC => self.sec(),
                         Instruction::SED => self.sed(),
                         Instruction::SEI => self.sei(),
+                        Instruction::STX => self.stx(io),
+                        Instruction::STY => self.sty(io),
 
                         _ => panic!("incomplete")
                     }
@@ -367,6 +369,14 @@ impl Cpu {
             0xF8 => (Instruction::SED, AddressingMode::Implied),
             // SEI
             0x78 => (Instruction::SEI, AddressingMode::Implied),
+            // STX
+            0x86 => (Instruction::STX, AddressingMode::ZeroPage),
+            0x96 => (Instruction::STX, AddressingMode::ZeroPageY),
+            0x8E => (Instruction::STX, AddressingMode::Absolute),
+            // STY
+            0x84 => (Instruction::STY, AddressingMode::ZeroPage),
+            0x94 => (Instruction::STY, AddressingMode::ZeroPageX),
+            0x8C => (Instruction::STY, AddressingMode::Absolute),
 
             _ => {
                 panic!("Invalid opcode: {opcode}", opcode=opcode);
@@ -777,6 +787,17 @@ impl Cpu {
         self.set_flag_bit(Flags::InterruptDisable, true);
         true
     }
+
+    fn stx(&mut self, io: &mut dyn IoAccess) -> bool {
+        self.write_bus(io, self.x);
+        true
+    }
+
+    fn sty(&mut self, io: &mut dyn IoAccess) -> bool {
+        self.write_bus(io, self.y);
+        true
+    }
+
 
     //------------------------------------------------------------------------------------------------------------------
     // Addressing Modes
@@ -2127,6 +2148,35 @@ mod tests {
 
         assert_eq!(cpu.sp, 0x0A);
         assert_eq!(cpu.pc.0, 0xDEAD);
+    }
+
+    #[test]
+    fn stx() {
+        let mut cpu = Cpu::new();
+        cpu.x = 0xA5;
+
+        let prg = vec![
+            0x86, 0x02, // STX $02
+        ];
+
+        simple_test_base(&mut cpu, prg, 3);
+
+        assert_eq!(cpu.ram[0x02], 0xA5);
+    }
+
+    #[test]
+    fn sty() {
+        // TODO: This test could be better...
+        let mut cpu = Cpu::new();
+        cpu.y = 0xA5;
+
+        let prg = vec![
+            0x84, 0x02, // STY $02
+        ];
+
+        simple_test_base(&mut cpu, prg, 3);
+
+        assert_eq!(cpu.ram[0x02], 0xA5);
     }
 
     ///-----------------------------------------------------------------------------------------------------------------
