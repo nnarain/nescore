@@ -1,10 +1,13 @@
 ///
-/// nescore
-/// 
+/// nescore/lib.rs
+///
 /// @author Natesh Narain <nnaraindev@gmail.com>
-/// 
+///
 
 // nescore submodules
+
+#[macro_use] mod bit;
+
 mod io;
 mod clk;
 mod cpu;
@@ -44,7 +47,7 @@ impl Nes {
 
     /// Run the emulator for a single frame
     pub fn emulate_frame(&mut self) {
-        if let Some(ref mapper) = self.mapper {
+        if let Some(ref _mapper) = self.mapper {
             // TODO: Iterate for number of cycles to produce a frame. Simulate component clocks
             // TODO: Mapper as part of the CPU IO interface
             // TODO: Send audio and video data back to host
