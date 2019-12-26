@@ -21,6 +21,7 @@ enum Flags {
     Zero             = 1 << 1,
     InterruptDisable = 1 << 2,
     Decimal          = 1 << 3,
+    Break            = 3 << 4,
     Overflow         = 1 << 6,
     Negative         = 1 << 7,
 }
@@ -163,6 +164,7 @@ impl Cpu {
                         Instruction::TXA => self.txa(),
                         Instruction::TXS => self.txs(),
                         Instruction::TYA => self.tya(),
+                        Instruction::BRK => self.brk(io),
 
                         _ => panic!("incomplete")
                     }
@@ -395,6 +397,8 @@ impl Cpu {
             0x9A => (Instruction::TXS, AddressingMode::Implied),
             // TYA
             0x98 => (Instruction::TYA, AddressingMode::Implied),
+            // BRK
+            0x00 => (Instruction::BRK, AddressingMode::Implied),
 
             _ => {
                 panic!("Invalid opcode: {opcode}", opcode=opcode);
@@ -853,6 +857,14 @@ impl Cpu {
         self.a = self.y;
         self.set_negative_flag(self.a);
         self.set_zero_flag(self.a);
+        true
+    }
+
+    fn brk(&mut self, io: &mut dyn IoAccess) -> bool {
+        self.push16(io, self.pc.0);
+
+        self.set_flag_bit(Flags::Break, true);
+        self.push(io, self.p);
         true
     }
 
@@ -2320,6 +2332,11 @@ mod tests {
         simple_test_base(&mut cpu, prg, 3);
 
         assert_eq!(cpu.ram[0x02], 0xA5);
+    }
+
+    #[test]
+    fn brk() {
+        // TODO: Test the BRK instruction
     }
 
     ///-----------------------------------------------------------------------------------------------------------------
