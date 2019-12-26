@@ -157,6 +157,12 @@ impl Cpu {
                         Instruction::SEI => self.sei(),
                         Instruction::STX => self.stx(io),
                         Instruction::STY => self.sty(io),
+                        Instruction::TAX => self.tax(),
+                        Instruction::TAY => self.tay(),
+                        Instruction::TSX => self.tsx(),
+                        Instruction::TXA => self.txa(),
+                        Instruction::TXS => self.txs(),
+                        Instruction::TYA => self.tya(),
 
                         _ => panic!("incomplete")
                     }
@@ -377,6 +383,18 @@ impl Cpu {
             0x84 => (Instruction::STY, AddressingMode::ZeroPage),
             0x94 => (Instruction::STY, AddressingMode::ZeroPageX),
             0x8C => (Instruction::STY, AddressingMode::Absolute),
+            // TAX
+            0xAA => (Instruction::TAX, AddressingMode::Implied),
+            // TAY
+            0xA8 => (Instruction::TAY, AddressingMode::Implied),
+            // TSX
+            0xBA => (Instruction::TSX, AddressingMode::Implied),
+            // TXA
+            0x8A => (Instruction::TXA, AddressingMode::Implied),
+            // TXS
+            0x9A => (Instruction::TXS, AddressingMode::Implied),
+            // TYA
+            0x98 => (Instruction::TYA, AddressingMode::Implied),
 
             _ => {
                 panic!("Invalid opcode: {opcode}", opcode=opcode);
@@ -798,6 +816,45 @@ impl Cpu {
         true
     }
 
+    fn tax(&mut self) -> bool {
+        self.x = self.a;
+        self.set_zero_flag(self.x);
+        self.set_negative_flag(self.x);
+        true
+    }
+
+    fn tay(&mut self) -> bool {
+        self.y = self.a;
+        self.set_zero_flag(self.y);
+        self.set_negative_flag(self.y);
+        true
+    }
+
+    fn tsx(&mut self) -> bool {
+        self.x = self.sp as u8;
+        self.set_zero_flag(self.x);
+        self.set_negative_flag(self.x);
+        true
+    }
+
+    fn txa(&mut self) -> bool {
+        self.a = self.x;
+        self.set_negative_flag(self.a);
+        self.set_zero_flag(self.a);
+        true
+    }
+
+    fn txs(&mut self) -> bool {
+        self.sp = self.x as u16;
+        true
+    }
+
+    fn tya(&mut self) -> bool {
+        self.a = self.y;
+        self.set_negative_flag(self.a);
+        self.set_zero_flag(self.a);
+        true
+    }
 
     //------------------------------------------------------------------------------------------------------------------
     // Addressing Modes
@@ -2162,6 +2219,92 @@ mod tests {
         simple_test_base(&mut cpu, prg, 3);
 
         assert_eq!(cpu.ram[0x02], 0xA5);
+    }
+
+    #[test]
+    fn tax() {
+        let mut cpu = Cpu::new();
+        cpu.a = 0xA5;
+
+        let prg = vec![
+            0xAA, // TAX
+        ];
+
+        simple_test_base(&mut cpu, prg, 2);
+
+        assert_eq!(cpu.x, 0xA5);
+    }
+
+    
+    #[test]
+    fn tay() {
+        let mut cpu = Cpu::new();
+        cpu.a = 0xA5;
+
+        let prg = vec![
+            0xA8, // TAY
+        ];
+
+        simple_test_base(&mut cpu, prg, 2);
+
+        assert_eq!(cpu.y, 0xA5);
+    }
+
+    
+    #[test]
+    fn tsx() {
+        let mut cpu = Cpu::new();
+        cpu.sp = 0xA5;
+
+        let prg = vec![
+            0xBA, // TSX
+        ];
+
+        simple_test_base(&mut cpu, prg, 2);
+
+        assert_eq!(cpu.x, 0xA5);
+    }
+
+    #[test]
+    fn txa() {
+        let mut cpu = Cpu::new();
+        cpu.x = 0xA5;
+
+        let prg = vec![
+            0x8A, // TXA
+        ];
+
+        simple_test_base(&mut cpu, prg, 2);
+
+        assert_eq!(cpu.a, 0xA5);
+    }
+
+    #[test]
+    fn txs() {
+        let mut cpu = Cpu::new();
+        cpu.x = 0xA5;
+
+        let prg = vec![
+            0x9A, // TXS
+        ];
+
+        simple_test_base(&mut cpu, prg, 2);
+
+        assert_eq!(cpu.sp, 0xA5);
+    }
+
+    #[test]
+    fn tya() {
+        let mut cpu = Cpu::new();
+        cpu.y = 0xA5;
+
+        let prg = vec![
+            0x98, // TYA
+        ];
+
+        simple_test_base(&mut cpu, prg, 2);
+
+        assert_eq!(cpu.a, 0xA5);
     }
 
     #[test]
