@@ -30,17 +30,29 @@
 // http://tuxnes.sourceforge.net/mappers-0.80.txt
 
 use super::MapperControl;
-use crate::cart::Cartridge;
+use super::mem::Memory;
+use crate::cart::{Cartridge, PRG_ROM_BANK_SIZE};
+
+use crate::cpu::memorymap;
 
 
 /// UNROM Mapper
 pub struct Unrom {
+    prg_rom: Memory,
+    prg_ram: [u8; 0x2000],
+    chr_ram: Memory,
     rom_bank_selection: usize, // Select ROM bank
 }
 
 impl Unrom {
     pub fn from(cart: Cartridge) -> Self {
+        // Extract info and ROM data, VROM is unused
+        let (info, prg_rom, _) = cart.to_parts();
+
         Unrom{
+            prg_rom: Memory::new(prg_rom, info.prg_rom_banks, PRG_ROM_BANK_SIZE),
+            prg_ram: [0; 0x2000],
+            chr_ram: Memory::new(vec![0; 8 * 1024], 1, 8 * 1024),
             rom_bank_selection: 0,
         }
     }
@@ -48,11 +60,25 @@ impl Unrom {
 
 impl MapperControl for Unrom {
     fn read(&self, addr: u16) -> u8 {
-        0
+        match addr {
+            0x6000..=0x7FFF => {
+                self.prg_ram[(addr - 0x6000u16) as usize]
+            },
+            0x8000..=0xBFFF => {
+                self.prg_rom.read(self.rom_bank_selection, (addr - 0x8000) as usize)
+            },
+            0xC000..=0xFFFF => {
+                self.prg_rom.read_last((addr - 0x8000) as usize)
+            }
+            _ => { 0 }
+        }
     }
 
     fn write(&mut self, addr: u16, data: u8) {
         match addr {
+            0x6000..=0x7FFF => {
+                self.prg_ram[(addr - 0x6000) as usize] = data;
+            },
             0x8000..=0xFFFF => {
                 self.rom_bank_selection = data as usize;
             },
@@ -65,5 +91,26 @@ impl MapperControl for Unrom {
 
 #[cfg(test)]
 mod tests {
-    
+    use super::*;
+
+    #[test]
+    fn bank_select() {
+        let mut data = vec![0; 20];
+        data[10] = 0xDE;
+
+        let mut unrom = init_unrom(data, 2, 10);
+        // Select ROM bank 1
+        unrom.write(0x8000, 1);
+
+        assert_eq!(unrom.read(0x8000), 0xDE);
+    }
+
+    fn init_unrom(data: Vec<u8>, banks: usize, bank_size: usize) -> Unrom {
+        Unrom {
+            prg_rom: Memory::new(data, banks, bank_size),
+            prg_ram: [0; 0x2000],
+            chr_ram: Memory::new(vec![0; 20], 2, 10),
+            rom_bank_selection: 0,
+        }
+    }
 }

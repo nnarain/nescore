@@ -8,8 +8,8 @@
 use std::fmt;
 
 const KILO_BYTES: usize = 1024;
-const PRG_ROM_BANK_SIZE: usize = (16 * KILO_BYTES);
-const CHR_ROM_BANK_SIZE: usize = (8 * KILO_BYTES);
+pub const PRG_ROM_BANK_SIZE: usize = (16 * KILO_BYTES);
+pub const CHR_ROM_BANK_SIZE: usize = (8 * KILO_BYTES);
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Format {
@@ -112,6 +112,11 @@ impl Cartridge {
             prg_rom: prg_rom.to_vec(),
             chr_rom: chr_rom.to_vec(),
         }
+    }
+
+    /// Comsume the cartridge and return the info, program ROM and character ROM
+    pub fn to_parts(self) -> (CartridgeInfo, Vec<u8>, Vec<u8>) {
+        (self.info, self.prg_rom, self.chr_rom)
     }
 }
 

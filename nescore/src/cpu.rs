@@ -5,8 +5,9 @@
 // @date Sep 18 2019
 //
 pub mod bus;
+pub mod memorymap;
+
 mod state;
-mod memorymap;
 
 use crate::io::IoAccess;
 use crate::clk::Clockable;
