@@ -5,7 +5,12 @@
 // @date Dec 27 2019
 //
 
-// TODO: Macros for bank sizes.
+#[macro_export]
+macro_rules! kb {
+    ($x:expr) => {
+        $x * 1024
+    };
+}
 
 /// Representation of a memory block in the mapper
 pub struct Memory {
@@ -23,22 +28,33 @@ impl Memory {
         }
     }
 
+    /// Read from memory
     pub fn read(&self, bank: usize, index: usize) -> u8 {
-        assert!(bank < self.num_banks);
-
         let bank_offset = self.get_bank_offset(bank);
         self.mem[bank_offset + index]
     }
 
+    /// Explicity read from the first bank of memory
+    pub fn read_first(&self, index: usize) -> u8 {
+        self.read(0, index)
+    }
+
+    /// Explicitly read from the last bank of memory
     pub fn read_last(&self, index: usize) -> u8 {
         self.read(self.num_banks - 1, index)
     }
 
     pub fn write(&mut self, bank: usize, index: usize, data: u8) {
-        assert!(bank < self.num_banks);
-
         let bank_offset = self.get_bank_offset(bank);
         self.mem[bank_offset + index] = data;
+    }
+
+    pub fn size(&self) -> usize {
+        self.mem.len()
+    }
+
+    pub fn set_bank_size(&mut self, new_size: usize) {
+        self.bank_size = new_size;
     }
 
     fn get_bank_offset(&self, bank_num: usize) -> usize {
