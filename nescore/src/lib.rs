@@ -28,6 +28,9 @@ use mapper::Mapper;
 
 use clk::Clockable;
 
+// CPU Cycles in a frame: (256x240) - resolution, 1 px per PPU tick. 1 CPU tick for 3 PPU ticks
+const CPU_CYCLES_PER_FRAME: usize = (256 * 240) / 3;
+
 /// Representation of the NES system
 pub struct Nes {
     cpu: Cpu,              // NES CPU
@@ -47,12 +50,19 @@ impl Nes {
 
     /// Run the emulator for a single frame
     pub fn emulate_frame(&mut self) {
-        if let Some(ref _mapper) = self.mapper {
-            // TODO: Iterate for number of cycles to produce a frame. Simulate component clocks
-            // TODO: Mapper as part of the CPU IO interface
+        if let Some(ref mut mapper) = self.mapper {
             // TODO: Send audio and video data back to host
-            let mut cpu_io_bus = CpuIoBus::new(&mut self.ppu);
-            self.cpu.tick(&mut cpu_io_bus);
+            let mut cpu_io_bus = CpuIoBus::new(&mut self.ppu, mapper);
+
+            // Clock the CPU
+            for _ in 0..CPU_CYCLES_PER_FRAME {
+                self.cpu.tick(&mut cpu_io_bus);
+
+                // TODO: Clock PPU
+                // self.ppu.tick(&mut ppu_io_bus)
+                // self.ppu.tick(&mut ppu_io_bus)
+                // self.ppu.tick(&mut ppu_io_bus)
+            }
         }
     }
 
