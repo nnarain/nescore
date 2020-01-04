@@ -7,6 +7,10 @@
 
 use std::fmt;
 
+use std::io;
+use std::io::prelude::*;
+use std::fs::File;
+
 const KILO_BYTES: usize = 1024;
 pub const PRG_ROM_BANK_SIZE: usize = (16 * KILO_BYTES);
 pub const CHR_ROM_BANK_SIZE: usize = (8 * KILO_BYTES);
@@ -24,6 +28,29 @@ impl fmt::Display for Format {
             Format::NES2 => write!(f, "NES2"),
         }
     }
+}
+
+pub enum ParseError {
+    InvalidSize(usize),
+    InvalidSig,
+    InvalidFormat
+}
+
+impl fmt::Debug for ParseError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            ParseError::InvalidSig     => write!(f, "Invalid signature at start of file. Expected `NES`. Not an NES ROM"),
+            ParseError::InvalidSize(s) => write!(f, "Not enough data to parse header (Size: {})", s),
+            ParseError::InvalidFormat  => write!(f, "The detected header is not valid")
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum CartridgeError {
+    FailedToOpen(io::Error),
+    FailedToLoad(io::Error),
+    InvalidRom(ParseError),
 }
 
 #[derive(Debug)]
@@ -51,7 +78,7 @@ pub struct CartridgeInfo {
 }
 
 impl CartridgeInfo {
-    pub fn from(rom: &[u8]) -> Result<Self, ParseError> {
+    pub fn from(rom: &[u8]) -> Result<Self, CartridgeError> {
         parse_header(rom)
     }
 }
@@ -65,7 +92,7 @@ impl fmt::Display for CartridgeInfo {
             String::from("Horizontal")
         };
 
-        write!(f, 
+        write!(f,
         "
         Format:              {}
         PRG ROM Banks:       {}
@@ -89,28 +116,44 @@ pub struct Cartridge {
 // TODO: Handling Result for failed ROM loading
 
 impl Cartridge {
-    pub fn from(rom: Vec<u8>) -> Cartridge {
-        // TODO: Error handling for cartridge loading
-        let info = CartridgeInfo::from(rom.as_slice()).unwrap();
+    pub fn from(rom: Vec<u8>) -> Result<Cartridge, CartridgeError> {
+        CartridgeInfo::from(rom.as_slice()).and_then(|info| {
+            // Determine the number of bytes for PRG ROM and CHR ROM
+            let prg_rom_size = info.prg_rom_banks * PRG_ROM_BANK_SIZE;
+            let chr_rom_size = info.chr_rom_banks * CHR_ROM_BANK_SIZE;
 
-        // Determine the number of bytes for PRG ROM and CHR ROM
-        let prg_rom_size = info.prg_rom_banks * PRG_ROM_BANK_SIZE;
-        let chr_rom_size = info.chr_rom_banks * CHR_ROM_BANK_SIZE;
+            // Determine offset of the PRG ROM in the buffer
+            let header_bytes = 16;
+            let trainer_bytes = if info.trainer { 512 } else { 0 };
+            let prg_rom_offset = header_bytes + trainer_bytes;
 
-        // Determine offset of the PRG ROM in the buffer
-        let header_bytes = 16;
-        let trainer_bytes = if info.trainer { 512 } else { 0 };
-        let prg_rom_offset = header_bytes + trainer_bytes;
+            // Get a slice for the program ROM
+            let prg_rom = &rom[prg_rom_offset..prg_rom_offset+prg_rom_size];
+            // Get a slice for the character ROM
+            let chr_rom = &rom[(prg_rom_offset+prg_rom_size)..(prg_rom_offset+prg_rom_size+chr_rom_size)];
 
-        // Get a slice for the program ROM
-        let prg_rom = &rom[prg_rom_offset..prg_rom_offset+prg_rom_size];
-        // Get a slice for the character ROM
-        let chr_rom = &rom[(prg_rom_offset+prg_rom_size)..(prg_rom_offset+prg_rom_size+chr_rom_size)];
 
-        Cartridge {
-            info: info,
-            prg_rom: prg_rom.to_vec(),
-            chr_rom: chr_rom.to_vec(),
+            Ok(Cartridge {
+                info: info,
+                prg_rom: prg_rom.to_vec(),
+                chr_rom: chr_rom.to_vec(),
+            })
+        })
+    }
+
+    pub fn from_path(path: &str) -> Result<Cartridge, CartridgeError> {
+        match File::open(path) {
+            Ok(ref mut file) => {
+                let mut buffer: Vec<u8> = Vec::new();
+
+                match file.read_to_end(&mut buffer) {
+                    Ok(_) => Cartridge::from(buffer),
+                    Err(e) => Err(CartridgeError::FailedToLoad(e)),
+                }
+            },
+            Err(e) => {
+                Err(CartridgeError::FailedToOpen(e))
+            }
         }
     }
 
@@ -129,37 +172,21 @@ impl Cartridge {
     }
 }
 
-pub enum ParseError {
-    InvalidSize(usize),
-    InvalidSig,
-    InvalidFormat
-}
-
-impl fmt::Debug for ParseError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            ParseError::InvalidSig     => write!(f, "Invalid signature at start of file. Expected `NES`. Not an NES ROM"),
-            ParseError::InvalidSize(s) => write!(f, "Not enough data to parse header (Size: {})", s),
-            ParseError::InvalidFormat  => write!(f, "The detected header is not valid")
-        }
-    }
-}
-
 // Parse NES ROM header
-fn parse_header(rom_header: &[u8]) -> Result<CartridgeInfo, ParseError> {
+fn parse_header(rom_header: &[u8]) -> Result<CartridgeInfo, CartridgeError> {
     if rom_header.len() < 16 {
-        return Err(ParseError::InvalidSize(rom_header.len()))
+        return Err(CartridgeError::InvalidRom(ParseError::InvalidSize(rom_header.len())))
     }
 
     if !verify_signature(&rom_header[0..4]) {
-        return Err(ParseError::InvalidSig)
+        return Err(CartridgeError::InvalidRom(ParseError::InvalidSig))
     }
 
     get_rom_info(rom_header)
 }
 
 /// Pull rom info from header
-fn get_rom_info(rom_header: &[u8]) -> Result<CartridgeInfo, ParseError> {
+fn get_rom_info(rom_header: &[u8]) -> Result<CartridgeInfo, CartridgeError> {
 
     let format = match get_format(rom_header) {
         Ok(f) => f,
@@ -279,7 +306,7 @@ fn get_info_nes2(rom_header: &[u8], info: &mut CartridgeInfo) {
 }
 
 /// Get the NES ROM format
-fn get_format(rom_header: &[u8]) -> Result<Format, ParseError> {
+fn get_format(rom_header: &[u8]) -> Result<Format, CartridgeError> {
     let flag7 = rom_header[7];
 
     if (flag7 & 0x0Cu8) == 0x08u8 {
@@ -293,7 +320,7 @@ fn get_format(rom_header: &[u8]) -> Result<Format, ParseError> {
             return Ok(Format::INES);
         }
         else {
-            return Err(ParseError::InvalidFormat)
+            return Err(CartridgeError::InvalidRom(ParseError::InvalidFormat))
         }
     }
 }
@@ -420,7 +447,7 @@ mod tests {
 
         let rom = [&header[..], &prg_rom[..], &chr_rom[..]].concat();
 
-        let cart = Cartridge::from(rom);
+        let cart = Cartridge::from(rom).unwrap();
 
         assert_eq!(cart.prg_rom.len(), PRG_ROM_SIZE);
         assert_eq!(cart.prg_rom[0x00], 0xDE);

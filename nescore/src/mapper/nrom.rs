@@ -79,7 +79,7 @@ mod tests {
 
         let rom = [&header[..], &prg_rom[..], &chr_rom[..]].concat();
 
-        let cart = Cartridge::from(rom);
+        let cart = Cartridge::from(rom).unwrap();
 
         let nrom = Nrom::from(cart);
 
@@ -98,7 +98,7 @@ mod tests {
 
         let rom = [&header[..], &prg_rom[..], &chr_rom[..]].concat();
 
-        let cart = Cartridge::from(rom);
+        let cart = Cartridge::from(rom).unwrap();
 
         let nrom = Nrom::from(cart);
 
