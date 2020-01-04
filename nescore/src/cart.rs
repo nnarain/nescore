@@ -114,6 +114,15 @@ impl Cartridge {
         }
     }
 
+    /// Construct a Cartridge from parts
+    pub fn from_parts(info: CartridgeInfo, prg_rom: Vec<u8>, chr_rom: Vec<u8>) -> Self {
+        Cartridge {
+            info: info,
+            prg_rom: prg_rom,
+            chr_rom: chr_rom,
+        }
+    }
+
     /// Comsume the cartridge and return the info, program ROM and character ROM
     pub fn to_parts(self) -> (CartridgeInfo, Vec<u8>, Vec<u8>) {
         (self.info, self.prg_rom, self.chr_rom)

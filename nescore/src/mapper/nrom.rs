@@ -7,7 +7,7 @@
 
 
 use super::MapperControl;
-use crate::Cartridge;
+use crate::cart::{Cartridge, CartridgeInfo};
 
 use super::mem::Memory;
 
@@ -60,5 +60,66 @@ impl MapperControl for Nrom {
                 // No internal registers :O
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn read_first_bank() {
+        let header = init_header(1, 1);
+        let mut prg_rom = [0u8; kb!(16)];
+        let chr_rom = [0u8; kb!(8)];
+
+        // Put markers in the PRG and CHR ROM data to identify the blocks after loading the cartridge
+        prg_rom[0x00] = 0xDE;
+        prg_rom[prg_rom.len()-1] = 0xAD;
+
+        let rom = [&header[..], &prg_rom[..], &chr_rom[..]].concat();
+
+        let cart = Cartridge::from(rom);
+
+        let nrom = Nrom::from(cart);
+
+        assert_eq!(nrom.read(0x8000), 0xDE);
+    }
+
+    #[test]
+    fn read_mirrored() {
+        let header = init_header(1, 1);
+        let mut prg_rom = [0u8; kb!(16)];
+        let chr_rom = [0u8; kb!(8)];
+
+        // Put markers in the PRG and CHR ROM data to identify the blocks after loading the cartridge
+        prg_rom[0x00] = 0xDE;
+        prg_rom[prg_rom.len()-1] = 0xAD;
+
+        let rom = [&header[..], &prg_rom[..], &chr_rom[..]].concat();
+
+        let cart = Cartridge::from(rom);
+
+        let nrom = Nrom::from(cart);
+
+        assert_eq!(nrom.read(0xC000), 0xDE);
+    }
+
+    fn init_header(num_prg_banks: u8, num_chr_banks: u8) -> [u8; 16] {
+        [
+            0x4E, 0x45, 0x53, 0x1A, // NES<EOF>
+            num_prg_banks,                   // PRG ROM
+            num_chr_banks,                   // CHR ROM
+            0x00,                   // Flag 6
+            0x00,                   // Flag 7
+            0x00,                   // Flag 8
+            0x00,                   // Flag 9
+            0x00,                   // Flag 10
+            0x00,                   // Flag 11
+            0x00,                   // Flag 12
+            0x00,                   // Flag 13
+            0x00,                   // Flag 14
+            0x00,                   // Flag 15
+        ]
     }
 }
