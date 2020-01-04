@@ -7,15 +7,9 @@
 
 use std::fmt;
 
-pub struct Cartridge {
-    info: CartridgeInfo
-}
-
-// TODO: Handling Result for failed ROM loading
-
-impl Cartridge {
-
-}
+const KILO_BYTES: usize = 1024;
+pub const PRG_ROM_BANK_SIZE: usize = (16 * KILO_BYTES);
+pub const CHR_ROM_BANK_SIZE: usize = (8 * KILO_BYTES);
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Format {
@@ -86,6 +80,55 @@ impl fmt::Display for CartridgeInfo {
     }
 }
 
+pub struct Cartridge {
+    pub info: CartridgeInfo,
+    prg_rom: Vec<u8>,
+    chr_rom: Vec<u8>,
+}
+
+// TODO: Handling Result for failed ROM loading
+
+impl Cartridge {
+    pub fn from(rom: Vec<u8>) -> Cartridge {
+        // TODO: Error handling for cartridge loading
+        let info = CartridgeInfo::from(rom.as_slice()).unwrap();
+
+        // Determine the number of bytes for PRG ROM and CHR ROM
+        let prg_rom_size = info.prg_rom_banks * PRG_ROM_BANK_SIZE;
+        let chr_rom_size = info.chr_rom_banks * CHR_ROM_BANK_SIZE;
+
+        // Determine offset of the PRG ROM in the buffer
+        let header_bytes = 16;
+        let trainer_bytes = if info.trainer { 512 } else { 0 };
+        let prg_rom_offset = header_bytes + trainer_bytes;
+
+        // Get a slice for the program ROM
+        let prg_rom = &rom[prg_rom_offset..prg_rom_offset+prg_rom_size];
+        // Get a slice for the character ROM
+        let chr_rom = &rom[(prg_rom_offset+prg_rom_size)..(prg_rom_offset+prg_rom_size+chr_rom_size)];
+
+        Cartridge {
+            info: info,
+            prg_rom: prg_rom.to_vec(),
+            chr_rom: chr_rom.to_vec(),
+        }
+    }
+
+    /// Construct a Cartridge from parts
+    pub fn from_parts(info: CartridgeInfo, prg_rom: Vec<u8>, chr_rom: Vec<u8>) -> Self {
+        Cartridge {
+            info: info,
+            prg_rom: prg_rom,
+            chr_rom: chr_rom,
+        }
+    }
+
+    /// Comsume the cartridge and return the info, program ROM and character ROM
+    pub fn to_parts(self) -> (CartridgeInfo, Vec<u8>, Vec<u8>) {
+        (self.info, self.prg_rom, self.chr_rom)
+    }
+}
+
 pub enum ParseError {
     InvalidSize(usize),
     InvalidSig,
@@ -95,9 +138,9 @@ pub enum ParseError {
 impl fmt::Debug for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            ParseError::InvalidSig =>     write!(f, "Invalid signature at start of file. Expected `NES`. Not an NES ROM"),
+            ParseError::InvalidSig     => write!(f, "Invalid signature at start of file. Expected `NES`. Not an NES ROM"),
             ParseError::InvalidSize(s) => write!(f, "Not enough data to parse header (Size: {})", s),
-            ParseError::InvalidFormat =>  write!(f, "The detected header is not valid")
+            ParseError::InvalidFormat  => write!(f, "The detected header is not valid")
         }
     }
 }
@@ -267,8 +310,8 @@ mod tests {
     fn init_header() -> [u8; 16] {
         [
             0x4E, 0x45, 0x53, 0x1A, // NES<EOF>
-            0x00,                   // PRG ROM
-            0x00,                   // CHR ROM
+            0x0F,                   // PRG ROM
+            0x0F,                   // CHR ROM
             0x00,                   // Flag 6
             0x00,                   // Flag 7
             0x00,                   // Flag 8
@@ -284,7 +327,7 @@ mod tests {
 
     #[test]
     #[should_panic]
-    fn test_invalid_format() {
+    fn invalid_format() {
         let mut header = init_header();
         header[12] = 1;
 
@@ -293,20 +336,20 @@ mod tests {
 
     #[test]
     #[should_panic]
-    fn test_invalid_sig() {
+    fn invalid_sig() {
         let header: [u8; 16] = [0; 16];
         parse_header(&header[..]).unwrap();
     }
 
     #[test]
     #[should_panic]
-    fn test_not_enough_data() {
+    fn not_enough_data() {
         let header: [u8; 10] = [0; 10];
         parse_header(&header[..]).unwrap();
     }
 
     #[test]
-    fn test_mirroring_vertical() {
+    fn mirroring_vertical() {
         let mut header = init_header();
         header[6] |= 0x01;
 
@@ -315,7 +358,7 @@ mod tests {
     }
 
     #[test]
-    fn test_mirroring_horizontal() {
+    fn mirroring_horizontal() {
         let mut header = init_header();
         header[6] |= 0x00;
 
@@ -324,7 +367,7 @@ mod tests {
     }
 
     #[test]
-    fn test_mapper_number() {
+    fn mapper_number() {
         let mut header = init_header();
         header[7] |= 0xD0;
         header[6] |= 0xE0;
@@ -334,7 +377,7 @@ mod tests {
     }
 
     #[test]
-    fn test_get_format_nes2() {
+    fn get_format_nes2() {
         let mut rom_header = [0; 16];
         rom_header[7] = 0x08u8;
 
@@ -343,12 +386,49 @@ mod tests {
     }
 
     #[test]
-    fn test_get_format_ines() {
+    fn get_format_ines() {
         let mut rom_header = [0; 16];
         rom_header[7] = 0x04u8;
 
         let format = get_format(&rom_header[..]).unwrap();
         assert_eq!(format, Format::INES);
+    }
+
+    #[test]
+    fn number_of_prg_and_chr_rom_banks() {
+        let header = init_header();
+        
+        let info = parse_header(&header[..]).unwrap();
+        assert_eq!(info.prg_rom_banks, 0x0F);
+        assert_eq!(info.chr_rom_banks, 0x0F);
+    }
+
+    #[test]
+    fn load_cart_from_vec() {
+        const PRG_ROM_SIZE: usize = 15 * PRG_ROM_BANK_SIZE;
+        const CHR_ROM_SIZE: usize = 15 * CHR_ROM_BANK_SIZE;
+
+        let header = init_header();
+        let mut prg_rom = [0u8; PRG_ROM_SIZE];
+        let mut chr_rom = [0u8; CHR_ROM_SIZE];
+
+        // Put markers in the PRG and CHR ROM data to identify the blocks after loading the cartridge
+        prg_rom[0x00] = 0xDE;
+        prg_rom[PRG_ROM_SIZE-1] = 0xAD;
+        chr_rom[0x00] = 0xBE;
+        chr_rom[CHR_ROM_SIZE-1] = 0xEF;
+
+        let rom = [&header[..], &prg_rom[..], &chr_rom[..]].concat();
+
+        let cart = Cartridge::from(rom);
+
+        assert_eq!(cart.prg_rom.len(), PRG_ROM_SIZE);
+        assert_eq!(cart.prg_rom[0x00], 0xDE);
+        assert_eq!(cart.prg_rom[PRG_ROM_SIZE-1], 0xAD);
+
+        assert_eq!(cart.chr_rom.len(), CHR_ROM_SIZE);
+        assert_eq!(cart.chr_rom[0x00], 0xBE);
+        assert_eq!(cart.chr_rom[CHR_ROM_SIZE-1], 0xEF);
     }
 }
 
