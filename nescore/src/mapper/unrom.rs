@@ -50,9 +50,9 @@ impl Unrom {
         let (info, prg_rom, _) = cart.to_parts();
 
         Unrom{
-            prg_rom: Memory::new(prg_rom, info.prg_rom_banks, PRG_ROM_BANK_SIZE),
+            prg_rom: Memory::new(prg_rom, PRG_ROM_BANK_SIZE),
             prg_ram: [0; 0x2000],
-            chr_ram: Memory::new(vec![0; 8 * 1024], 1, 8 * 1024),
+            chr_ram: Memory::new(vec![0; 8 * 1024], 8 * 1024),
             rom_bank_selection: 0,
         }
     }
@@ -98,18 +98,18 @@ mod tests {
         let mut data = vec![0; 20];
         data[10] = 0xDE;
 
-        let mut unrom = init_unrom(data, 2, 10);
+        let mut unrom = init_unrom(data, 10);
         // Select ROM bank 1
         unrom.write(0x8000, 1);
 
         assert_eq!(unrom.read(0x8000), 0xDE);
     }
 
-    fn init_unrom(data: Vec<u8>, banks: usize, bank_size: usize) -> Unrom {
+    fn init_unrom(data: Vec<u8>, bank_size: usize) -> Unrom {
         Unrom {
-            prg_rom: Memory::new(data, banks, bank_size),
+            prg_rom: Memory::new(data, bank_size),
             prg_ram: [0; 0x2000],
-            chr_ram: Memory::new(vec![0; 20], 2, 10),
+            chr_ram: Memory::new(vec![0; 20], 10),
             rom_bank_selection: 0,
         }
     }

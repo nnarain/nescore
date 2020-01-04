@@ -20,7 +20,8 @@ pub struct Memory {
 }
 
 impl Memory {
-    pub fn new(mem: Vec<u8>, num_banks: usize, bank_size: usize) -> Self {
+    pub fn new(mem: Vec<u8>, bank_size: usize) -> Self {
+        let num_banks = mem.len() / bank_size;
         Memory {
             mem: mem,
             num_banks: num_banks,
@@ -55,6 +56,7 @@ impl Memory {
 
     pub fn set_bank_size(&mut self, new_size: usize) {
         self.bank_size = new_size;
+        self.num_banks = self.mem.len() / self.bank_size;
     }
 
     fn get_bank_offset(&self, bank_num: usize) -> usize {
@@ -71,7 +73,7 @@ mod tests {
         let mut data = vec![0; 10];
         data[5] = 0xDE;
 
-        let mem = Memory::new(data, 1, 10);
+        let mem = Memory::new(data, 10);
 
         assert_eq!(mem.read(0, 5), 0xDE);
     }
@@ -82,7 +84,7 @@ mod tests {
         let mut data = vec![0; 10];
         data[5] = 0xDE;
 
-        let mem = Memory::new(data, 1, 10);
+        let mem = Memory::new(data, 10);
 
         assert_eq!(mem.read(1, 5), 0xDE);
     }
@@ -92,7 +94,7 @@ mod tests {
         let mut data = vec![0; 20];
         data[10] = 0xDE;
 
-        let mem = Memory::new(data, 2, 10);
+        let mem = Memory::new(data, 10);
 
         assert_eq!(mem.read(1, 0), 0xDE);
     }

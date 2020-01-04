@@ -55,9 +55,9 @@ impl Mmc1 {
         let (info, prg_rom, chr_rom) = cart.to_parts();
 
         Mmc1{
-            prg_rom: Memory::new(prg_rom, info.prg_rom_banks, PRG_ROM_BANK_SIZE),
+            prg_rom: Memory::new(prg_rom, PRG_ROM_BANK_SIZE),
             prg_ram: [0; PRG_RAM_SIZE],
-            chr_rom: Memory::new(chr_rom, info.chr_rom_banks, CHR_ROM_BANK_SIZE),
+            chr_rom: Memory::new(chr_rom, CHR_ROM_BANK_SIZE),
 
             shift_register: SHIFT_REGISTER_INIT_VALUE,
 
