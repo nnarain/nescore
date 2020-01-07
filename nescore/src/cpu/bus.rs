@@ -38,6 +38,11 @@ impl<'a> IoAccess for CpuIoBus<'a> {
     }
 
     fn write_byte(&mut self, addr: u16, data: u8) {
-        // TODO: IO Mapping for CPU
+        match addr {
+            0x2000..=0x2007 | 0x4014 => {
+                self.ppu.write_byte(addr, data);
+            },
+            _ => {}
+        }
     }
 }

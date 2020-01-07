@@ -1136,7 +1136,7 @@ impl Cpu {
         self.pc += Wrapping(1u16);
 
         self.write_u8(io, self.sp, data);
-        self.sp -= 1u16;
+        self.sp = (Wrapping(self.sp) - Wrapping(1u16)).0;
     }
 
     /// Pull a value off the stack
@@ -1144,7 +1144,7 @@ impl Cpu {
         // Read the next instruction byte and throw it away
         self.pc += Wrapping(1u16);
 
-        self.sp += 1u16;
+        self.sp = (Wrapping(self.sp) + Wrapping(1u16)).0;
         let data = self.read_u8(io, self.sp);
 
         data
