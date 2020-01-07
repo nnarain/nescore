@@ -68,6 +68,21 @@ impl Cpu {
         }
     }
 
+    /// Set the CPU's program counter
+    pub fn set_pc(&mut self, pc: u16) {
+        self.pc = Wrapping(pc);
+        // move to fetch state, as we no longer need to read the reset vector
+        self.state = State::Fetch;
+    }
+
+    pub fn get_pc(&self) -> u16 {
+        self.pc.0
+    }
+
+    pub fn read_ram(&self, addr: u16) -> u8 {
+        self.ram[(addr as usize % INTERNAL_RAM_SIZE)]
+    }
+
     /// Execute the current cycle given the internal state
     fn run_cycle(&mut self, io: &mut dyn IoAccess, state: State) -> State {
         match state {
@@ -1203,7 +1218,7 @@ impl Cpu {
 
     fn read_u8(&self, io: &mut dyn IoAccess, addr: u16) -> u8 {
         if (addr as usize) < INTERNAL_RAM_SIZE {
-            self.ram[(addr as usize) % 0x200]
+            self.read_ram(addr)
         }
         else {
             io.read_byte(addr)
