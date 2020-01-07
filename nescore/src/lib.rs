@@ -103,9 +103,9 @@ impl Nes {
         self.cpu.read_ram(addr)
     }
 
-    ///
+    /// Read directly from VRAM
     pub fn read_ppu_memory(&self, addr: u16) -> u8 {
-        0
+        self.ppu.read_direct(addr)
     }
 }
 
