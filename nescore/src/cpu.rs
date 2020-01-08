@@ -64,7 +64,7 @@ impl Cpu {
 
             address_bus: 0,
             pointer_address: 0,
-            addressing_complete: false
+            addressing_complete: false,
         }
     }
 
@@ -124,6 +124,8 @@ impl Cpu {
                     false
                 }
                 else {
+                    println!("{:?} | {:04X} | A={:02X}, X={:02X}, Y={:02X}, SP={:04X}", 
+                            instr, self.pc, self.a, self.x, self.y, self.sp);
                     match instr {
                         Instruction::NOP => self.nop(*cycle),
                         Instruction::LDA => self.lda(io),
@@ -763,7 +765,6 @@ impl Cpu {
         }
         self.p = self.pull(io);
         self.pc = Wrapping(self.pull16(io));
-        println!("{:X} {:X}", self.p, self.pc);
         true
     }
 

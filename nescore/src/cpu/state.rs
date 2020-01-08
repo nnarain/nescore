@@ -4,7 +4,7 @@
 // @author Natesh Narain <nnaraindev@gmail.com>
 // @date Dec 03 2019
 //
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub enum AddressingMode {
     Accumulator,
     Implied,
@@ -21,7 +21,7 @@ pub enum AddressingMode {
     Relative,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub enum Instruction {
     ADC, AND, ASL, BCC, BCS, BEQ, BIT, BMI, BNE, BPL, BRK, BVC, BVS, CLC,
     CLD, CLI, CLV, CMP, CPX, CPY, DEC, DEX, DEY, EOR, INC, INX, INY, JMP,
