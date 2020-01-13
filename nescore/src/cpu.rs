@@ -15,7 +15,7 @@ use crate::clk::Clockable;
 
 use std::num::Wrapping;
 
-use state::{State, Instruction, AddressingMode};
+use state::*;
 
 // Flags
 enum Flags {
@@ -43,9 +43,6 @@ pub struct Cpu {
     ram: [u8; INTERNAL_RAM_SIZE], // CPU RAM
 
     state: State,                 // Internal CPU cycle state
-
-    address_bus: u16,             // Value for the address bus
-    pointer_address: u16,
 }
 
 impl Cpu {
@@ -61,9 +58,6 @@ impl Cpu {
             ram: [0; INTERNAL_RAM_SIZE],
 
             state: State::Reset,
-
-            address_bus: 0,
-            pointer_address: 0,
         }
     }
 
@@ -108,10 +102,8 @@ impl Cpu {
                         self.a, self.x, self.y, self.sp);
 
                 // Apply addressing mode
-                
-                // TODO: address/byte/offset
-                match mode {
-                    AddressingMode::Immediate       => self.immediate(),
+                let addressing_result = match mode {
+                    AddressingMode::Immediate       => self.immediate(operand_data),
                     AddressingMode::ZeroPage        => self.zeropage(operand_data),
                     AddressingMode::ZeroPageX       => self.zeropage_x(operand_data),
                     AddressingMode::ZeroPageY       => self.zeropage_y(operand_data),
@@ -122,60 +114,51 @@ impl Cpu {
                     AddressingMode::IndirectIndexed => self.indirect_indexed(io, operand_data),
                     AddressingMode::Indirect        => self.indirect(io, operand_data),
                     AddressingMode::Relative        => self.relative(operand_data),
-
-                    AddressingMode::Accumulator | AddressingMode::Implied => {}
-                }
+                    AddressingMode::Accumulator     => self.accumulator(),
+                    AddressingMode::Implied         => AddressingModeResult::Implied,
+                };
 
                 match instr {
-                    Instruction::NOP => self.nop(),
-                    Instruction::LDA => self.lda(io),
-                    Instruction::JMP => self.jmp(),
-                    Instruction::ADC => self.adc(io),
-                    Instruction::AND => self.and(io),
-                    Instruction::ASL => self.asl(io),
-                    Instruction::STA => self.sta(io),
-                    Instruction::BCC => self.bcc(),
-                    Instruction::BCS => self.bcs(),
-                    Instruction::BEQ => self.beq(),
-                    Instruction::BNE => self.bne(),
-                    Instruction::BMI => self.bmi(),
-                    Instruction::BPL => self.bpl(),
-                    Instruction::BIT => self.bit(io),
-                    Instruction::BVC => self.bvc(),
-                    Instruction::BVS => self.bvs(),
+                    Instruction::NOP => {},
+                    Instruction::LDA => self.lda(addressing_result.to_byte(io)),
+                    Instruction::JMP => self.jmp(addressing_result.to_address()),
+                    Instruction::ADC => self.adc(addressing_result.to_byte(io)),
+                    Instruction::AND => self.and(addressing_result.to_byte(io)),
+                    Instruction::BCC => self.bcc(addressing_result.to_offset()),
+                    Instruction::BCS => self.bcs(addressing_result.to_offset()),
+                    Instruction::BEQ => self.beq(addressing_result.to_offset()),
+                    Instruction::BNE => self.bne(addressing_result.to_offset()),
+                    Instruction::BMI => self.bmi(addressing_result.to_offset()),
+                    Instruction::BPL => self.bpl(addressing_result.to_offset()),
+                    Instruction::BIT => self.bit(addressing_result.to_byte(io)),
+                    Instruction::BVC => self.bvc(addressing_result.to_offset()),
+                    Instruction::BVS => self.bvs(addressing_result.to_offset()),
                     Instruction::CLC => self.clc(),
                     Instruction::CLD => self.cld(),
                     Instruction::CLI => self.cli(),
                     Instruction::CLV => self.clv(),
-                    Instruction::CMP => self.cmp(io),
-                    Instruction::CPX => self.cpx(io),
-                    Instruction::CPY => self.cpy(io),
-                    Instruction::DEC => self.dec(io),
+                    Instruction::CMP => self.cmp(addressing_result.to_byte(io)),
+                    Instruction::CPX => self.cpx(addressing_result.to_byte(io)),
+                    Instruction::CPY => self.cpy(addressing_result.to_byte(io)),
                     Instruction::DEX => self.dex(),
                     Instruction::DEY => self.dey(),
-                    Instruction::INC => self.inc(io),
                     Instruction::INX => self.inx(),
                     Instruction::INY => self.iny(),
-                    Instruction::EOR => self.eor(io),
-                    Instruction::LDX => self.ldx(io),
-                    Instruction::LDY => self.ldy(io),
+                    Instruction::EOR => self.eor(addressing_result.to_byte(io)),
+                    Instruction::LDX => self.ldx(addressing_result.to_byte(io)),
+                    Instruction::LDY => self.ldy(addressing_result.to_byte(io)),
                     Instruction::PHA => self.pha(io),
                     Instruction::PHP => self.php(io),
                     Instruction::PLA => self.pla(io),
                     Instruction::PLP => self.plp(io),
-                    Instruction::LSR => self.lsr(io),
-                    Instruction::ORA => self.ora(io),
-                    Instruction::ROR => self.ror(io),
-                    Instruction::ROL => self.rol(io),
+                    Instruction::ORA => self.ora(addressing_result.to_byte(io)),
                     Instruction::RTI => self.rti(io),
-                    Instruction::JSR => self.jsr(io),
+                    Instruction::JSR => self.jsr(io, addressing_result.to_address()),
                     Instruction::RTS => self.rts(io),
-                    Instruction::SBC => self.sbc(io),
+                    Instruction::SBC => self.sbc(addressing_result.to_byte(io)),
                     Instruction::SEC => self.sec(),
                     Instruction::SED => self.sed(),
                     Instruction::SEI => self.sei(),
-                    Instruction::STX => self.stx(io),
-                    Instruction::STY => self.sty(io),
                     Instruction::TAX => self.tax(),
                     Instruction::TAY => self.tay(),
                     Instruction::TSX => self.tsx(),
@@ -183,6 +166,42 @@ impl Cpu {
                     Instruction::TXS => self.txs(),
                     Instruction::TYA => self.tya(),
                     Instruction::BRK => self.brk(io),
+                    Instruction::STA => {
+                        let v = self.sta();
+                        self.write_result(io, addressing_result, v);
+                    },
+                    Instruction::STX => {
+                        let v = self.stx();
+                        self.write_result(io, addressing_result, v);
+                    },
+                    Instruction::STY => {
+                        let v = self.sty();
+                        self.write_result(io, addressing_result, v);
+                    },
+                    Instruction::ASL => {
+                        let v = self.asl(addressing_result.to_byte(io));
+                        self.write_result(io, addressing_result, v);
+                    },
+                    Instruction::ROR => {
+                        let v = self.ror(addressing_result.to_byte(io));
+                        self.write_result(io, addressing_result, v);
+                    },
+                    Instruction::ROL => {
+                        let v = self.rol(addressing_result.to_byte(io));
+                        self.write_result(io, addressing_result, v);
+                    },
+                    Instruction::LSR => {
+                        let v = self.lsr(addressing_result.to_byte(io));
+                        self.write_result(io, addressing_result, v);
+                    },
+                    Instruction::INC => {
+                        let v = self.inc(addressing_result.to_byte(io));
+                        self.write_result(io, addressing_result, v);
+                    },
+                    Instruction::DEC => {
+                        let v = self.dec(addressing_result.to_byte(io));
+                        self.write_result(io, addressing_result, v);
+                    },
                 }
 
                 State::Fetch
@@ -437,21 +456,21 @@ impl Cpu {
     }
 
     /// Load Accumulator
-    fn lda(&mut self, io: &mut dyn IoAccess) {
-        self.a = self.read_bus(io);
+    fn lda(&mut self, a: u8) {
+        self.a = a;
         self.update_flags(self.a);
     }
 
     /// Jump
-    fn jmp(&mut self) {
-        self.pc = self.address_bus;
+    fn jmp(&mut self, addr: u16) {
+        self.pc = addr;
     }
 
     /// ADC - Add with Carry
-    fn adc(&mut self, io: &mut dyn IoAccess) {
+    fn adc(&mut self, m: u8) {
         // A,Z,C,N = A+M+C
         let a = self.a as u16;
-        let m = self.read_bus(io) as u16;
+        let m = m as u16;
         let c = self.get_carry() as u16;
 
         let r = a + m + c;
@@ -463,72 +482,67 @@ impl Cpu {
     }
 
     /// AND - Logical AND
-    fn and(&mut self, io: &mut dyn IoAccess) {
+    fn and(&mut self, m: u8) {
         // A,Z,N = A&M
-        let a = self.a;
-        let m = self.read_bus(io);
-
-        self.a = a & m;
+        self.a &= m;
 
         self.update_flags(self.a);
 
     }
 
     /// ASL - Arithmetic shift left
-    fn asl(&mut self, io: &mut dyn IoAccess) {
-        let m = self.read_bus(io);
+    fn asl(&mut self, m: u8) -> u8 {
         let c = bit_is_set!(m, 7);
 
         let r = m << 1;
 
-        self.write_bus(io, r);
 
         self.set_zero_flag(self.a);
         self.set_negative_flag(r);
         self.set_flag_bit(Flags::Carry, c);
 
+        r
     }
 
-    fn sta(&mut self, io: &mut dyn IoAccess) {
-        self.write_bus(io, self.a);
+    fn sta(&mut self) -> u8 {
+        self.a
     }
 
-    fn bcc(&mut self) {
-        self.branch(self.get_flag_bit(Flags::Carry) == false);
+    fn bcc(&mut self, offset: u8) {
+        self.branch(!self.get_flag_bit(Flags::Carry), offset);
     }
 
-    fn bcs(&mut self) {
-        self.branch(self.get_flag_bit(Flags::Carry));
+    fn bcs(&mut self, offset: u8) {
+        self.branch(self.get_flag_bit(Flags::Carry), offset);
     }
 
-    fn beq(&mut self) {
-        self.branch(self.get_flag_bit(Flags::Zero));
+    fn beq(&mut self, offset: u8) {
+        self.branch(self.get_flag_bit(Flags::Zero), offset);
     }
 
-    fn bne(&mut self) {
-        self.branch(self.get_flag_bit(Flags::Zero) == false);
+    fn bne(&mut self, offset: u8) {
+        self.branch(!self.get_flag_bit(Flags::Zero), offset);
     }
 
-    fn bmi(&mut self) {
-        self.branch(self.get_flag_bit(Flags::Negative));
+    fn bmi(&mut self, offset: u8) {
+        self.branch(self.get_flag_bit(Flags::Negative), offset);
     }
 
     /// BPL - Branch if Positive
-    fn bpl(&mut self) {
-        self.branch(self.get_flag_bit(Flags::Negative) == false);
+    fn bpl(&mut self, offset: u8) {
+        self.branch(!self.get_flag_bit(Flags::Negative), offset);
     }
 
-    fn bvc(&mut self) {
-        self.branch(!self.get_flag_bit(Flags::Overflow));
+    fn bvc(&mut self, offset: u8) {
+        self.branch(!self.get_flag_bit(Flags::Overflow), offset);
     }
 
-    fn bvs(&mut self) {
-        self.branch(self.get_flag_bit(Flags::Overflow));
+    fn bvs(&mut self, offset: u8) {
+        self.branch(self.get_flag_bit(Flags::Overflow), offset);
     }
 
     /// BIT - Bit Test
-    fn bit(&mut self, io: &mut dyn IoAccess) {
-        let m = self.read_bus(io);
+    fn bit(&mut self, m: u8) {
         let r = self.a & m;
 
         // Copy bit 6 to V flag, and bit 7 to N flag
@@ -536,7 +550,6 @@ impl Cpu {
         self.set_flag_bit(Flags::Negative, bit_is_set!(r, 7));
 
         self.set_flag_bit(Flags::Zero, r == 0);
-
     }
 
     fn clc(&mut self) {
@@ -555,23 +568,20 @@ impl Cpu {
         self.set_flag_bit(Flags::Overflow, false);
     }
 
-    fn cmp(&mut self, io: &mut dyn IoAccess) {
-        self.compare(self.a, self.read_bus(io));
+    fn cmp(&mut self, m: u8) {
+        self.compare(self.a, m);
     }
 
-    fn cpx(&mut self, io: &mut dyn IoAccess) {
-        self.compare(self.x, self.read_bus(io));
+    fn cpx(&mut self, m: u8) {
+        self.compare(self.x, m);
     }
 
-    fn cpy(&mut self, io: &mut dyn IoAccess) {
-        self.compare(self.y, self.read_bus(io));
+    fn cpy(&mut self, m: u8) {
+        self.compare(self.y, m);
     }
 
-    fn dec(&mut self, io: &mut dyn IoAccess,) {
-        let mut m = self.read_bus(io);
-        m = self.decrement(m);
-        self.write_bus(io, m);
-
+    fn dec(&mut self, m: u8) -> u8 {
+        self.decrement(m)
     }
 
     fn dex(&mut self) {
@@ -582,11 +592,8 @@ impl Cpu {
         self.y = self.decrement(self.y);
     }
 
-    fn inc(&mut self, io: &mut dyn IoAccess) {
-        let mut m = self.read_bus(io);
-        m = self.increment(m);
-        self.write_bus(io, m);
-
+    fn inc(&mut self, m: u8) -> u8 {
+        self.increment(m)
     }
 
     fn inx(&mut self) {
@@ -597,21 +604,20 @@ impl Cpu {
         self.y = self.increment(self.y);
     }
 
-    fn eor(&mut self, io: &mut dyn IoAccess) {
-        let m = self.read_bus(io);
+    fn eor(&mut self, m: u8) {
         self.a ^= m;
         self.set_zero_flag(self.a);
         self.set_negative_flag(self.a);
     }
 
-    fn ldx(&mut self, io: &mut dyn IoAccess) {
-        self.x = self.read_bus(io);
+    fn ldx(&mut self, m: u8) {
+        self.x = m;
         self.set_zero_flag(self.x);
         self.set_negative_flag(self.x);
     }
 
-    fn ldy(&mut self, io: &mut dyn IoAccess) {
-        self.y = self.read_bus(io);
+    fn ldy(&mut self, m: u8) {
+        self.y = m;
         self.set_zero_flag(self.y);
         self.set_negative_flag(self.y);
     }
@@ -632,29 +638,26 @@ impl Cpu {
         self.p = self.pull(io);
     }
 
-    fn lsr(&mut self, io: &mut dyn IoAccess) {
-        let m = self.read_bus(io);
+    fn lsr(&mut self, m: u8) -> u8 {
         let c = bit_is_set!(m, 0);
 
         let r = m >> 1;
-        self.write_bus(io, r);
 
         self.set_zero_flag(r);
         self.set_negative_flag(r);
         self.set_flag_bit(Flags::Carry, c);
 
+        r
     }
 
-    fn ora(&mut self, io: &mut dyn IoAccess) {
-        let m = self.read_bus(io);
-        self.a = self.a | m;
+    fn ora(&mut self, m: u8) {
+        self.a |= m;
 
         self.set_zero_flag(self.a);
         self.set_negative_flag(self.a);
     }
 
-    fn ror(&mut self, io: &mut dyn IoAccess) {
-        let m = self.read_bus(io);
+    fn ror(&mut self, m: u8) -> u8 {
         let current_carry = self.get_flag_bit(Flags::Carry);
         let new_carry = bit_is_set!(m, 0);
 
@@ -664,16 +667,14 @@ impl Cpu {
             bit_set!(r, 7);
         }
 
-        self.write_bus(io, r);
-
         self.set_flag_bit(Flags::Carry, new_carry);
         self.set_zero_flag(r);
         self.set_negative_flag(r);
 
+        r
     }
 
-    fn rol(&mut self, io: &mut dyn IoAccess) {
-        let m = self.read_bus(io);
+    fn rol(&mut self, m: u8) -> u8 {
         let current_carry = self.get_flag_bit(Flags::Carry);
         let new_carry = bit_is_set!(m, 7);
 
@@ -683,12 +684,11 @@ impl Cpu {
             bit_set!(r, 0);
         }
 
-        self.write_bus(io, r);
-
         self.set_flag_bit(Flags::Carry, new_carry);
         self.set_zero_flag(r);
         self.set_negative_flag(r);
 
+        r
     }
 
     fn rti(&mut self, io: &mut dyn IoAccess) {
@@ -696,18 +696,18 @@ impl Cpu {
         self.pc = self.pull16(io);
     }
 
-    fn jsr(&mut self, io: &mut dyn IoAccess) {
+    fn jsr(&mut self, io: &mut dyn IoAccess, addr: u16) {
         self.push16(io, self.sp);
-        self.pc = self.address_bus;
+        self.pc = addr;
     }
 
     fn rts(&mut self, io: &mut dyn IoAccess) {
         self.pc = self.pull16(io);
     }
 
-    fn sbc(&mut self, io: &mut dyn IoAccess) {
+    fn sbc(&mut self, m: u8) {
         // TODO: Better way to do this?
-        let m = Wrapping(self.read_bus(io));
+        let m = Wrapping(m);
         let c = Wrapping(self.get_carry());
         let a = Wrapping(self.a);
 
@@ -741,12 +741,12 @@ impl Cpu {
         self.set_flag_bit(Flags::InterruptDisable, true);
     }
 
-    fn stx(&mut self, io: &mut dyn IoAccess) {
-        self.write_bus(io, self.x);
+    fn stx(&mut self) -> u8 {
+        self.x
     }
 
-    fn sty(&mut self, io: &mut dyn IoAccess) {
-        self.write_bus(io, self.y);
+    fn sty(&mut self) -> u8 {
+        self.y
     }
 
     fn tax(&mut self) {
@@ -796,84 +796,88 @@ impl Cpu {
 
     /// Immediate Addressing.
     /// Put current PC value on the address bus
-    fn immediate(&mut self) {
-        self.address_bus = self.pc - 1;
+    fn immediate(&self, data: &[u8]) -> AddressingModeResult {
+        AddressingModeResult::Byte(data[0])
+    }
+
+    fn accumulator(&self) -> AddressingModeResult {
+        AddressingModeResult::Byte(self.a)
     }
 
     /// Absolute Addressing.
     /// Fetch the address to read from the next two bytes
-    fn absolute(&mut self, data: &[u8]) {
-        self.address_bus = ((data[0] as u16) << 8) | data[1] as u16;
+    fn absolute(&mut self, data: &[u8]) -> AddressingModeResult {
+        AddressingModeResult::Address(((data[0] as u16) << 8) | data[1] as u16)
     }
 
     /// Absolute Addressing Indexed by X
-    fn absolute_x(&mut self, data: &[u8]) {
-        self.absolute_i(data, self.x);
+    fn absolute_x(&mut self, data: &[u8]) -> AddressingModeResult {
+        self.absolute_i(data, self.x)
     }
 
     /// Absolute Addressing Indexed by Y
-    fn absolute_y(&mut self, data: &[u8]) {
-        self.absolute_i(data, self.y);
+    fn absolute_y(&mut self, data: &[u8]) -> AddressingModeResult {
+        self.absolute_i(data, self.y)
     }
 
-    fn absolute_i(&mut self, data: &[u8], i: u8) {
-        self.address_bus = (((data[0] as u16) << 8) | data[1] as u16) + (i as u16);
+    fn absolute_i(&mut self, data: &[u8], i: u8) -> AddressingModeResult {
+        AddressingModeResult::Address((((data[0] as u16) << 8) | data[1] as u16) + (i as u16))
     }
 
     /// Zero Page Addressing
     /// Fetch the next byte and put it on the address bus
-    fn zeropage(&mut self, data: &[u8]) {
-        self.address_bus = data[0] as u16;
+    fn zeropage(&mut self, data: &[u8]) -> AddressingModeResult {
+        AddressingModeResult::Address(data[0] as u16)
     }
 
     /// Zero Page Index X Addressing.
-    fn zeropage_x(&mut self, data: &[u8]) {
-        self.zeropage_i(data, self.x);
+    fn zeropage_x(&mut self, data: &[u8]) -> AddressingModeResult {
+        self.zeropage_i(data, self.x)
     }
 
     /// Zero Page Index Y Addressing
-    fn zeropage_y(&mut self, data: &[u8]) {
-        self.zeropage_i(data, self.y);
+    fn zeropage_y(&mut self, data: &[u8]) -> AddressingModeResult {
+        self.zeropage_i(data, self.y)
     }
 
-    fn zeropage_i(&mut self, data: &[u8], i: u8) {
-        self.address_bus = (data[0] as u16) + i as u16;
+    fn zeropage_i(&mut self, data: &[u8], i: u8) -> AddressingModeResult {
+        AddressingModeResult::Address((data[0] as u16) + i as u16)
     }
 
     /// Indexed Indirect Addressing
-    fn indexed_indirect(&mut self, io: &mut dyn IoAccess, data: &[u8]) {
+    fn indexed_indirect(&mut self, io: &mut dyn IoAccess, data: &[u8]) -> AddressingModeResult {
         let ptr = (data[0] as u16) + (self.x as u16);
 
         let lo = self.read_u8(io, ptr) as u16;
         let hi = self.read_u8(io, ptr + 1) as u16;
 
-        self.address_bus = (hi << 8) | lo;
+        AddressingModeResult::Address((hi << 8) | lo)
     }
 
     /// Indirect Indexed Addressing
-    fn indirect_indexed(&mut self, io: &mut dyn IoAccess, data: &[u8]) {
+    fn indirect_indexed(&mut self, io: &mut dyn IoAccess, data: &[u8]) -> AddressingModeResult {
         let ptr = data[0] as u16;
 
         let lo = self.read_u8(io, ptr) as u16;
         let hi = self.read_u8(io, ptr + 1) as u16;
 
-        self.address_bus = ((hi << 8) | lo) + self.y as u16;
+        AddressingModeResult::Address(((hi << 8) | lo) + self.y as u16)
     }
 
     /// Indirect
     /// Only applicable to JMP instruction
-    fn indirect(&mut self, io: &mut dyn IoAccess, data: &[u8]) {
+    fn indirect(&mut self, io: &mut dyn IoAccess, data: &[u8]) -> AddressingModeResult {
 
         let ptr = data[0] as u16;
 
         let lo = self.read_u8(io, ptr) as u16;
         let hi = self.read_u8(io, ptr + 1) as u16;
 
-        self.address_bus = (hi << 8) | lo;
+        AddressingModeResult::Address((hi << 8) | lo)
     }
 
-    fn relative(&mut self, data: &[u8]) {
-        self.pointer_address = data[0] as u16
+    fn relative(&mut self, data: &[u8]) -> AddressingModeResult {
+        AddressingModeResult::Offset(data[0])
     }
 
     //------------------------------------------------------------------------------------------------------------------
@@ -923,9 +927,9 @@ impl Cpu {
     //------------------------------------------------------------------------------------------------------------------
 
     /// Branch
-    fn branch(&mut self, cond_met: bool) {
+    fn branch(&mut self, cond_met: bool, offset: u8) {
         if cond_met {
-            let offset = Wrapping(self.pointer_address as i16);
+            let offset = Wrapping(offset as i16);
             let pc = Wrapping(self.pc as i16);
             self.pc = (pc + offset).0 as u16;
         }
@@ -1002,21 +1006,21 @@ impl Cpu {
         self.read_next_u8(io)
     }
 
-    fn read_bus(&self, io: &mut dyn IoAccess) -> u8 {
-        let mode = match self.state {
-            State::Execute(_, mode, _) => mode,
-            _ => panic!("Must be in execution state!"),
-        };
+    // fn read_bus(&self, io: &mut dyn IoAccess) -> u8 {
+    //     let mode = match self.state {
+    //         State::Execute(_, mode, _) => mode,
+    //         _ => panic!("Must be in execution state!"),
+    //     };
 
-        if mode == AddressingMode::Accumulator {
-            self.a
-        }
-        else {
-            self.read_u8(io, self.address_bus)
-        }
-    }
+    //     if mode == AddressingMode::Accumulator {
+    //         self.a
+    //     }
+    //     else {
+    //         self.read_u8(io, self.address_bus)
+    //     }
+    // }
 
-    fn write_bus(&mut self, io: &mut dyn IoAccess, value: u8) {
+    fn write_result(&mut self, io: &mut dyn IoAccess, addressing_result: AddressingModeResult, value: u8) {
         let mode = match self.state {
             State::Execute(_, mode, _) => mode,
             _ => panic!("Must be in execution state!"),
@@ -1026,7 +1030,7 @@ impl Cpu {
             self.a = value;
         }
         else {
-            self.write_u8(io, self.address_bus, value);
+            self.write_u8(io, addressing_result.to_address(), value);
         }
     }
 

@@ -4,6 +4,8 @@
 // @author Natesh Narain <nnaraindev@gmail.com>
 // @date Dec 03 2019
 //
+use crate::io::IoAccess;
+
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum AddressingMode {
     Accumulator,
@@ -37,6 +39,35 @@ impl AddressingMode {
             AddressingMode::IndexedIndirect => 1,
             AddressingMode::IndirectIndexed => 1,
             AddressingMode::Relative => 0,
+        }
+    }
+}
+
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub enum AddressingModeResult {
+    Byte(u8), Address(u16), Offset(u8), Implied
+}
+
+impl AddressingModeResult {
+    pub fn to_address(&self) -> u16 {
+        match *self {
+            AddressingModeResult::Address(a) => a,
+            _ => panic!("Not an Address result!"),
+        }
+    }
+
+    pub fn to_byte(&self, io: &mut dyn IoAccess) -> u8 {
+        match *self {
+            AddressingModeResult::Byte(b) => b,
+            AddressingModeResult::Address(a) => io.read_byte(a),
+            _ => panic!("This result cannot be converted to a byte"),
+        }
+    }
+
+    pub fn to_offset(&self) -> u8 {
+        match *self {
+            AddressingModeResult::Offset(o) => o,
+            _ => panic!("Not an Offset result!"),
         }
     }
 }
