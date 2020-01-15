@@ -88,7 +88,14 @@ impl Cpu {
                 let opcode = self.fetch(io);
                 self.get_execute_state(io, opcode)
             },
-            State::Execute(ref instr, ref mode, ref opcode_data) => {
+            State::Execute(ref instr, ref mode, ref opcode_data, ref cycle) => {
+
+                let total_cycles = cycle_count(*instr, *mode);
+
+                println!("-- {}, {}", *cycle, total_cycles);
+                if *cycle < total_cycles-1 {
+                    return State::Execute(*instr, *mode, *opcode_data, *cycle + 1);
+                }
 
                 let operand_data = &opcode_data[1..];
 
@@ -120,6 +127,30 @@ impl Cpu {
 
                 match instr {
                     Instruction::NOP => {},
+                    Instruction::CLC => self.clc(),
+                    Instruction::CLD => self.cld(),
+                    Instruction::CLI => self.cli(),
+                    Instruction::CLV => self.clv(),
+                    Instruction::DEX => self.dex(),
+                    Instruction::DEY => self.dey(),
+                    Instruction::INX => self.inx(),
+                    Instruction::INY => self.iny(),
+                    Instruction::PHA => self.pha(io),
+                    Instruction::PHP => self.php(io),
+                    Instruction::PLA => self.pla(io),
+                    Instruction::PLP => self.plp(io),
+                    Instruction::RTI => self.rti(io),
+                    Instruction::RTS => self.rts(io),
+                    Instruction::SEC => self.sec(),
+                    Instruction::SED => self.sed(),
+                    Instruction::SEI => self.sei(),
+                    Instruction::TAX => self.tax(),
+                    Instruction::TAY => self.tay(),
+                    Instruction::TSX => self.tsx(),
+                    Instruction::TXA => self.txa(),
+                    Instruction::TXS => self.txs(),
+                    Instruction::TYA => self.tya(),
+                    Instruction::BRK => self.brk(io),
                     Instruction::LDA => self.lda(addressing_result.to_byte(io)),
                     Instruction::JMP => self.jmp(addressing_result.to_address()),
                     Instruction::ADC => self.adc(addressing_result.to_byte(io)),
@@ -133,39 +164,15 @@ impl Cpu {
                     Instruction::BIT => self.bit(addressing_result.to_byte(io)),
                     Instruction::BVC => self.bvc(addressing_result.to_offset()),
                     Instruction::BVS => self.bvs(addressing_result.to_offset()),
-                    Instruction::CLC => self.clc(),
-                    Instruction::CLD => self.cld(),
-                    Instruction::CLI => self.cli(),
-                    Instruction::CLV => self.clv(),
                     Instruction::CMP => self.cmp(addressing_result.to_byte(io)),
                     Instruction::CPX => self.cpx(addressing_result.to_byte(io)),
                     Instruction::CPY => self.cpy(addressing_result.to_byte(io)),
-                    Instruction::DEX => self.dex(),
-                    Instruction::DEY => self.dey(),
-                    Instruction::INX => self.inx(),
-                    Instruction::INY => self.iny(),
                     Instruction::EOR => self.eor(addressing_result.to_byte(io)),
                     Instruction::LDX => self.ldx(addressing_result.to_byte(io)),
                     Instruction::LDY => self.ldy(addressing_result.to_byte(io)),
-                    Instruction::PHA => self.pha(io),
-                    Instruction::PHP => self.php(io),
-                    Instruction::PLA => self.pla(io),
-                    Instruction::PLP => self.plp(io),
-                    Instruction::ORA => self.ora(addressing_result.to_byte(io)),
-                    Instruction::RTI => self.rti(io),
-                    Instruction::JSR => self.jsr(io, addressing_result.to_address()),
-                    Instruction::RTS => self.rts(io),
                     Instruction::SBC => self.sbc(addressing_result.to_byte(io)),
-                    Instruction::SEC => self.sec(),
-                    Instruction::SED => self.sed(),
-                    Instruction::SEI => self.sei(),
-                    Instruction::TAX => self.tax(),
-                    Instruction::TAY => self.tay(),
-                    Instruction::TSX => self.tsx(),
-                    Instruction::TXA => self.txa(),
-                    Instruction::TXS => self.txs(),
-                    Instruction::TYA => self.tya(),
-                    Instruction::BRK => self.brk(io),
+                    Instruction::ORA => self.ora(addressing_result.to_byte(io)),
+                    Instruction::JSR => self.jsr(io, addressing_result.to_address()),
                     Instruction::STA => {
                         let v = self.sta();
                         self.write_result(io, addressing_result, v);
@@ -432,7 +439,7 @@ impl Cpu {
         let operand_data = self.fetch_operand_data(io, mode.operand_len());
         let opcode_data: [u8; 3] = [opcode, operand_data[0], operand_data[1]];
 
-        State::Execute(instr, mode, opcode_data)
+        State::Execute(instr, mode, opcode_data, 0)
     }
 
     fn fetch_operand_data(&mut self, io: &mut dyn IoAccess, num_bytes: usize) -> [u8; 2] {
@@ -450,10 +457,6 @@ impl Cpu {
     //------------------------------------------------------------------------------------------------------------------
 
     // TODO: BRK
-
-    fn nop(&mut self) {
-        
-    }
 
     /// Load Accumulator
     fn lda(&mut self, a: u8) {
@@ -1022,7 +1025,7 @@ impl Cpu {
 
     fn write_result(&mut self, io: &mut dyn IoAccess, addressing_result: AddressingModeResult, value: u8) {
         let mode = match self.state {
-            State::Execute(_, mode, _) => mode,
+            State::Execute(_, mode, _, _) => mode,
             _ => panic!("Must be in execution state!"),
         };
 
@@ -1109,7 +1112,7 @@ mod tests {
             0xA9, 0xA5 // LDA $A5
         ];
 
-        let cpu = simple_test(prg, 3);
+        let cpu = simple_test(prg, 2);
 
         assert_eq!(cpu.a, 0xA5);
     }
@@ -1121,7 +1124,7 @@ mod tests {
             0xDE,             // Data: $DE
         ];
 
-        let cpu = simple_test(prg, 4);
+        let cpu = simple_test(prg, 3);
 
         assert_eq!(cpu.a, 0xDE);
     }
@@ -1350,7 +1353,7 @@ mod tests {
             0xA9, 0x01, // LDA $01; a=$1,z=0
         ];
 
-        let cpu = simple_test(prg, 6);
+        let cpu = simple_test(prg, 4);
 
         assert_eq!(cpu.a, 0x01);
         assert_eq!(mask_is_clear!(cpu.p, Flags::Zero as u8), true);
@@ -1858,7 +1861,7 @@ mod tests {
             0xA2, 0xA5 // LDX $A5
         ];
 
-        let cpu = simple_test(prg, 3);
+        let cpu = simple_test(prg, 2);
 
         assert_eq!(cpu.x, 0xA5);
     }
@@ -1869,7 +1872,7 @@ mod tests {
             0xA0, 0xA5 // LDY $A5
         ];
 
-        let cpu = simple_test(prg, 3);
+        let cpu = simple_test(prg, 2);
 
         assert_eq!(cpu.y, 0xA5);
     }
@@ -1884,7 +1887,7 @@ mod tests {
             0x48, // PHA
         ];
 
-        simple_test_base(&mut cpu, prg, 4);
+        simple_test_base(&mut cpu, prg, 3);
 
         assert_eq!(cpu.sp, 0x09);
         assert_eq!(cpu.ram[0x0A], 0xFF);
@@ -1900,7 +1903,7 @@ mod tests {
             0x68,       // PLA
         ];
 
-        simple_test_base(&mut cpu, prg, 5);
+        simple_test_base(&mut cpu, prg, 4);
 
         assert_eq!(cpu.a, 0xFF);
         assert_eq!(cpu.sp, 0x0A);
@@ -1917,7 +1920,7 @@ mod tests {
             0x08, // PHP
         ];
 
-        simple_test_base(&mut cpu, prg, 4);
+        simple_test_base(&mut cpu, prg, 3);
 
         assert_eq!(cpu.sp, 0x09);
         assert_eq!(cpu.ram[0x0A], 0xFF);
@@ -1933,7 +1936,7 @@ mod tests {
             0x28, // PLP
         ];
 
-        simple_test_base(&mut cpu, prg, 5);
+        simple_test_base(&mut cpu, prg, 4);
 
         assert_eq!(cpu.p, 0xFF);
         assert_eq!(cpu.sp, 0x0A);
@@ -1964,7 +1967,7 @@ mod tests {
             0x09, 0x0F, // ORA $0F
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        simple_test_base(&mut cpu, prg, 2);
 
         assert_eq!(cpu.a, 0xFF);
     }
@@ -2014,7 +2017,7 @@ mod tests {
             0x40, // RTI
         ];
 
-        simple_test_base(&mut cpu, prg, 7);
+        simple_test_base(&mut cpu, prg, 6);
 
         assert_eq!(cpu.p, 0xA5);
         assert_eq!(cpu.sp, 0x0A);
@@ -2045,7 +2048,7 @@ mod tests {
             0xE9, 0x01, // SBC $01
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        simple_test_base(&mut cpu, prg, 2);
 
         assert_eq!(cpu.a, 0xFF);
     }
@@ -2061,7 +2064,7 @@ mod tests {
             0x60, // RTS
         ];
 
-        simple_test_base(&mut cpu, prg, 7);
+        simple_test_base(&mut cpu, prg, 6);
 
         assert_eq!(cpu.sp, 0x0A);
         assert_eq!(cpu.pc, 0xDEAD);
@@ -2220,7 +2223,7 @@ mod tests {
                         self.prg_rom[(addr as usize) - self.rom_offest]
                     }
                     else {
-                        panic!("Address out of supplied program ROM range");
+                        panic!("Address out of supplied program ROM range. ADDR={addr}", addr=addr);
                     }
                 }
             }
