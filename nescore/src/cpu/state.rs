@@ -4,7 +4,6 @@
 // @author Natesh Narain <nnaraindev@gmail.com>
 // @date Dec 03 2019
 //
-use crate::io::IoAccess;
 
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum AddressingMode {
@@ -38,7 +37,7 @@ impl AddressingMode {
             AddressingMode::Indirect => 2,
             AddressingMode::IndexedIndirect => 1,
             AddressingMode::IndirectIndexed => 1,
-            AddressingMode::Relative => 0,
+            AddressingMode::Relative => 1,
         }
     }
 }
@@ -49,25 +48,28 @@ pub enum AddressingModeResult {
 }
 
 impl AddressingModeResult {
-    pub fn to_address(&self) -> u16 {
+    pub fn to_address(&self) -> Option<u16> {
         match *self {
-            AddressingModeResult::Address(a) => a,
-            _ => panic!("Not an Address result!"),
+            AddressingModeResult::Address(a) => Some(a),
+            _ => None,
         }
     }
 
-    pub fn to_byte(&self, io: &mut dyn IoAccess) -> u8 {
+    pub fn to_byte<A2B>(&self, mut a2b: A2B) -> Option<u8> where A2B: FnMut(u16) -> u8 {
         match *self {
-            AddressingModeResult::Byte(b) => b,
-            AddressingModeResult::Address(a) => io.read_byte(a),
-            _ => panic!("This result cannot be converted to a byte"),
+            AddressingModeResult::Byte(b) => Some(b),
+            AddressingModeResult::Address(a) => {
+                let b = a2b(a);
+                Some(b)
+            },
+            _ => None,
         }
     }
 
-    pub fn to_offset(&self) -> u8 {
+    pub fn to_offset(&self) -> Option<u8> {
         match *self {
-            AddressingModeResult::Offset(o) => o,
-            _ => panic!("Not an Offset result!"),
+            AddressingModeResult::Offset(o) => Some(o),
+            _ => None,
         }
     }
 }
@@ -163,6 +165,7 @@ pub fn cycle_count(instr: Instruction, mode: AddressingMode) -> usize {
         AddressingMode::Absolute => {
             match instr {
                 Instruction::JMP => 2,
+                Instruction::JSR => 5,
                 _ => {
                     match instr.category() {
                         InstructionCategory::Read => 3,
@@ -172,6 +175,14 @@ pub fn cycle_count(instr: Instruction, mode: AddressingMode) -> usize {
                         _ => unreachable!("Matching absolute instructions to categories"),
                     }
                 }
+            }
+        },
+        AddressingMode::AbsoluteX | AddressingMode::AbsoluteY => {
+            match instr.category() {
+                InstructionCategory::Read => 4,
+                InstructionCategory::ReadModifyWrite => 6,
+                InstructionCategory::Write => 4,
+                _ => unreachable!("Matching Absolute indexed addressing to categories"),
             }
         },
         AddressingMode::ZeroPage => {
@@ -190,17 +201,9 @@ pub fn cycle_count(instr: Instruction, mode: AddressingMode) -> usize {
                 _ => unreachable!("Matching ZeroPage Indexed to categories"),
             }
         },
-        AddressingMode::AbsoluteX | AddressingMode::AbsoluteY => {
-            match instr.category() {
-                InstructionCategory::Read => 4,
-                InstructionCategory::ReadModifyWrite => 6,
-                InstructionCategory::Write => 4,
-                _ => unreachable!("Matching Absolute indexed addressing to categories"),
-            }
-        },
         AddressingMode::Relative => {
             match instr.category() {
-                InstructionCategory::Branch => 6,
+                InstructionCategory::Branch => 2, // FIXME: Not cycle accurate
                 _ => unreachable!("Matching branch instructions to categories"),
             }
         },

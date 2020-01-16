@@ -92,7 +92,6 @@ impl Cpu {
 
                 let total_cycles = cycle_count(*instr, *mode);
 
-                println!("-- {}, {}", *cycle, total_cycles);
                 if *cycle < total_cycles-1 {
                     return State::Execute(*instr, *mode, *opcode_data, *cycle + 1);
                 }
@@ -125,6 +124,14 @@ impl Cpu {
                     AddressingMode::Implied         => AddressingModeResult::Implied,
                 };
 
+                let read_mem = |addr: u16| -> u8 {
+                    self.read_u8(io, addr)
+                };
+
+                let byte = addressing_result.to_byte(read_mem);
+                let addr = addressing_result.to_address();
+                let offset = addressing_result.to_offset();
+
                 match instr {
                     Instruction::NOP => {},
                     Instruction::CLC => self.clc(),
@@ -151,28 +158,28 @@ impl Cpu {
                     Instruction::TXS => self.txs(),
                     Instruction::TYA => self.tya(),
                     Instruction::BRK => self.brk(io),
-                    Instruction::LDA => self.lda(addressing_result.to_byte(io)),
-                    Instruction::JMP => self.jmp(addressing_result.to_address()),
-                    Instruction::ADC => self.adc(addressing_result.to_byte(io)),
-                    Instruction::AND => self.and(addressing_result.to_byte(io)),
-                    Instruction::BCC => self.bcc(addressing_result.to_offset()),
-                    Instruction::BCS => self.bcs(addressing_result.to_offset()),
-                    Instruction::BEQ => self.beq(addressing_result.to_offset()),
-                    Instruction::BNE => self.bne(addressing_result.to_offset()),
-                    Instruction::BMI => self.bmi(addressing_result.to_offset()),
-                    Instruction::BPL => self.bpl(addressing_result.to_offset()),
-                    Instruction::BIT => self.bit(addressing_result.to_byte(io)),
-                    Instruction::BVC => self.bvc(addressing_result.to_offset()),
-                    Instruction::BVS => self.bvs(addressing_result.to_offset()),
-                    Instruction::CMP => self.cmp(addressing_result.to_byte(io)),
-                    Instruction::CPX => self.cpx(addressing_result.to_byte(io)),
-                    Instruction::CPY => self.cpy(addressing_result.to_byte(io)),
-                    Instruction::EOR => self.eor(addressing_result.to_byte(io)),
-                    Instruction::LDX => self.ldx(addressing_result.to_byte(io)),
-                    Instruction::LDY => self.ldy(addressing_result.to_byte(io)),
-                    Instruction::SBC => self.sbc(addressing_result.to_byte(io)),
-                    Instruction::ORA => self.ora(addressing_result.to_byte(io)),
-                    Instruction::JSR => self.jsr(io, addressing_result.to_address()),
+                    Instruction::LDA => self.lda(byte.unwrap()),
+                    Instruction::JMP => self.jmp(addr.unwrap()),
+                    Instruction::ADC => self.adc(byte.unwrap()),
+                    Instruction::AND => self.and(byte.unwrap()),
+                    Instruction::BCC => self.bcc(offset.unwrap()),
+                    Instruction::BCS => self.bcs(offset.unwrap()),
+                    Instruction::BEQ => self.beq(offset.unwrap()),
+                    Instruction::BNE => self.bne(offset.unwrap()),
+                    Instruction::BMI => self.bmi(offset.unwrap()),
+                    Instruction::BPL => self.bpl(offset.unwrap()),
+                    Instruction::BVC => self.bvc(offset.unwrap()),
+                    Instruction::BVS => self.bvs(offset.unwrap()),
+                    Instruction::BIT => self.bit(byte.unwrap()),
+                    Instruction::CMP => self.cmp(byte.unwrap()),
+                    Instruction::CPX => self.cpx(byte.unwrap()),
+                    Instruction::CPY => self.cpy(byte.unwrap()),
+                    Instruction::EOR => self.eor(byte.unwrap()),
+                    Instruction::LDX => self.ldx(byte.unwrap()),
+                    Instruction::LDY => self.ldy(byte.unwrap()),
+                    Instruction::SBC => self.sbc(byte.unwrap()),
+                    Instruction::ORA => self.ora(byte.unwrap()),
+                    Instruction::JSR => self.jsr(io, addr.unwrap()),
                     Instruction::STA => {
                         let v = self.sta();
                         self.write_result(io, addressing_result, v);
@@ -186,27 +193,27 @@ impl Cpu {
                         self.write_result(io, addressing_result, v);
                     },
                     Instruction::ASL => {
-                        let v = self.asl(addressing_result.to_byte(io));
+                        let v = self.asl(byte.unwrap());
                         self.write_result(io, addressing_result, v);
                     },
                     Instruction::ROR => {
-                        let v = self.ror(addressing_result.to_byte(io));
+                        let v = self.ror(byte.unwrap());
                         self.write_result(io, addressing_result, v);
                     },
                     Instruction::ROL => {
-                        let v = self.rol(addressing_result.to_byte(io));
+                        let v = self.rol(byte.unwrap());
                         self.write_result(io, addressing_result, v);
                     },
                     Instruction::LSR => {
-                        let v = self.lsr(addressing_result.to_byte(io));
+                        let v = self.lsr(byte.unwrap());
                         self.write_result(io, addressing_result, v);
                     },
                     Instruction::INC => {
-                        let v = self.inc(addressing_result.to_byte(io));
+                        let v = self.inc(byte.unwrap());
                         self.write_result(io, addressing_result, v);
                     },
                     Instruction::DEC => {
-                        let v = self.dec(addressing_result.to_byte(io));
+                        let v = self.dec(byte.unwrap());
                         self.write_result(io, addressing_result, v);
                     },
                 }
@@ -810,7 +817,7 @@ impl Cpu {
     /// Absolute Addressing.
     /// Fetch the address to read from the next two bytes
     fn absolute(&mut self, data: &[u8]) -> AddressingModeResult {
-        AddressingModeResult::Address(((data[0] as u16) << 8) | data[1] as u16)
+        AddressingModeResult::Address(((data[1] as u16) << 8) | data[0] as u16)
     }
 
     /// Absolute Addressing Indexed by X
@@ -824,7 +831,7 @@ impl Cpu {
     }
 
     fn absolute_i(&mut self, data: &[u8], i: u8) -> AddressingModeResult {
-        AddressingModeResult::Address((((data[0] as u16) << 8) | data[1] as u16) + (i as u16))
+        AddressingModeResult::Address((((data[1] as u16) << 8) | data[0] as u16) + (i as u16))
     }
 
     /// Zero Page Addressing
@@ -871,7 +878,7 @@ impl Cpu {
     /// Only applicable to JMP instruction
     fn indirect(&mut self, io: &mut dyn IoAccess, data: &[u8]) -> AddressingModeResult {
 
-        let ptr = data[0] as u16;
+        let ptr = ((data[1] as u16) << 8) | data[0] as u16;
 
         let lo = self.read_u8(io, ptr) as u16;
         let hi = self.read_u8(io, ptr + 1) as u16;
@@ -1033,7 +1040,7 @@ impl Cpu {
             self.a = value;
         }
         else {
-            self.write_u8(io, addressing_result.to_address(), value);
+            self.write_u8(io, addressing_result.to_address().unwrap(), value);
         }
     }
 
@@ -1124,7 +1131,7 @@ mod tests {
             0xDE,             // Data: $DE
         ];
 
-        let cpu = simple_test(prg, 3);
+        let cpu = simple_test(prg, 4);
 
         assert_eq!(cpu.a, 0xDE);
     }
@@ -1179,7 +1186,7 @@ mod tests {
         cpu.y = 0x0001;
 
         let prg = vec![
-            0xB9, 0x23, 0x40, // LDA $0003, Y
+            0xB9, 0x23, 0x40, // LDA $4023, Y
             0x00, 0xDE,       // Data: $DE
         ];
 
@@ -1230,7 +1237,7 @@ mod tests {
             0xA9, 0x00 // LDA $00
         ];
 
-        let cpu = simple_test(prg, 3);
+        let cpu = simple_test(prg, 2);
 
         assert_eq!(cpu.a, 0x00);
         assert_eq!(cpu.p, Flags::Zero as u8);
@@ -1242,7 +1249,7 @@ mod tests {
             0xA9, 0x80 // LDA $00
         ];
 
-        let cpu = simple_test(prg, 3);
+        let cpu = simple_test(prg, 2);
 
         assert_eq!(cpu.a, 0x80);
         assert_eq!(cpu.p, Flags::Negative as u8);
@@ -1251,11 +1258,10 @@ mod tests {
     #[test]
     fn jmp_absolute() {
         let prg = vec![
-            0x4C, 0x00, 0x10 // LDA JMP $1000
+            0x4C, 0x00, 0x10 // JMP $1000
         ];
 
-       // FIXME: JMP with absolute addressing should be 3 cycles
-       let cpu = simple_test(prg, 4);
+       let cpu = simple_test(prg, 3);
 
         assert_eq!(cpu.pc, 0x1000);
     }
@@ -1309,7 +1315,7 @@ mod tests {
             0x69, 0x00, // ADC $00; a=$00 -> a=$01, c=0
         ];
 
-        simple_test_base(&mut cpu, prg, 9);
+        simple_test_base(&mut cpu, prg, 6);
 
         assert_eq!(cpu.a, 0x01);
         assert_eq!(mask_is_clear!(cpu.p, Flags::Carry as u8), true);
@@ -1757,8 +1763,7 @@ mod tests {
             0xC6, 0x02, // DEC $02
         ];
 
-        // FIXME: Cycle accuracy
-        simple_test_base(&mut cpu, prg, 3);
+        simple_test_base(&mut cpu, prg, 5);
 
         assert_eq!(cpu.get_flag_bit(Flags::Zero), true);
         assert_eq!(cpu.ram[0x02], 0x00);
@@ -1803,8 +1808,7 @@ mod tests {
             0xE6, 0x02, // INC $02
         ];
 
-        // FIXME: Cycle accuracy
-        simple_test_base(&mut cpu, prg, 3);
+        simple_test_base(&mut cpu, prg, 5);
 
         assert_eq!(cpu.get_flag_bit(Flags::Zero), true);
         assert_eq!(cpu.ram[0x02], 0x00);
@@ -2033,7 +2037,7 @@ mod tests {
             0x20, 0xAD, 0xDE, // JSR $DEAD
         ];
 
-        simple_test_base(&mut cpu, prg, 7);
+        simple_test_base(&mut cpu, prg, 6);
 
         assert_eq!(cpu.pc, 0xDEAD);
     }
@@ -2220,10 +2224,10 @@ mod tests {
                 }
                 else {
                     if addr >= 0x4020 {
-                        self.prg_rom[(addr as usize) - self.rom_offest]
+                        self.prg_rom[((addr as usize) - self.rom_offest) % self.prg_rom.len()]
                     }
                     else {
-                        panic!("Address out of supplied program ROM range. ADDR={addr}", addr=addr);
+                        0
                     }
                 }
             }
