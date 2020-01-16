@@ -100,10 +100,10 @@ impl Cpu {
 
                 // TODO: Flags register
                 // FIXME: Prints all operand data bytes, when one 1 maybe used
-                #[cfg(test)]
-                println!("${:04X} | {:02X} {:02X} {:02X} | {} | A={:02X}, X={:02X}, Y={:02X}, SP={:04X}",
+                //#[cfg(test)]
+                println!("${:04X} | {} | {} | A={:02X}, X={:02X}, Y={:02X}, SP={:04X}",
                         self.pc - (mode.operand_len() + 1) as u16,
-                        opcode_data[0], opcode_data[1], opcode_data[2],
+                        format::operands(opcode_data, mode.operand_len()),
                         format::disassemble(*instr, *mode, operand_data),
                         self.a, self.x, self.y, self.sp);
 
@@ -1015,20 +1015,6 @@ impl Cpu {
     fn fetch(&mut self, io: &mut dyn IoAccess) -> u8 {
         self.read_next_u8(io)
     }
-
-    // fn read_bus(&self, io: &mut dyn IoAccess) -> u8 {
-    //     let mode = match self.state {
-    //         State::Execute(_, mode, _) => mode,
-    //         _ => panic!("Must be in execution state!"),
-    //     };
-
-    //     if mode == AddressingMode::Accumulator {
-    //         self.a
-    //     }
-    //     else {
-    //         self.read_u8(io, self.address_bus)
-    //     }
-    // }
 
     fn write_result(&mut self, io: &mut dyn IoAccess, addressing_result: AddressingModeResult, value: u8) {
         let mode = match self.state {
