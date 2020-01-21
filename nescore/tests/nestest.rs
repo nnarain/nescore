@@ -8,6 +8,9 @@ const TILE_NO_ZERO_OFFSET: u8 = 0x30;
 const MAP_ADDRESS_FIRST_TEST_LOCATION: u16 = 0x20A4;
 const MAP_ADDRESS_TILE_OFFSET: u16 = 0x20;
 
+///
+/// Runs the nestest ROM test
+///
 #[test]
 fn nestest() {
     let cart = Cartridge::from_path("tests/roms/nestest.nes").unwrap();

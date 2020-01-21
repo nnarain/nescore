@@ -52,8 +52,8 @@ impl Cpu {
             x: 0,
             y: 0,
             pc: 0,
-            sp: 0,
-            p: 0,
+            sp: 0x00FD,
+            p: 0x24,
 
             ram: [0; INTERNAL_RAM_SIZE],
 
@@ -99,13 +99,12 @@ impl Cpu {
                 let operand_data = &opcode_data[1..];
 
                 // TODO: Flags register
-                // FIXME: Prints all operand data bytes, when one 1 maybe used
                 //#[cfg(test)]
-                println!("${:04X} | {} | {} | A={:02X}, X={:02X}, Y={:02X}, SP={:04X}",
+                println!("${:04X} | {} | {} | A={:02X}, X={:02X}, Y={:02X}, P={:02X}, SP={:04X}",
                         self.pc - (mode.operand_len() + 1) as u16,
                         format::operands(opcode_data, mode.operand_len()),
                         format::disassemble(*instr, *mode, operand_data),
-                        self.a, self.x, self.y, self.sp);
+                        self.a, self.x, self.y, self.p, self.sp);
 
                 // Apply addressing mode
                 let addressing_result = match mode {
@@ -317,7 +316,7 @@ impl Cpu {
             0xE4 => (Instruction::CPX, AddressingMode::ZeroPage),
             0xEC => (Instruction::CPX, AddressingMode::Absolute),
             // CPY
-            0xC0 => (Instruction::CPX, AddressingMode::Immediate),
+            0xC0 => (Instruction::CPY, AddressingMode::Immediate),
             0xC4 => (Instruction::CPY, AddressingMode::ZeroPage),
             0xCC => (Instruction::CPY, AddressingMode::Absolute),
             // DEC
@@ -485,10 +484,14 @@ impl Cpu {
 
         let r = a + m + c;
         let is_carry = r > 0xFF;
+    
+        let sign_bit = bit_is_set!(r, 7);
+        let v = bit_is_set!(a, 7) != sign_bit && bit_is_set!(m, 7) != sign_bit;
+
         self.a = (r & 0x0FF) as u8;
 
         self.update_flags_with_carry(self.a, is_carry);
-
+        self.set_flag_bit(Flags::Overflow, v);
     }
 
     /// AND - Logical AND
@@ -556,8 +559,8 @@ impl Cpu {
         let r = self.a & m;
 
         // Copy bit 6 to V flag, and bit 7 to N flag
-        self.set_flag_bit(Flags::Overflow, bit_is_set!(r, 6));
-        self.set_flag_bit(Flags::Negative, bit_is_set!(r, 7));
+        self.set_flag_bit(Flags::Overflow, bit_is_set!(m, 6));
+        self.set_flag_bit(Flags::Negative, bit_is_set!(m, 7));
 
         self.set_flag_bit(Flags::Zero, r == 0);
     }
@@ -637,15 +640,18 @@ impl Cpu {
     }
 
     fn php(&mut self, io: &mut dyn IoAccess) {
-        self.push(io, self.p);
+        // The value of $30 is OR'ed in the status register for the 'B' flag values
+        // http://wiki.nesdev.com/w/index.php/Status_flags#The_B_flag
+        self.push(io, self.p | 0x30);
     }
 
     fn pla(&mut self, io: &mut dyn IoAccess) {
         self.a = self.pull(io);
+        self.update_flags(self.a);
     }
 
     fn plp(&mut self, io: &mut dyn IoAccess) {
-        self.p = self.pull(io);
+        self.p = (self.pull(io) | 0x20) & 0xEF;
     }
 
     fn lsr(&mut self, m: u8) -> u8 {
@@ -707,7 +713,7 @@ impl Cpu {
     }
 
     fn jsr(&mut self, io: &mut dyn IoAccess, addr: u16) {
-        self.push16(io, self.sp);
+        self.push16(io, self.pc);
         self.pc = addr;
     }
 
@@ -717,26 +723,42 @@ impl Cpu {
 
     fn sbc(&mut self, m: u8) {
         // TODO: Better way to do this?
-        let m = Wrapping(m);
-        let c = Wrapping(self.get_carry());
-        let a = Wrapping(self.a);
+        // let m = Wrapping(m);
+        // let c = Wrapping(self.get_carry());
+        // let a = Wrapping(self.a);
 
-        let carry_from_bit6 = bit_is_set!(a.0, 6) && bit_is_set!(m.0, 6);
-        let bit7_a = bit_is_set!(a.0, 7);
-        let bit7_m = bit_is_set!(m.0, 7);
+        // let carry_from_bit6 = bit_is_set!(a.0, 6) && bit_is_set!(m.0, 6);
+        // let bit7_a = bit_is_set!(a.0, 7);
+        // let bit7_m = bit_is_set!(m.0, 7);
 
-        let v = (!bit7_a && !bit7_m && carry_from_bit6) || (bit7_a && bit7_m && !carry_from_bit6);
-        let new_c = {
-            (carry_from_bit6 as u8) + (bit7_a as u8) + (bit7_m as u8) > 2
-        };
+        // let v = (!bit7_a && !bit7_m && carry_from_bit6) || (bit7_a && bit7_m && !carry_from_bit6);
+        // let new_c = {
+        //     (carry_from_bit6 as u8) + (bit7_a as u8) + (bit7_m as u8) == 2
+        // };
 
-        self.a = (a - m - (Wrapping(1u8) - c)).0;
+        // self.a = (a - m - (Wrapping(1u8) - c)).0;
 
-        self.set_zero_flag(self.a);
-        self.set_negative_flag(self.a);
+        // self.set_zero_flag(self.a);
+        // self.set_negative_flag(self.a);
+        // self.set_flag_bit(Flags::Overflow, v);
+        // self.set_flag_bit(Flags::Carry, new_c);
+
+        let m = Wrapping(m as u16);
+        let c = Wrapping(1u16) - Wrapping(self.get_carry() as u16);
+        let a = Wrapping(self.a as u16);
+
+        let r = a - m - c;
+
+        // Carry set when result is [0, 255]
+        let c = bit_is_clear!(r.0, 8);
+        
+        let sign_bit = bit_is_set!(r.0, 7);
+        let v = bit_is_set!(a.0, 7) != sign_bit && bit_is_set!(!m.0, 7) != sign_bit;
+
+        self.a = (r.0 & 0xFF) as u8;
+        self.set_flag_bit(Flags::Carry, c);
         self.set_flag_bit(Flags::Overflow, v);
-        self.set_flag_bit(Flags::Carry, new_c);
-
+        self.update_flags(self.a);
     }
 
     fn sec(&mut self) {
@@ -974,18 +996,12 @@ impl Cpu {
 
     /// Push a value onto the stack
     fn push(&mut self, io: &mut dyn IoAccess, data: u8) {
-        // Read the next instruction byte and throw it away
-        self.pc = (Wrapping(self.pc) + Wrapping(1)).0;
-
         self.write_u8(io, self.sp, data);
         self.sp = (Wrapping(self.sp) - Wrapping(1u16)).0;
     }
 
     /// Pull a value off the stack
     fn pull(&mut self, io: &mut dyn IoAccess) -> u8 {
-        // Read the next instruction byte and throw it away
-        self.pc = (Wrapping(self.pc) + Wrapping(1)).0;
-
         self.sp = (Wrapping(self.sp) + Wrapping(1u16)).0;
         let data = self.read_u8(io, self.sp);
 
@@ -1001,8 +1017,8 @@ impl Cpu {
     }
 
     fn pull16(&mut self, io: &mut dyn IoAccess) -> u16 {
-        let hi = self.pull(io) as u16;
         let lo = self.pull(io) as u16;
+        let hi = self.pull(io) as u16;
 
         (hi << 8) | lo
     }
@@ -1305,6 +1321,66 @@ mod tests {
 
         assert_eq!(cpu.a, 0x01);
         assert_eq!(mask_is_clear!(cpu.p, Flags::Carry as u8), true);
+    }
+
+    #[test]
+    fn adc_overflow_1() {
+        let mut cpu = Cpu::new();
+        cpu.a = 0x01;
+
+        let prg = vec![
+            0x69, 0x01, // ADC $01
+        ];
+
+        simple_test_base(&mut cpu, prg, 3);
+
+        assert_eq!(cpu.a, 0x02);
+        assert_eq!(cpu.get_flag_bit(Flags::Overflow), false);
+    }
+
+    #[test]
+    fn adc_overflow_2() {
+        let mut cpu = Cpu::new();
+        cpu.a = 0x01;
+
+        let prg = vec![
+            0x69, 0xFF, // ADC $FF
+        ];
+
+        simple_test_base(&mut cpu, prg, 3);
+
+        assert_eq!(cpu.a, 0x00);
+        assert_eq!(cpu.get_flag_bit(Flags::Overflow), false);
+    }
+
+    #[test]
+    fn adc_overflow_3() {
+        let mut cpu = Cpu::new();
+        cpu.a = 0x7F;
+
+        let prg = vec![
+            0x69, 0x01, // ADC $01
+        ];
+
+        simple_test_base(&mut cpu, prg, 3);
+
+        assert_eq!(cpu.a, 0x80);
+        assert_eq!(cpu.get_flag_bit(Flags::Overflow), true);
+    }
+
+    #[test]
+    fn adc_overflow_4() {
+        let mut cpu = Cpu::new();
+        cpu.a = 0x80;
+
+        let prg = vec![
+            0x69, 0xFF, // ADC $FF
+        ];
+
+        simple_test_base(&mut cpu, prg, 3);
+
+        assert_eq!(cpu.a, 0x7F);
+        assert_eq!(cpu.get_flag_bit(Flags::Overflow), true);
     }
 
     #[test]
@@ -1928,7 +2004,7 @@ mod tests {
 
         simple_test_base(&mut cpu, prg, 4);
 
-        assert_eq!(cpu.p, 0xFF);
+        assert_eq!(cpu.p, 0xFF & 0xEF);
         assert_eq!(cpu.sp, 0x0A);
     }
 
@@ -1998,8 +2074,8 @@ mod tests {
     #[test]
     fn rti() {
         let mut cpu = Cpu::new();
-        cpu.ram[0x0A] = 0xAD;
-        cpu.ram[0x09] = 0xDE;
+        cpu.ram[0x0A] = 0xDE;
+        cpu.ram[0x09] = 0xAD;
         cpu.ram[0x08] = 0xA5;
         cpu.sp = 0x0007;
 
@@ -2026,6 +2102,8 @@ mod tests {
         simple_test_base(&mut cpu, prg, 6);
 
         assert_eq!(cpu.pc, 0xDEAD);
+        assert_eq!(cpu.ram[0x0A], 0x40);
+        assert_eq!(cpu.ram[0x09], 0x23);
     }
 
     #[test]
@@ -2044,10 +2122,59 @@ mod tests {
     }
 
     #[test]
+    fn sbc2() {
+        let mut cpu = Cpu::new();
+        cpu.a = 0x40;
+        mask_set!(cpu.p, Flags::Carry as u8);
+
+        let prg = vec![
+            0xE9, 0x40, // SBC $40
+        ];
+
+        simple_test_base(&mut cpu, prg, 2);
+
+        assert_eq!(cpu.a, 0x00);
+        assert_eq!(mask_is_set!(cpu.p, Flags::Carry as u8), true);
+        assert_eq!(mask_is_set!(cpu.p, Flags::Zero as u8), true);
+        assert_eq!(mask_is_set!(cpu.p, Flags::Overflow as u8), false);
+        assert_eq!(mask_is_set!(cpu.p, Flags::Negative as u8), false);
+    }
+
+    #[test]
+    fn sbc_overflow_1() {
+        let mut cpu = Cpu::new();
+        cpu.a = 0x00;
+
+        let prg = vec![
+            0xE9, 0x01, // SBC $01
+        ];
+
+        simple_test_base(&mut cpu, prg, 2);
+
+        assert_eq!(cpu.a, 0xFE);
+        assert_eq!(mask_is_set!(cpu.p, Flags::Overflow as u8), false);
+    }
+
+    #[test]
+    fn sbc_overflow_2() {
+        let mut cpu = Cpu::new();
+        cpu.a = 0x80;
+
+        let prg = vec![
+            0xE9, 0x01, // SBC $01
+        ];
+
+        simple_test_base(&mut cpu, prg, 2);
+
+        assert_eq!(cpu.a, 0x7E);
+        assert_eq!(mask_is_set!(cpu.p, Flags::Overflow as u8), true);
+    }
+
+    #[test]
     fn rts() {
         let mut cpu = Cpu::new();
-        cpu.ram[0x0A] = 0xAD;
-        cpu.ram[0x09] = 0xDE;
+        cpu.ram[0x0A] = 0xDE;
+        cpu.ram[0x09] = 0xAD;
         cpu.sp = 0x0008;
 
         let prg = vec![
@@ -2225,6 +2352,7 @@ mod tests {
 
         pub fn simple_test(prg: Vec<u8>, ticks: usize) -> Cpu {
             let mut cpu = Cpu::new();
+            cpu.p = 0x00;
             simple_test_base(&mut cpu, prg, ticks);
 
             cpu
