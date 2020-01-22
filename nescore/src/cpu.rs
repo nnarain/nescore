@@ -76,6 +76,10 @@ impl Cpu {
         self.ram[(addr as usize % INTERNAL_RAM_SIZE)]
     }
 
+    pub fn write_ram(&mut self, addr: u16, value: u8) {
+        self.ram[(addr as usize % INTERNAL_RAM_SIZE)] = value;
+    }
+
     /// Execute the current cycle given the internal state
     fn run_cycle(&mut self, io: &mut dyn IoAccess, state: State) -> State {
         match state {
@@ -98,7 +102,6 @@ impl Cpu {
 
                 let operand_data = &opcode_data[1..];
 
-                // TODO: Flags register
                 //#[cfg(test)]
                 println!("${:04X} | {} | {} | A={:02X}, X={:02X}, Y={:02X}, P={:02X}, SP={:04X}",
                         self.pc - (mode.operand_len() + 1) as u16,
@@ -1061,7 +1064,7 @@ impl Cpu {
     }
 
     fn read_u8(&self, io: &mut dyn IoAccess, addr: u16) -> u8 {
-        if (addr as usize) < INTERNAL_RAM_SIZE {
+        if (addr as usize) < 0x2000 {
             self.read_ram(addr)
         }
         else {
@@ -1070,8 +1073,8 @@ impl Cpu {
     }
 
     fn write_u8(&mut self, io: &mut dyn IoAccess, addr: u16, value: u8) {
-        if (addr as usize) < INTERNAL_RAM_SIZE {
-            self.ram[(addr as usize) % 0x200] = value;
+        if (addr as usize) < 0x2000 {
+            self.write_ram(addr, value);
         }
         else {
             io.write_byte(addr, value);
@@ -1928,6 +1931,20 @@ mod tests {
         ];
 
         let cpu = simple_test(prg, 2);
+
+        assert_eq!(cpu.x, 0xA5);
+    }
+
+    #[test]
+    fn ldx_absolute() {
+        let mut cpu = Cpu::new();
+        cpu.ram[0x07FF] = 0xA5;
+
+        let prg = vec![
+            0xAE, 0xFF, 0x07, // LDX $07FF
+        ];
+
+        simple_test_base(&mut cpu, prg, 4);
 
         assert_eq!(cpu.x, 0xA5);
     }
