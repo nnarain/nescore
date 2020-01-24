@@ -29,6 +29,7 @@ enum Flags {
 }
 
 const INTERNAL_RAM_SIZE: usize = 0x800;
+const STACK_PAGE_OFFSET: u16 = 0x100;
 
 
 /// NES Central Processing Unit
@@ -999,14 +1000,15 @@ impl Cpu {
 
     /// Push a value onto the stack
     fn push(&mut self, io: &mut dyn IoAccess, data: u8) {
-        self.write_u8(io, self.sp, data);
+        // The stack is always stored in page 1
+        self.write_u8(io, self.sp + STACK_PAGE_OFFSET, data);
         self.sp = (Wrapping(self.sp) - Wrapping(1u16)).0;
     }
 
     /// Pull a value off the stack
     fn pull(&mut self, io: &mut dyn IoAccess) -> u8 {
         self.sp = (Wrapping(self.sp) + Wrapping(1u16)).0;
-        let data = self.read_u8(io, self.sp);
+        let data = self.read_u8(io, self.sp + STACK_PAGE_OFFSET);
 
         data
     }
@@ -1973,13 +1975,13 @@ mod tests {
         simple_test_base(&mut cpu, prg, 3);
 
         assert_eq!(cpu.sp, 0x09);
-        assert_eq!(cpu.ram[0x0A], 0xFF);
+        assert_eq!(cpu.ram[0x10A], 0xFF);
     }
 
     #[test]
     fn pla() {
         let mut cpu = Cpu::new();
-        cpu.ram[0x0A] = 0xFF;
+        cpu.ram[0x10A] = 0xFF;
         cpu.sp = 0x09;
 
         let prg = vec![
@@ -2006,13 +2008,13 @@ mod tests {
         simple_test_base(&mut cpu, prg, 3);
 
         assert_eq!(cpu.sp, 0x09);
-        assert_eq!(cpu.ram[0x0A], 0xFF);
+        assert_eq!(cpu.ram[0x10A], 0xFF);
     }
 
     #[test]
     fn plp() {
         let mut cpu = Cpu::new();
-        cpu.ram[0x0A] = 0xFF;
+        cpu.ram[0x10A] = 0xFF;
         cpu.sp = 0x09;
 
         let prg = vec![
@@ -2091,9 +2093,9 @@ mod tests {
     #[test]
     fn rti() {
         let mut cpu = Cpu::new();
-        cpu.ram[0x0A] = 0xDE;
-        cpu.ram[0x09] = 0xAD;
-        cpu.ram[0x08] = 0xA5;
+        cpu.ram[0x10A] = 0xDE;
+        cpu.ram[0x109] = 0xAD;
+        cpu.ram[0x108] = 0xA5;
         cpu.sp = 0x0007;
 
         let prg = vec![
@@ -2119,8 +2121,8 @@ mod tests {
         simple_test_base(&mut cpu, prg, 6);
 
         assert_eq!(cpu.pc, 0xDEAD);
-        assert_eq!(cpu.ram[0x0A], 0x40);
-        assert_eq!(cpu.ram[0x09], 0x23);
+        assert_eq!(cpu.ram[0x010A], 0x40);
+        assert_eq!(cpu.ram[0x0109], 0x23);
     }
 
     #[test]
@@ -2190,8 +2192,8 @@ mod tests {
     #[test]
     fn rts() {
         let mut cpu = Cpu::new();
-        cpu.ram[0x0A] = 0xDE;
-        cpu.ram[0x09] = 0xAD;
+        cpu.ram[0x10A] = 0xDE;
+        cpu.ram[0x109] = 0xAD;
         cpu.sp = 0x0008;
 
         let prg = vec![
