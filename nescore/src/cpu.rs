@@ -234,7 +234,12 @@ impl Cpu {
     fn get_execute_state(&mut self, io: &mut dyn IoAccess, opcode: u8) -> State {
         let (instr, mode) = match opcode {
             // NOP
-            0xEA => (Instruction::NOP, AddressingMode::Implied),
+            0xEA | 0x1A | 0x3A | 0x5A | 0x7A | 0xDA | 0xFA => (Instruction::NOP, AddressingMode::Implied),
+            0x04 | 0x44 | 0x64 => (Instruction::NOP, AddressingMode::Immediate),
+            0x0C => (Instruction::NOP, AddressingMode::Absolute),
+            0x80 => (Instruction::NOP, AddressingMode::ZeroPage),
+            0x14 | 0x34 | 0x54 | 0x74 | 0xD4 | 0xF4 => (Instruction::NOP, AddressingMode::ZeroPageX),
+            0x1C | 0x3C | 0x5C | 0x7C | 0xDC | 0xFC => (Instruction::NOP, AddressingMode::AbsoluteX),
             // LDA
             0xA9 => (Instruction::LDA, AddressingMode::Immediate),
             0xA5 => (Instruction::LDA, AddressingMode::ZeroPage),
@@ -856,7 +861,9 @@ impl Cpu {
     }
 
     fn absolute_i(&mut self, data: &[u8], i: u8) -> AddressingModeResult {
-        AddressingModeResult::Address((((data[1] as u16) << 8) | data[0] as u16) + (i as u16))
+        let addr = ((data[1] as u16) << 8) | data[0] as u16;
+        let addr = (Wrapping(addr) + Wrapping(i as u16)).0;
+        AddressingModeResult::Address(addr)
     }
 
     /// Zero Page Addressing

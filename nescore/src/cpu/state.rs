@@ -171,6 +171,7 @@ pub fn cycle_count(instr: Instruction, mode: AddressingMode) -> usize {
                         InstructionCategory::Read => 3,
                         InstructionCategory::ReadModifyWrite => 5,
                         InstructionCategory::Write => 3,
+                        InstructionCategory::Implied => 3, // FIXME: What should this be?
 
                         _ => unreachable!("Matching absolute instructions to categories: {:?}", instr),
                     }
@@ -182,6 +183,7 @@ pub fn cycle_count(instr: Instruction, mode: AddressingMode) -> usize {
                 InstructionCategory::Read => 4,
                 InstructionCategory::ReadModifyWrite => 6,
                 InstructionCategory::Write => 4,
+                InstructionCategory::Implied => 3, // FIXME: What should this be?
                 _ => unreachable!("Matching Absolute indexed addressing to categories"),
             }
         },
@@ -190,6 +192,7 @@ pub fn cycle_count(instr: Instruction, mode: AddressingMode) -> usize {
                 InstructionCategory::Read => 2,
                 InstructionCategory::ReadModifyWrite => 4,
                 InstructionCategory::Write => 2,
+                InstructionCategory::Implied => 3, // FIXME: What should this be?
                 _ => unreachable!("Matching ZeroPage to categories {:?}", instr=instr),
             }
         },
@@ -198,6 +201,7 @@ pub fn cycle_count(instr: Instruction, mode: AddressingMode) -> usize {
                 InstructionCategory::Read => 3,
                 InstructionCategory::ReadModifyWrite => 5,
                 InstructionCategory::Write => 3,
+                InstructionCategory::Implied => 3, // FIXME: What should this be?
                 _ => unreachable!("Matching ZeroPage Indexed to categories"),
             }
         },
