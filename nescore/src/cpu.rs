@@ -905,11 +905,17 @@ impl Cpu {
     /// Indirect
     /// Only applicable to JMP instruction
     fn indirect(&mut self, io: &mut dyn IoAccess, data: &[u8]) -> AddressingModeResult {
+        // Note: * The PCH will always be fetched from the same page
+        // as PCL, i.e. page boundary crossing is not handled.
 
         let ptr = ((data[1] as u16) << 8) | data[0] as u16;
 
-        let lo = self.read_u8(io, ptr) as u16;
-        let hi = self.read_u8(io, ptr + 1) as u16;
+        let page = ptr & 0xFF00;
+        let addr_lo = page | low_byte!(ptr);
+        let addr_hi = page | ((low_byte!(ptr) + 0x01) & 0xFF);
+
+        let lo = self.read_u8(io, addr_lo) as u16;
+        let hi = self.read_u8(io, addr_hi) as u16;
 
         AddressingModeResult::Address((hi << 8) | lo)
     }
@@ -1285,6 +1291,21 @@ mod tests {
         let cpu = simple_test(prg, 5);
 
         assert_eq!(cpu.pc, 0x1000);
+    }
+
+    #[test]
+    fn jmp_indirect_page_cross() {
+        let mut cpu = Cpu::new();
+        cpu.ram[0x0FF] = 0xAD;
+        cpu.ram[0x00] = 0xDE;
+
+        let prg = vec![
+            0x6C, 0xFF, 0x00, // LDA JMP ($00FF)
+        ];
+
+        simple_test_base(&mut cpu, prg, 5);
+        
+        assert_eq!(cpu.pc, 0xDEAD);
     }
 
     #[test]
