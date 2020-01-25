@@ -717,36 +717,35 @@ impl Cpu {
     }
 
     fn jsr(&mut self, io: &mut dyn IoAccess, addr: u16) {
-        self.push16(io, self.pc);
+        //     JSR
+        //     #  address R/W description
+        //    --- ------- --- -------------------------------------------------
+        //     1    PC     R  fetch opcode, increment PC
+        //     2    PC     R  fetch low address byte, increment PC
+        //     3  $0100,S  R  internal operation (predecrement S?)
+        //     4  $0100,S  W  push PCH on stack, decrement S
+        //     5  $0100,S  W  push PCL on stack, decrement S
+        //     6    PC     R  copy low address byte to PCL, fetch high address
+        //                    byte to PCH
+        self.push16(io, self.pc-1);
         self.pc = addr;
     }
 
     fn rts(&mut self, io: &mut dyn IoAccess) {
+        //  RTS
+        //  #  address R/W description
+        // --- ------- --- -----------------------------------------------
+        //  1    PC     R  fetch opcode, increment PC
+        //  2    PC     R  read next instruction byte (and throw it away)
+        //  3  $0100,S  R  increment S
+        //  4  $0100,S  R  pull PCL from stack, increment S
+        //  5  $0100,S  R  pull PCH from stack
+        //  6    PC     R  increment PC
         self.pc = self.pull16(io);
+        self.pc = (Wrapping(self.pc) + Wrapping(1)).0;
     }
 
     fn sbc(&mut self, m: u8) {
-        // TODO: Better way to do this?
-        // let m = Wrapping(m);
-        // let c = Wrapping(self.get_carry());
-        // let a = Wrapping(self.a);
-
-        // let carry_from_bit6 = bit_is_set!(a.0, 6) && bit_is_set!(m.0, 6);
-        // let bit7_a = bit_is_set!(a.0, 7);
-        // let bit7_m = bit_is_set!(m.0, 7);
-
-        // let v = (!bit7_a && !bit7_m && carry_from_bit6) || (bit7_a && bit7_m && !carry_from_bit6);
-        // let new_c = {
-        //     (carry_from_bit6 as u8) + (bit7_a as u8) + (bit7_m as u8) == 2
-        // };
-
-        // self.a = (a - m - (Wrapping(1u8) - c)).0;
-
-        // self.set_zero_flag(self.a);
-        // self.set_negative_flag(self.a);
-        // self.set_flag_bit(Flags::Overflow, v);
-        // self.set_flag_bit(Flags::Carry, new_c);
-
         let m = Wrapping(m as u16);
         let c = Wrapping(1u16) - Wrapping(self.get_carry() as u16);
         let a = Wrapping(self.a as u16);
@@ -2122,7 +2121,7 @@ mod tests {
 
         assert_eq!(cpu.pc, 0xDEAD);
         assert_eq!(cpu.ram[0x010A], 0x40);
-        assert_eq!(cpu.ram[0x0109], 0x23);
+        assert_eq!(cpu.ram[0x0109], 0x22);
     }
 
     #[test]
@@ -2193,7 +2192,7 @@ mod tests {
     fn rts() {
         let mut cpu = Cpu::new();
         cpu.ram[0x10A] = 0xDE;
-        cpu.ram[0x109] = 0xAD;
+        cpu.ram[0x109] = 0xAC;
         cpu.sp = 0x0008;
 
         let prg = vec![
