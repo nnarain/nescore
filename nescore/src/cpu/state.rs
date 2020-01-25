@@ -99,6 +99,8 @@ impl Instruction {
             | Instruction::ADC
             | Instruction::SBC
             | Instruction::CMP
+            | Instruction::CPY
+            | Instruction::CPX
             | Instruction::BIT => InstructionCategory::Read,
             
               Instruction::STA
@@ -125,7 +127,6 @@ impl Instruction {
             | Instruction::CLD
             | Instruction::CLI
             | Instruction::CLV
-            | Instruction::CPX
             | Instruction::CLC
             | Instruction::DEX
             | Instruction::DEY
@@ -135,8 +136,7 @@ impl Instruction {
             | Instruction::PHA
             | Instruction::PHP
             | Instruction::PLA
-            | Instruction::PLP
-            | Instruction::CPY => InstructionCategory::Implied,
+            | Instruction::PLP => InstructionCategory::Implied,
 
             _ => InstructionCategory::Implied,
         }
@@ -172,7 +172,7 @@ pub fn cycle_count(instr: Instruction, mode: AddressingMode) -> usize {
                         InstructionCategory::ReadModifyWrite => 5,
                         InstructionCategory::Write => 3,
 
-                        _ => unreachable!("Matching absolute instructions to categories"),
+                        _ => unreachable!("Matching absolute instructions to categories: {:?}", instr),
                     }
                 }
             }
@@ -190,7 +190,7 @@ pub fn cycle_count(instr: Instruction, mode: AddressingMode) -> usize {
                 InstructionCategory::Read => 2,
                 InstructionCategory::ReadModifyWrite => 4,
                 InstructionCategory::Write => 2,
-                _ => unreachable!("Matching ZeroPage to categories"),
+                _ => unreachable!("Matching ZeroPage to categories {:?}", instr=instr),
             }
         },
         AddressingMode::ZeroPageX | AddressingMode::ZeroPageY => {
