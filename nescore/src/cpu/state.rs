@@ -85,12 +85,14 @@ pub enum Instruction {
     CLD, CLI, CLV, CMP, CPX, CPY, DEC, DEX, DEY, EOR, INC, INX, INY, JMP,
     JSR, LDA, LDX, LDY, LSR, NOP, ORA, PHA, PHP, PLA, PLP, ROL, ROR, RTI,
     RTS, SBC, SEC, SED, SEI, STA, STX, STY, TAX, TAY, TSX, TXA, TXS, TYA,
+    LAX, SAX,
 }
 
 impl Instruction {
     pub fn category(&self) -> InstructionCategory {
         match *self {
               Instruction::LDA
+            | Instruction::LAX
             | Instruction::LDX
             | Instruction::LDY
             | Instruction::EOR
@@ -105,6 +107,7 @@ impl Instruction {
             
               Instruction::STA
             | Instruction::STX
+            | Instruction::SAX
             | Instruction::STY => InstructionCategory::Write,
 
               Instruction::ASL

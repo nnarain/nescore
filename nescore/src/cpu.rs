@@ -162,6 +162,7 @@ impl Cpu {
                     Instruction::TYA => self.tya(),
                     Instruction::BRK => self.brk(io),
                     Instruction::LDA => self.lda(byte.unwrap()),
+                    Instruction::LAX => self.lax(byte.unwrap()),
                     Instruction::JMP => self.jmp(addr.unwrap()),
                     Instruction::ADC => self.adc(byte.unwrap()),
                     Instruction::AND => self.and(byte.unwrap()),
@@ -195,6 +196,10 @@ impl Cpu {
                         let v = self.sty();
                         self.write_result(io, addressing_result, v);
                     },
+                    Instruction::SAX => {
+                        let v = self.sax();
+                        self.write_result(io, addressing_result, v);
+                    }
                     Instruction::ASL => {
                         let v = self.asl(byte.unwrap());
                         self.write_result(io, addressing_result, v);
@@ -249,6 +254,18 @@ impl Cpu {
             0xB9 => (Instruction::LDA, AddressingMode::AbsoluteY),
             0xA1 => (Instruction::LDA, AddressingMode::IndexedIndirect),
             0xB1 => (Instruction::LDA, AddressingMode::IndirectIndexed),
+            // LAX
+            0xA7 => (Instruction::LAX, AddressingMode::ZeroPage),
+            0xB7 => (Instruction::LAX, AddressingMode::ZeroPageY),
+            0xAF => (Instruction::LAX, AddressingMode::Absolute),
+            0xBF => (Instruction::LAX, AddressingMode::AbsoluteY),
+            0xA3 => (Instruction::LAX, AddressingMode::IndexedIndirect),
+            0xB3 => (Instruction::LAX, AddressingMode::IndirectIndexed),
+            // SAX
+            0x87 => (Instruction::SAX, AddressingMode::ZeroPage),
+            0x97 => (Instruction::SAX, AddressingMode::ZeroPageY),
+            0x8F => (Instruction::SAX, AddressingMode::Absolute),
+            0x83 => (Instruction::SAX, AddressingMode::IndexedIndirect),
             // JMP
             0x4C => (Instruction::JMP, AddressingMode::Absolute),
             0x6C => (Instruction::JMP, AddressingMode::Indirect),
@@ -477,6 +494,17 @@ impl Cpu {
     fn lda(&mut self, a: u8) {
         self.a = a;
         self.update_flags(self.a);
+    }
+
+    fn lax(&mut self, m: u8) {
+        self.a = m;
+        self.x = m;
+
+        self.update_flags(self.a);
+    }
+
+    fn sax(&self) -> u8 {
+        self.a & self.x
     }
 
     /// Jump
@@ -1281,6 +1309,36 @@ mod tests {
 
         assert_eq!(cpu.a, 0x80);
         assert_eq!(cpu.p, Flags::Negative as u8);
+    }
+
+    #[test]
+    fn lax() {
+        let mut cpu = Cpu::new();
+        cpu.ram[0x02] = 0xDE;
+
+        let prg = vec![
+            0xA7, 0x02, // LAX $02
+        ];
+
+        simple_test_base(&mut cpu, prg, 3);
+
+        assert_eq!(cpu.a, 0xDE);
+        assert_eq!(cpu.x, 0xDE);
+    }
+
+    #[test]
+    fn sax() {
+        let mut cpu = Cpu::new();
+        cpu.a = 0xFF;
+        cpu.x = 0x00;
+
+        let prg = vec![
+            0x87, 0x02, // SAX $02
+        ];
+
+        simple_test_base(&mut cpu, prg, 3);
+
+        assert_eq!(cpu.ram[0x02], 0x00);
     }
 
     #[test]
