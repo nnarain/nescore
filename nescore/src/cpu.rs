@@ -980,9 +980,15 @@ impl Cpu {
     /// Branch
     fn branch(&mut self, cond_met: bool, offset: u8) {
         if cond_met {
-            let offset = Wrapping(offset as i16);
-            let pc = Wrapping(self.pc as i16);
-            self.pc = (pc + offset).0 as u16;
+            // let offset = Wrapping(offset as i16);
+            // let pc = Wrapping(self.pc as i16);
+            // self.pc = (pc + offset).0 as u16;
+
+            let offset = offset as i8;
+            let offset = offset as i16;
+            let base_addr = self.pc as i16;
+
+            self.pc = (Wrapping(base_addr) + Wrapping(offset)).0 as u16;
         }
     }
 
@@ -1606,6 +1612,20 @@ mod tests {
         simple_test_base(&mut cpu, prg, 3);
 
         assert_eq!(cpu.pc, 0x4024);
+    }
+
+    #[test]
+    fn bne_zero_not_set_negative_offset() {
+        let mut cpu = Cpu::new();
+        mask_clear!(cpu.p, Flags::Zero as u8);
+
+        let prg = vec![
+            0xD0, 0xFE, // BNE $FE
+        ];
+
+        simple_test_base(&mut cpu, prg, 3);
+
+        assert_eq!(cpu.pc, 0x4020);
     }
 
     #[test]
