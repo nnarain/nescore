@@ -224,6 +224,18 @@ impl Cpu {
                         let v = self.dec(byte.unwrap());
                         self.write_result(io, addressing_result, v);
                     },
+                    Instruction::DCP => {
+                        let v = self.dcp(byte.unwrap());
+                        self.write_result(io, addressing_result, v);
+                    },
+                    Instruction::ISB => {
+                        let m = self.isb(byte.unwrap());
+                        self.write_result(io, addressing_result, m);
+                    },
+                    Instruction::SLO => {
+                        let m = self.slo(byte.unwrap());
+                        self.write_result(io, addressing_result, m);
+                    }
                 }
 
                 State::Fetch
@@ -266,6 +278,14 @@ impl Cpu {
             0x97 => (Instruction::SAX, AddressingMode::ZeroPageY),
             0x8F => (Instruction::SAX, AddressingMode::Absolute),
             0x83 => (Instruction::SAX, AddressingMode::IndexedIndirect),
+            // DCP
+            0xC7 => (Instruction::DCP, AddressingMode::ZeroPage),
+            0xD7 => (Instruction::DCP, AddressingMode::ZeroPageX),
+            0xCF => (Instruction::DCP, AddressingMode::Absolute),
+            0xDF => (Instruction::DCP, AddressingMode::AbsoluteX),
+            0xDB => (Instruction::DCP, AddressingMode::AbsoluteY),
+            0xC3 => (Instruction::DCP, AddressingMode::IndexedIndirect),
+            0xD3 => (Instruction::DCP, AddressingMode::IndirectIndexed),
             // JMP
             0x4C => (Instruction::JMP, AddressingMode::Absolute),
             0x6C => (Instruction::JMP, AddressingMode::Indirect),
@@ -426,7 +446,7 @@ impl Cpu {
             // RTS
             0x60 => (Instruction::RTS, AddressingMode::Implied),
             // SBC
-            0xE9 => (Instruction::SBC, AddressingMode::Immediate),
+            0xE9 | 0xEB => (Instruction::SBC, AddressingMode::Immediate),
             0xE5 => (Instruction::SBC, AddressingMode::ZeroPage),
             0xF5 => (Instruction::SBC, AddressingMode::ZeroPageX),
             0xED => (Instruction::SBC, AddressingMode::Absolute),
@@ -434,6 +454,22 @@ impl Cpu {
             0xF9 => (Instruction::SBC, AddressingMode::AbsoluteY),
             0xE1 => (Instruction::SBC, AddressingMode::IndexedIndirect),
             0xF1 => (Instruction::SBC, AddressingMode::IndirectIndexed),
+            // ISB
+            0xE7 => (Instruction::ISB, AddressingMode::ZeroPage),
+            0xF7 => (Instruction::ISB, AddressingMode::ZeroPageX),
+            0xEF => (Instruction::ISB, AddressingMode::Absolute),
+            0xFF => (Instruction::ISB, AddressingMode::AbsoluteX),
+            0xFB => (Instruction::ISB, AddressingMode::AbsoluteY),
+            0xE3 => (Instruction::ISB, AddressingMode::IndexedIndirect),
+            0xF3 => (Instruction::ISB, AddressingMode::IndirectIndexed),
+            // SLO
+            0x07 => (Instruction::SLO, AddressingMode::ZeroPage),
+            0x17 => (Instruction::SLO, AddressingMode::ZeroPageX),
+            0x0F => (Instruction::SLO, AddressingMode::Absolute),
+            0x1F => (Instruction::SLO, AddressingMode::AbsoluteX),
+            0x1B => (Instruction::SLO, AddressingMode::AbsoluteY),
+            0x03 => (Instruction::SLO, AddressingMode::IndexedIndirect),
+            0x13 => (Instruction::SLO, AddressingMode::IndirectIndexed),
             // SEC
             0x38 => (Instruction::SEC, AddressingMode::Implied),
             // SED
@@ -505,6 +541,10 @@ impl Cpu {
 
     fn sax(&self) -> u8 {
         self.a & self.x
+    }
+
+    fn dcp(&self, m: u8) -> u8 {
+        (Wrapping(m) - Wrapping(1)).0
     }
 
     /// Jump
@@ -795,6 +835,22 @@ impl Cpu {
         self.set_flag_bit(Flags::Carry, c);
         self.set_flag_bit(Flags::Overflow, v);
         self.update_flags(self.a);
+    }
+
+    /// Increase memory by one and subtract from the accumulator with borrow
+    fn isb(&mut self, m: u8) -> u8 {
+        let m = (Wrapping(m) + Wrapping(1)).0;
+        self.sbc(m);
+
+        m
+    }
+
+    fn slo(&mut self, m: u8) -> u8 {
+        // TODO: Set carry?
+        let m = m << 1;
+        self.ora(m);
+
+        m
     }
 
     fn sec(&mut self) {
@@ -1337,6 +1393,20 @@ mod tests {
         ];
 
         simple_test_base(&mut cpu, prg, 3);
+
+        assert_eq!(cpu.ram[0x02], 0x00);
+    }
+
+    #[test]
+    fn dcp() {
+        let mut cpu = Cpu::new();
+        cpu.ram[0x02] = 0x01;
+
+        let prg = vec![
+            0xC7, 0x02, // DCP $02
+        ];
+
+        simple_test_base(&mut cpu, prg, 5);
 
         assert_eq!(cpu.ram[0x02], 0x00);
     }
@@ -2235,7 +2305,6 @@ mod tests {
 
     #[test]
     fn sbc() {
-        // TODO: This test could be better...
         let mut cpu = Cpu::new();
         cpu.a = 0x01;
 
@@ -2295,6 +2364,22 @@ mod tests {
 
         assert_eq!(cpu.a, 0x7E);
         assert_eq!(mask_is_set!(cpu.p, Flags::Overflow as u8), true);
+    }
+
+    #[test]
+    fn isb() {
+        let mut cpu = Cpu::new();
+        cpu.a = 0x01;
+        cpu.ram[0x02] = 0x00;
+
+        let prg = vec![
+            0xE7, 0x02, // ISB $02
+        ];
+
+        simple_test_base(&mut cpu, prg, 5);
+
+        assert_eq!(cpu.a, 0xFF);
+        assert_eq!(cpu.ram[0x02], 0x01);
     }
 
     #[test]
