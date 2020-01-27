@@ -235,6 +235,18 @@ impl Cpu {
                     Instruction::SLO => {
                         let m = self.slo(byte.unwrap());
                         self.write_result(io, addressing_result, m);
+                    },
+                    Instruction::RLA => {
+                        let m = self.rla(byte.unwrap());
+                        self.write_result(io, addressing_result, m);
+                    },
+                    Instruction::SRE => {
+                        let m = self.sre(byte.unwrap());
+                        self.write_result(io, addressing_result, m);
+                    },
+                    Instruction::RRA => {
+                        let m = self.rra(byte.unwrap());
+                        self.write_result(io, addressing_result, m);
                     }
                 }
 
@@ -439,6 +451,30 @@ impl Cpu {
             0x36 => (Instruction::ROL, AddressingMode::ZeroPageX),
             0x2E => (Instruction::ROL, AddressingMode::Absolute),
             0x3E => (Instruction::ROL, AddressingMode::AbsoluteX),
+            // RLA
+            0x27 => (Instruction::RLA, AddressingMode::ZeroPage),
+            0x37 => (Instruction::RLA, AddressingMode::ZeroPageX),
+            0x2F => (Instruction::RLA, AddressingMode::Absolute),
+            0x3F => (Instruction::RLA, AddressingMode::AbsoluteX),
+            0x3B => (Instruction::RLA, AddressingMode::AbsoluteY),
+            0x23 => (Instruction::RLA, AddressingMode::IndexedIndirect),
+            0x33 => (Instruction::RLA, AddressingMode::IndirectIndexed),
+            // RRA
+            0x67 => (Instruction::RRA, AddressingMode::ZeroPage),
+            0x77 => (Instruction::RRA, AddressingMode::ZeroPageX),
+            0x6F => (Instruction::RRA, AddressingMode::Absolute),
+            0x7F => (Instruction::RRA, AddressingMode::AbsoluteX),
+            0x7B => (Instruction::RRA, AddressingMode::AbsoluteY),
+            0x63 => (Instruction::RRA, AddressingMode::IndexedIndirect),
+            0x73 => (Instruction::RRA, AddressingMode::IndirectIndexed),
+            // SRE
+            0x47 => (Instruction::SRE, AddressingMode::ZeroPage),
+            0x57 => (Instruction::SRE, AddressingMode::ZeroPageX),
+            0x4F => (Instruction::SRE, AddressingMode::Absolute),
+            0x5F => (Instruction::SRE, AddressingMode::AbsoluteX),
+            0x5B => (Instruction::SRE, AddressingMode::AbsoluteY),
+            0x43 => (Instruction::SRE, AddressingMode::IndexedIndirect),
+            0x53 => (Instruction::SRE, AddressingMode::IndirectIndexed),
             // RTI
             0x40 => (Instruction::RTI, AddressingMode::Implied),
             // JSR
@@ -782,6 +818,26 @@ impl Cpu {
         self.set_negative_flag(r);
 
         r
+    }
+
+    fn rla(&mut self, m: u8) -> u8 {
+        let m = self.rol(m);
+        self.a &= m;
+        self.update_flags(self.a);
+        m
+    }
+
+    fn rra(&mut self, m: u8) -> u8 {
+        let m = self.ror(m);
+        self.adc(m);
+
+        m
+    }
+
+    fn sre(&mut self, m: u8) -> u8 {
+        let m = m >> 1;
+        self.eor(m);
+        m
     }
 
     fn rti(&mut self, io: &mut dyn IoAccess) {
