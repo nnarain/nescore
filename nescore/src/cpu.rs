@@ -560,8 +560,6 @@ impl Cpu {
     // Instruction Implementation
     //------------------------------------------------------------------------------------------------------------------
 
-    // TODO: BRK
-
     /// Load Accumulator
     fn lda(&mut self, a: u8) {
         self.a = a;
@@ -968,6 +966,8 @@ impl Cpu {
 
         self.set_flag_bit(Flags::Break, true);
         self.push(io, self.p);
+
+        self.pc = self.read_u16(io, memorymap::IRQ_VECTOR);
     }
 
     //------------------------------------------------------------------------------------------------------------------
