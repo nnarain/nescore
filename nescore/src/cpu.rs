@@ -1032,7 +1032,9 @@ impl Cpu {
         let lo = self.read_u8(io, ptr) as u16;
         let hi = self.read_u8(io, ptr + 1) as u16;
 
-        AddressingModeResult::Address((hi << 8) | lo)
+        let addr = ((hi << 8) | lo) & 0xFF;
+
+        AddressingModeResult::Address(addr)
     }
 
     /// Indirect Indexed Addressing
