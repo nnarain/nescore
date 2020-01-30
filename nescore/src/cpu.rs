@@ -620,8 +620,7 @@ impl Cpu {
 
         let r = m << 1;
 
-
-        self.set_zero_flag(self.a);
+        self.set_zero_flag(r);
         self.set_negative_flag(r);
         self.set_flag_bit(Flags::Carry, c);
 
@@ -789,7 +788,7 @@ impl Cpu {
         let new_carry = bit_is_set!(m, 0);
 
         let mut r = m >> 1;
-        
+
         if current_carry {
             bit_set!(r, 7);
         }
@@ -1023,7 +1022,7 @@ impl Cpu {
     }
 
     fn zeropage_i(&mut self, data: &[u8], i: u8) -> AddressingModeResult {
-        AddressingModeResult::Address((data[0] as u16) + i as u16)
+        AddressingModeResult::Address(((data[0] as u16) + i as u16) & 0xFF)
     }
 
     /// Indexed Indirect Addressing
@@ -1120,10 +1119,6 @@ impl Cpu {
     /// Branch
     fn branch(&mut self, cond_met: bool, offset: u8) {
         if cond_met {
-            // let offset = Wrapping(offset as i16);
-            // let pc = Wrapping(self.pc as i16);
-            // self.pc = (pc + offset).0 as u16;
-
             let offset = offset as i8;
             let offset = offset as i16;
             let base_addr = self.pc as i16;
@@ -1666,6 +1661,23 @@ mod tests {
         assert_eq!(cpu.a, 0x02);
         assert_eq!(cpu.get_flag_bit(Flags::Carry), false);
         assert_eq!(cpu.get_flag_bit(Flags::Zero), false);
+        assert_eq!(cpu.get_flag_bit(Flags::Negative), false);
+    }
+
+    #[test]
+    fn asl_accumulator_is_zero() {
+        let mut cpu = Cpu::new();
+        cpu.a = 0x80;
+
+        let prg = vec![
+            0x0A, // ASL
+        ];
+
+        simple_test_base(&mut cpu, prg, 2);
+
+        assert_eq!(cpu.a, 0x00);
+        assert_eq!(cpu.get_flag_bit(Flags::Carry), true);
+        assert_eq!(cpu.get_flag_bit(Flags::Zero), true);
         assert_eq!(cpu.get_flag_bit(Flags::Negative), false);
     }
 

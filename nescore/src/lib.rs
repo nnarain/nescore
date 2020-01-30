@@ -82,6 +82,18 @@ impl Nes {
         }
     }
 
+    /// Run until the CPU's PC is at address **addr**
+    pub fn run_until(&mut self, addr: u16) {
+        // TODO: Time limit
+        if let Some(ref mut mapper) = self.mapper {
+            let mut cpu_io_bus = CpuIoBus::new(&mut self.ppu, mapper);
+
+            while self.cpu.get_pc() != addr {
+                self.cpu.tick(&mut cpu_io_bus);
+            }
+        }
+    }
+
     /// Load a cartridge
     /// TODO: Should the cartridge actually be consumed? (Multiple NES instances)
     pub fn insert(&mut self, cart: Cartridge) {
