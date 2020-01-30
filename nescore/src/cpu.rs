@@ -1040,7 +1040,7 @@ impl Cpu {
         let ptr = data[0] as u16;
 
         let lo = self.read_u8(io, ptr) as u16;
-        let hi = self.read_u8(io, ptr + 1) as u16;
+        let hi = self.read_u8(io, (ptr + 0x01) & 0xFF) as u16;
 
         let addr = (hi << 8) | lo;
         let addr = (Wrapping(addr) + Wrapping(self.y as u16)).0;
