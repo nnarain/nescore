@@ -103,7 +103,7 @@ impl Cpu {
 
                 let operand_data = &opcode_data[1..];
 
-                //#[cfg(test)]
+                #[cfg(test)]
                 println!("${:04X} | {} | {} | A={:02X}, X={:02X}, Y={:02X}, P={:02X}, SP={:04X}",
                         self.pc - (mode.operand_len() + 1) as u16,
                         format::operands(opcode_data, mode.operand_len()),
@@ -1233,9 +1233,6 @@ impl Cpu {
     }
 
     fn write_u8(&mut self, io: &mut dyn IoAccess, addr: u16, value: u8) {
-        if addr == 0x0000 && value == 0x58 {
-            println!("here");
-        }
         if (addr as usize) < 0x2000 {
             self.write_ram(addr, value);
         }
