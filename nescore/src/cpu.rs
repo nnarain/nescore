@@ -825,7 +825,6 @@ impl Cpu {
     }
 
     fn rra(&mut self, m: u8) -> u8 {
-        println!("RRA: {}", m);
         let m = self.ror(m);
         self.adc(m);
 
@@ -1028,12 +1027,9 @@ impl Cpu {
 
     /// Indexed Indirect Addressing
     fn indexed_indirect(&mut self, io: &mut dyn IoAccess, data: &[u8]) -> AddressingModeResult {
-        let ptr = (data[0] as u16) + (self.x as u16);
+        let ptr = ((data[0] as u16) + (self.x as u16)) & 0xFF;
 
-        let lo = self.read_u8(io, ptr) as u16;
-        let hi = self.read_u8(io, (ptr + 0x01) & 0xFF) as u16;
-
-        let addr = (hi << 8) | lo;
+        let addr = self.indirect_read(io, ptr);
 
         AddressingModeResult::Address(addr)
     }
@@ -1042,10 +1038,7 @@ impl Cpu {
     fn indirect_indexed(&mut self, io: &mut dyn IoAccess, data: &[u8]) -> AddressingModeResult {
         let ptr = data[0] as u16;
 
-        let lo = self.read_u8(io, ptr) as u16;
-        let hi = self.read_u8(io, (ptr + 0x01) & 0xFF) as u16;
-
-        let addr = (hi << 8) | lo;
+        let addr = self.indirect_read(io, ptr);
         let addr = (Wrapping(addr) + Wrapping(self.y as u16)).0;
 
         AddressingModeResult::Address(addr)
@@ -1054,19 +1047,25 @@ impl Cpu {
     /// Indirect
     /// Only applicable to JMP instruction
     fn indirect(&mut self, io: &mut dyn IoAccess, data: &[u8]) -> AddressingModeResult {
-        // Note: * The PCH will always be fetched from the same page
-        // as PCL, i.e. page boundary crossing is not handled.
-
+        
         let ptr = ((data[1] as u16) << 8) | data[0] as u16;
 
+        let addr = self.indirect_read(io, ptr);
+
+        AddressingModeResult::Address(addr)
+    }
+
+    fn indirect_read(&self, io: &mut dyn IoAccess, ptr: u16) -> u16 {
+        // Note: The PCH will always be fetched from the same page
+        // as PCL, i.e. page boundary crossing is not handled.
         let page = ptr & 0xFF00;
-        let addr_lo = page | low_byte!(ptr);
-        let addr_hi = page | ((low_byte!(ptr) + 0x01) & 0xFF);
+        let addr_lo = ptr;
+        let addr_hi = page | ((ptr + 0x01) & 0x00FF);
 
         let lo = self.read_u8(io, addr_lo) as u16;
         let hi = self.read_u8(io, addr_hi) as u16;
 
-        AddressingModeResult::Address((hi << 8) | lo)
+        (hi << 8) | lo
     }
 
     fn relative(&mut self, data: &[u8]) -> AddressingModeResult {
@@ -1234,6 +1233,9 @@ impl Cpu {
     }
 
     fn write_u8(&mut self, io: &mut dyn IoAccess, addr: u16, value: u8) {
+        if addr == 0x0000 && value == 0x58 {
+            println!("here");
+        }
         if (addr as usize) < 0x2000 {
             self.write_ram(addr, value);
         }
