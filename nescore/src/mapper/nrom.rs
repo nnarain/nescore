@@ -7,14 +7,14 @@
 
 
 use super::MapperControl;
-use crate::cart::{Cartridge, CartridgeInfo};
+use crate::cart::{Cartridge};
 
 use super::mem::Memory;
 
 pub struct Nrom {
     prg_rom: Memory,
     prg_ram: [u8; 0x2000],
-    chr_rom: [u8; 0x2000],
+    _chr_rom: [u8; 0x2000],
     mirror_rom: bool,
 }
 
@@ -28,7 +28,7 @@ impl Nrom {
         Nrom {
             prg_rom: Memory::new(prg_rom, info.prg_rom_banks),
             prg_ram: [0; 0x2000],
-            chr_rom: chr_rom_arr,
+            _chr_rom: chr_rom_arr,
             mirror_rom: info.prg_rom_banks == 1,
         }
     }

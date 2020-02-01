@@ -29,7 +29,7 @@ fn main() {
     }
 }
 
-fn load_header(file: &String) -> Result<[u8; 32], Box<Error>> {
+fn load_header(file: &str) -> Result<[u8; 32], Box<Error>> {
     let mut file = File::open(file)?;
     let mut buffer = [0; 32];
     file.read(&mut buffer)?;

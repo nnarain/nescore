@@ -1,9 +1,5 @@
 use nescore;
 
-use std::io;
-use std::io::prelude::*;
-use std::fs::File;
-
 #[test]
 fn load_cart_from_file() {
     let cart = nescore::Cartridge::from_path("tests/roms/nestest.nes");

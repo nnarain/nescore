@@ -45,15 +45,6 @@ impl Memory {
         self.read(self.num_banks - 1, index)
     }
 
-    pub fn write(&mut self, bank: usize, index: usize, data: u8) {
-        let bank_offset = self.get_bank_offset(bank);
-        self.mem[bank_offset + index] = data;
-    }
-
-    pub fn size(&self) -> usize {
-        self.mem.len()
-    }
-
     pub fn set_bank_size(&mut self, new_size: usize) {
         self.bank_size = new_size;
         self.num_banks = self.mem.len() / self.bank_size;
