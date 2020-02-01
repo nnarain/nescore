@@ -825,6 +825,7 @@ impl Cpu {
     }
 
     fn rra(&mut self, m: u8) -> u8 {
+        println!("RRA: {}", m);
         let m = self.ror(m);
         self.adc(m);
 
@@ -1030,9 +1031,9 @@ impl Cpu {
         let ptr = (data[0] as u16) + (self.x as u16);
 
         let lo = self.read_u8(io, ptr) as u16;
-        let hi = self.read_u8(io, ptr + 1) as u16;
+        let hi = self.read_u8(io, (ptr + 0x01) & 0xFF) as u16;
 
-        let addr = ((hi << 8) | lo) & 0xFF;
+        let addr = (hi << 8) | lo;
 
         AddressingModeResult::Address(addr)
     }
