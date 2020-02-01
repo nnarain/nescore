@@ -1,0 +1,3 @@
+[submodule "nescore/tests/roms/nes-test-roms"]
+	path = nescore/tests/roms/nes-test-roms
+	url = https://github.com/nnarain/nes-test-roms.git

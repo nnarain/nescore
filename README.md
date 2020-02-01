@@ -12,6 +12,13 @@ Build
 cargo build
 ```
 
+To test, pull in submodules and run `cargo test`
+
+```
+git submodule update --init --recursive
+cargo test
+```
+
 nescore
 -------
 
