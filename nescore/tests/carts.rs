@@ -2,7 +2,7 @@ use nescore;
 
 #[test]
 fn load_cart_from_file() {
-    let cart = nescore::Cartridge::from_path("tests/roms/nestest.nes");
+    let cart = nescore::Cartridge::from_path("tests/roms/nestest/nestest.nes");
     assert_eq!(cart.is_ok(), true);
 }
 

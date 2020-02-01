@@ -46,6 +46,7 @@ pub struct Cpu {
     state: State,                 // Internal CPU cycle state
 
     debug: bool,                  // Debug mode
+    is_holding: bool,             // CPU is in an infinite loop state
 }
 
 impl Cpu {
@@ -63,6 +64,7 @@ impl Cpu {
             state: State::Reset,
 
             debug: false,
+            is_holding: false,
         }
     }
 
@@ -79,6 +81,11 @@ impl Cpu {
 
     pub fn get_pc(&self) -> u16 {
         self.pc
+    }
+
+    /// Determine if in an infinite loop state
+    pub fn is_holding(&self) -> bool {
+        self.is_holding
     }
 
     pub fn read_ram(&self, addr: u16) -> u8 {
@@ -116,7 +123,7 @@ impl Cpu {
                             self.pc - (mode.operand_len() + 1) as u16,
                             format::operands(opcode_data, mode.operand_len()),
                             format::disassemble(*instr, *mode, operand_data),
-                        self.a, self.x, self.y, self.p, self.sp);
+                            self.a, self.x, self.y, self.p, self.sp);
                 }
                 
                 // Apply addressing mode
@@ -1254,9 +1261,13 @@ impl Cpu {
 impl Clockable for Cpu {
     /// Execute one CPU cycle
     fn tick(&mut self, io: &mut dyn IoAccess) {
+        // Get the currnet PC
+        let prev_pc = self.pc;
         // Implement one cycle of the CPU using a state machince
         // Execute the cycle based on the current CPU state and return the next CPU state
         self.state = self.run_cycle(io, self.state);
+        // Is the PC pointing at the same location?
+        self.is_holding = prev_pc == self.pc;
     }
 }
 
@@ -2580,7 +2591,6 @@ mod tests {
 
     #[test]
     fn sty() {
-        // TODO: This test could be better...
         let mut cpu = Cpu::new();
         cpu.y = 0xA5;
 
@@ -2596,6 +2606,17 @@ mod tests {
     #[test]
     fn brk() {
         // TODO: Test the BRK instruction
+    }
+
+    #[test]
+    fn is_holding() {
+        let prg = vec![
+            0x4C, 0x20, 0x40, // JMP $4020; Infinite loop
+        ];
+
+        let cpu = simple_test(prg, 2);
+
+        assert_eq!(cpu.is_holding(), true);
     }
 
     ///-----------------------------------------------------------------------------------------------------------------

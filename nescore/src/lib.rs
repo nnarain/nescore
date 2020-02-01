@@ -100,6 +100,11 @@ impl Nes {
         }
     }
 
+    /// Check if the CPU is in an infinite loop state
+    pub fn is_holding(&self) -> bool {
+        self.cpu.is_holding()
+    }
+
     /// Load a cartridge
     pub fn insert(&mut self, cart: Cartridge) {
         // Consume provided cartridge and get the mapper

@@ -14,21 +14,21 @@ use super::mem::Memory;
 pub struct Nrom {
     prg_rom: Memory,
     prg_ram: [u8; 0x2000],
-    _chr_rom: [u8; 0x2000],
+    //chr_rom: [u8; 0x2000],
     mirror_rom: bool,
 }
 
 impl Nrom {
     pub fn from(cart: Cartridge) -> Self {
-        let (info, prg_rom, chr_rom) = cart.to_parts();
+        let (info, prg_rom, _) = cart.to_parts();
 
-        let mut chr_rom_arr = [0x0u8; 0x2000];
-        chr_rom_arr.copy_from_slice(chr_rom.as_slice());
+        // let mut chr_rom_arr = [0x0u8; 0x2000];
+        // chr_rom_arr.copy_from_slice(chr_rom.as_slice());
 
         Nrom {
             prg_rom: Memory::new(prg_rom, info.prg_rom_banks),
             prg_ram: [0; 0x2000],
-            _chr_rom: chr_rom_arr,
+            //chr_rom: chr_rom_arr,
             mirror_rom: info.prg_rom_banks == 1,
         }
     }
@@ -108,8 +108,8 @@ mod tests {
     fn init_header(num_prg_banks: u8, num_chr_banks: u8) -> [u8; 16] {
         [
             0x4E, 0x45, 0x53, 0x1A, // NES<EOF>
-            num_prg_banks,                   // PRG ROM
-            num_chr_banks,                   // CHR ROM
+            num_prg_banks,          // PRG ROM
+            num_chr_banks,          // CHR ROM
             0x00,                   // Flag 6
             0x00,                   // Flag 7
             0x00,                   // Flag 8
