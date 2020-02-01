@@ -103,7 +103,25 @@ impl fmt::Display for CartridgeInfo {
         Battery Backed SRAM: {}
         Mirroring:           {}
         ", 
-        self.format, self.prg_rom_banks, self.chr_rom_banks, self.mapper, self.four_screen_mode, self.trainer, self.battback_sram, mirroring)
+        self.format, self.prg_rom_banks, self.chr_rom_banks, get_mapper_name(self.mapper),
+        self.four_screen_mode, self.trainer, self.battback_sram, mirroring)
+    }
+}
+
+fn get_mapper_name(mapper: usize) -> String {
+    match mapper {
+        0 => format!("NROM (Mapper {})", mapper),
+        1 => format!("MMC1 (Mapper {})", mapper),
+        2 => format!("UNROM (Mapper {})", mapper),
+        3 => format!("CNROM (Mapper {})", mapper),
+        4 => format!("MMC3 (Mapper {})", mapper),
+        5 => format!("MMC5 (Mapper {})", mapper),
+        7 => format!("AOROM (Mapper {})", mapper),
+        9 => format!("MMC2 (Mapper {})", mapper),
+        10 => format!("MMC4 (Mapper {})", mapper),
+        11 => format!("Color Dreams (Mapper {})", mapper),
+        16 => format!("Bandai (Mapper {})", mapper),
+        _ => format!("Mapper {}", mapper)
     }
 }
 
