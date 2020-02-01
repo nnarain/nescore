@@ -5,6 +5,7 @@
 // @date Sep 18 2019
 //
 pub mod bus;
+pub mod format;
 pub mod memorymap;
 
 mod state;
@@ -14,7 +15,7 @@ use crate::clk::Clockable;
 
 use std::num::Wrapping;
 
-use state::{State, Instruction, AddressingMode};
+use state::*;
 
 // Flags
 enum Flags {
@@ -28,24 +29,21 @@ enum Flags {
 }
 
 const INTERNAL_RAM_SIZE: usize = 0x800;
+const STACK_PAGE_OFFSET: u16 = 0x100;
 
 
 /// NES Central Processing Unit
 pub struct Cpu {
     a: u8,                        // General Purpose Accumulator
-    x: u8,                       // Index register X
-    y: u8,                       // Index register Y
-    pc: Wrapping<u16>,            // Program Counter
+    x: u8,                        // Index register X
+    y: u8,                        // Index register Y
+    pc: u16,                      // Program Counter
     sp: u16,                      // Stack Pointer
     p: u8,                        // Flag register
 
     ram: [u8; INTERNAL_RAM_SIZE], // CPU RAM
 
     state: State,                 // Internal CPU cycle state
-
-    address_bus: u16,             // Value for the address bus
-    pointer_address: u16,         // Pointer address for indirect addressing
-    addressing_complete: bool,    // Indicate addressing is complete
 }
 
 impl Cpu {
@@ -54,18 +52,33 @@ impl Cpu {
             a: 0,
             x: 0,
             y: 0,
-            pc: Wrapping(0u16),
-            sp: 0,
-            p: 0,
+            pc: 0,
+            sp: 0x00FD,
+            p: 0x24,
 
             ram: [0; INTERNAL_RAM_SIZE],
 
             state: State::Reset,
-
-            address_bus: 0,
-            pointer_address: 0,
-            addressing_complete: false
         }
+    }
+
+    /// Set the CPU's program counter
+    pub fn set_pc(&mut self, pc: u16) {
+        self.pc = pc;
+        // move to fetch state, as we no longer need to read the reset vector
+        self.state = State::Fetch;
+    }
+
+    pub fn get_pc(&self) -> u16 {
+        self.pc
+    }
+
+    pub fn read_ram(&self, addr: u16) -> u8 {
+        self.ram[(addr as usize % INTERNAL_RAM_SIZE)]
+    }
+
+    pub fn write_ram(&mut self, addr: u16, value: u8) {
+        self.ram[(addr as usize % INTERNAL_RAM_SIZE)] = value;
     }
 
     /// Execute the current cycle given the internal state
@@ -73,115 +86,171 @@ impl Cpu {
         match state {
             State::Reset => {
                 // Read the PC address from the RESET vector
-                self.pc = Wrapping(self.read_u16(io, memorymap::RESET_VECTOR));
+                self.pc = self.read_u16(io, memorymap::RESET_VECTOR);
                 State::Fetch
             },
             State::Fetch => {
-                Cpu::get_execute_state(self.fetch(io))
+                let opcode = self.fetch(io);
+                self.get_execute_state(io, opcode)
             },
-            State::Execute(ref instr, ref mode, ref cycle) => {
-                // Indicate addressing is complete because it is unnecessary in Implied and Accumulator addressing modes
-                if !self.addressing_complete {
-                    self.addressing_complete = match *mode {
-                        AddressingMode::Implied | AddressingMode::Accumulator => true,
-                        _ => false,
-                    };
+            State::Execute(ref instr, ref mode, ref opcode_data, ref cycle) => {
+
+                let total_cycles = cycle_count(*instr, *mode);
+
+                if *cycle < total_cycles-1 {
+                    return State::Execute(*instr, *mode, *opcode_data, *cycle + 1);
                 }
 
-                let execute_complete = if !self.addressing_complete {
-                    // Apply addressing mode
-                    match mode {
-                        AddressingMode::Immediate       => self.immediate(),
-                        AddressingMode::ZeroPage        => self.zeropage(io),
-                        AddressingMode::ZeroPageX       => self.zeropage_x(io, *cycle),
-                        AddressingMode::ZeroPageY       => self.zeropage_y(io, *cycle),
-                        AddressingMode::Absolute        => self.absolute(io, *cycle),
-                        AddressingMode::AbsoluteX       => self.absolute_x(io, *cycle),
-                        AddressingMode::AbsoluteY       => self.absolute_y(io, *cycle),
-                        AddressingMode::IndexedIndirect => self.indexed_indirect(io, *cycle),
-                        AddressingMode::IndirectIndexed => self.indirect_indexed(io, *cycle),
-                        AddressingMode::Indirect        => self.indirect(io, *cycle),
-                        AddressingMode::Relative        => self.relative(io),
+                let operand_data = &opcode_data[1..];
 
-                        _ => panic!("Addressing mode not handled!!")
-                    }
+                #[cfg(test)]
+                println!("${:04X} | {} | {} | A={:02X}, X={:02X}, Y={:02X}, P={:02X}, SP={:04X}",
+                        self.pc - (mode.operand_len() + 1) as u16,
+                        format::operands(opcode_data, mode.operand_len()),
+                        format::disassemble(*instr, *mode, operand_data),
+                        self.a, self.x, self.y, self.p, self.sp);
 
-                    false
-                }
-                else {
-                    match instr {
-                        Instruction::NOP => self.nop(*cycle),
-                        Instruction::LDA => self.lda(io),
-                        Instruction::JMP => self.jmp(),
-                        Instruction::ADC => self.adc(io),
-                        Instruction::AND => self.and(io),
-                        Instruction::ASL => self.asl(io),
-                        Instruction::STA => self.sta(io),
-                        Instruction::BCC => self.bcc(),
-                        Instruction::BCS => self.bcs(),
-                        Instruction::BEQ => self.beq(),
-                        Instruction::BNE => self.bne(),
-                        Instruction::BMI => self.bmi(),
-                        Instruction::BPL => self.bpl(),
-                        Instruction::BIT => self.bit(io),
-                        Instruction::BVC => self.bvc(),
-                        Instruction::BVS => self.bvs(),
-                        Instruction::CLC => self.clc(),
-                        Instruction::CLD => self.cld(),
-                        Instruction::CLI => self.cli(),
-                        Instruction::CLV => self.clv(),
-                        Instruction::CMP => self.cmp(io),
-                        Instruction::CPX => self.cpx(io),
-                        Instruction::CPY => self.cpy(io),
-                        Instruction::DEC => self.dec(io, *cycle),
-                        Instruction::DEX => self.dex(),
-                        Instruction::DEY => self.dey(),
-                        Instruction::INC => self.inc(io),
-                        Instruction::INX => self.inx(),
-                        Instruction::INY => self.iny(),
-                        Instruction::EOR => self.eor(io),
-                        Instruction::LDX => self.ldx(io),
-                        Instruction::LDY => self.ldy(io),
-                        Instruction::PHA => self.pha(io, *cycle),
-                        Instruction::PHP => self.php(io, *cycle),
-                        Instruction::PLA => self.pla(io, *cycle),
-                        Instruction::PLP => self.plp(io, *cycle),
-                        Instruction::LSR => self.lsr(io),
-                        Instruction::ORA => self.ora(io),
-                        Instruction::ROR => self.ror(io),
-                        Instruction::ROL => self.rol(io),
-                        Instruction::RTI => self.rti(io, *cycle),
-                        Instruction::JSR => self.jsr(io, *cycle),
-                        Instruction::RTS => self.rts(io, *cycle),
-                        Instruction::SBC => self.sbc(io),
-                        Instruction::SEC => self.sec(),
-                        Instruction::SED => self.sed(),
-                        Instruction::SEI => self.sei(),
-                        Instruction::STX => self.stx(io),
-                        Instruction::STY => self.sty(io),
-                        Instruction::TAX => self.tax(),
-                        Instruction::TAY => self.tay(),
-                        Instruction::TSX => self.tsx(),
-                        Instruction::TXA => self.txa(),
-                        Instruction::TXS => self.txs(),
-                        Instruction::TYA => self.tya(),
-                        Instruction::BRK => self.brk(io),
-
-                        _ => panic!("incomplete")
-                    }
+                // Apply addressing mode
+                let addressing_result = match mode {
+                    AddressingMode::Immediate       => self.immediate(operand_data),
+                    AddressingMode::ZeroPage        => self.zeropage(operand_data),
+                    AddressingMode::ZeroPageX       => self.zeropage_x(operand_data),
+                    AddressingMode::ZeroPageY       => self.zeropage_y(operand_data),
+                    AddressingMode::Absolute        => self.absolute(operand_data),
+                    AddressingMode::AbsoluteX       => self.absolute_x(operand_data),
+                    AddressingMode::AbsoluteY       => self.absolute_y(operand_data),
+                    AddressingMode::IndexedIndirect => self.indexed_indirect(io, operand_data),
+                    AddressingMode::IndirectIndexed => self.indirect_indexed(io, operand_data),
+                    AddressingMode::Indirect        => self.indirect(io, operand_data),
+                    AddressingMode::Relative        => self.relative(operand_data),
+                    AddressingMode::Accumulator     => self.accumulator(),
+                    AddressingMode::Implied         => AddressingModeResult::Implied,
                 };
 
-                if !execute_complete {
-                    // Transition into the next state
-                    let next_cycle = cycle + 1;
-                    // If not finished this opcode execution, return an execute state with next cycle
-                    State::Execute(*instr, *mode, next_cycle)
+                let read_mem = |addr: u16| -> u8 {
+                    self.read_u8(io, addr)
+                };
+
+                let byte = addressing_result.to_byte(read_mem);
+                let addr = addressing_result.to_address();
+                let offset = addressing_result.to_offset();
+
+                match instr {
+                    Instruction::NOP => {},
+                    Instruction::CLC => self.clc(),
+                    Instruction::CLD => self.cld(),
+                    Instruction::CLI => self.cli(),
+                    Instruction::CLV => self.clv(),
+                    Instruction::DEX => self.dex(),
+                    Instruction::DEY => self.dey(),
+                    Instruction::INX => self.inx(),
+                    Instruction::INY => self.iny(),
+                    Instruction::PHA => self.pha(io),
+                    Instruction::PHP => self.php(io),
+                    Instruction::PLA => self.pla(io),
+                    Instruction::PLP => self.plp(io),
+                    Instruction::RTI => self.rti(io),
+                    Instruction::RTS => self.rts(io),
+                    Instruction::SEC => self.sec(),
+                    Instruction::SED => self.sed(),
+                    Instruction::SEI => self.sei(),
+                    Instruction::TAX => self.tax(),
+                    Instruction::TAY => self.tay(),
+                    Instruction::TSX => self.tsx(),
+                    Instruction::TXA => self.txa(),
+                    Instruction::TXS => self.txs(),
+                    Instruction::TYA => self.tya(),
+                    Instruction::BRK => self.brk(io),
+                    Instruction::LDA => self.lda(byte.unwrap()),
+                    Instruction::LAX => self.lax(byte.unwrap()),
+                    Instruction::JMP => self.jmp(addr.unwrap()),
+                    Instruction::ADC => self.adc(byte.unwrap()),
+                    Instruction::AND => self.and(byte.unwrap()),
+                    Instruction::BCC => self.bcc(offset.unwrap()),
+                    Instruction::BCS => self.bcs(offset.unwrap()),
+                    Instruction::BEQ => self.beq(offset.unwrap()),
+                    Instruction::BNE => self.bne(offset.unwrap()),
+                    Instruction::BMI => self.bmi(offset.unwrap()),
+                    Instruction::BPL => self.bpl(offset.unwrap()),
+                    Instruction::BVC => self.bvc(offset.unwrap()),
+                    Instruction::BVS => self.bvs(offset.unwrap()),
+                    Instruction::BIT => self.bit(byte.unwrap()),
+                    Instruction::CMP => self.cmp(byte.unwrap()),
+                    Instruction::CPX => self.cpx(byte.unwrap()),
+                    Instruction::CPY => self.cpy(byte.unwrap()),
+                    Instruction::EOR => self.eor(byte.unwrap()),
+                    Instruction::LDX => self.ldx(byte.unwrap()),
+                    Instruction::LDY => self.ldy(byte.unwrap()),
+                    Instruction::SBC => self.sbc(byte.unwrap()),
+                    Instruction::ORA => self.ora(byte.unwrap()),
+                    Instruction::JSR => self.jsr(io, addr.unwrap()),
+                    Instruction::STA => {
+                        let v = self.sta();
+                        self.write_result(io, addressing_result, v);
+                    },
+                    Instruction::STX => {
+                        let v = self.stx();
+                        self.write_result(io, addressing_result, v);
+                    },
+                    Instruction::STY => {
+                        let v = self.sty();
+                        self.write_result(io, addressing_result, v);
+                    },
+                    Instruction::SAX => {
+                        let v = self.sax();
+                        self.write_result(io, addressing_result, v);
+                    }
+                    Instruction::ASL => {
+                        let v = self.asl(byte.unwrap());
+                        self.write_result(io, addressing_result, v);
+                    },
+                    Instruction::ROR => {
+                        let v = self.ror(byte.unwrap());
+                        self.write_result(io, addressing_result, v);
+                    },
+                    Instruction::ROL => {
+                        let v = self.rol(byte.unwrap());
+                        self.write_result(io, addressing_result, v);
+                    },
+                    Instruction::LSR => {
+                        let v = self.lsr(byte.unwrap());
+                        self.write_result(io, addressing_result, v);
+                    },
+                    Instruction::INC => {
+                        let v = self.inc(byte.unwrap());
+                        self.write_result(io, addressing_result, v);
+                    },
+                    Instruction::DEC => {
+                        let v = self.dec(byte.unwrap());
+                        self.write_result(io, addressing_result, v);
+                    },
+                    Instruction::DCP => {
+                        let v = self.dcp(byte.unwrap());
+                        self.write_result(io, addressing_result, v);
+                    },
+                    Instruction::ISB => {
+                        let m = self.isb(byte.unwrap());
+                        self.write_result(io, addressing_result, m);
+                    },
+                    Instruction::SLO => {
+                        let m = self.slo(byte.unwrap());
+                        self.write_result(io, addressing_result, m);
+                    },
+                    Instruction::RLA => {
+                        let m = self.rla(byte.unwrap());
+                        self.write_result(io, addressing_result, m);
+                    },
+                    Instruction::SRE => {
+                        let m = self.sre(byte.unwrap());
+                        self.write_result(io, addressing_result, m);
+                    },
+                    Instruction::RRA => {
+                        let m = self.rra(byte.unwrap());
+                        self.write_result(io, addressing_result, m);
+                    }
                 }
-                else {
-                    // Finished opcode execute, enter fetch state
-                    self.addressing_complete = false;
-                    State::Fetch
-                }
+
+                State::Fetch
             },
         }
     }
@@ -191,10 +260,15 @@ impl Cpu {
     //------------------------------------------------------------------------------------------------------------------
 
     /// Convert opcode into instruction and addressing mode and return an execute state
-    fn get_execute_state(opcode: u8) -> State {
+    fn get_execute_state(&mut self, io: &mut dyn IoAccess, opcode: u8) -> State {
         let (instr, mode) = match opcode {
             // NOP
-            0xEA => (Instruction::NOP, AddressingMode::Implied),
+            0xEA | 0x1A | 0x3A | 0x5A | 0x7A | 0xDA | 0xFA => (Instruction::NOP, AddressingMode::Implied),
+            0x04 | 0x44 | 0x64 => (Instruction::NOP, AddressingMode::Immediate),
+            0x0C => (Instruction::NOP, AddressingMode::Absolute),
+            0x80 => (Instruction::NOP, AddressingMode::ZeroPage),
+            0x14 | 0x34 | 0x54 | 0x74 | 0xD4 | 0xF4 => (Instruction::NOP, AddressingMode::ZeroPageX),
+            0x1C | 0x3C | 0x5C | 0x7C | 0xDC | 0xFC => (Instruction::NOP, AddressingMode::AbsoluteX),
             // LDA
             0xA9 => (Instruction::LDA, AddressingMode::Immediate),
             0xA5 => (Instruction::LDA, AddressingMode::ZeroPage),
@@ -204,6 +278,26 @@ impl Cpu {
             0xB9 => (Instruction::LDA, AddressingMode::AbsoluteY),
             0xA1 => (Instruction::LDA, AddressingMode::IndexedIndirect),
             0xB1 => (Instruction::LDA, AddressingMode::IndirectIndexed),
+            // LAX
+            0xA7 => (Instruction::LAX, AddressingMode::ZeroPage),
+            0xB7 => (Instruction::LAX, AddressingMode::ZeroPageY),
+            0xAF => (Instruction::LAX, AddressingMode::Absolute),
+            0xBF => (Instruction::LAX, AddressingMode::AbsoluteY),
+            0xA3 => (Instruction::LAX, AddressingMode::IndexedIndirect),
+            0xB3 => (Instruction::LAX, AddressingMode::IndirectIndexed),
+            // SAX
+            0x87 => (Instruction::SAX, AddressingMode::ZeroPage),
+            0x97 => (Instruction::SAX, AddressingMode::ZeroPageY),
+            0x8F => (Instruction::SAX, AddressingMode::Absolute),
+            0x83 => (Instruction::SAX, AddressingMode::IndexedIndirect),
+            // DCP
+            0xC7 => (Instruction::DCP, AddressingMode::ZeroPage),
+            0xD7 => (Instruction::DCP, AddressingMode::ZeroPageX),
+            0xCF => (Instruction::DCP, AddressingMode::Absolute),
+            0xDF => (Instruction::DCP, AddressingMode::AbsoluteX),
+            0xDB => (Instruction::DCP, AddressingMode::AbsoluteY),
+            0xC3 => (Instruction::DCP, AddressingMode::IndexedIndirect),
+            0xD3 => (Instruction::DCP, AddressingMode::IndirectIndexed),
             // JMP
             0x4C => (Instruction::JMP, AddressingMode::Absolute),
             0x6C => (Instruction::JMP, AddressingMode::Indirect),
@@ -280,7 +374,7 @@ impl Cpu {
             0xE4 => (Instruction::CPX, AddressingMode::ZeroPage),
             0xEC => (Instruction::CPX, AddressingMode::Absolute),
             // CPY
-            0xC0 => (Instruction::CPX, AddressingMode::Immediate),
+            0xC0 => (Instruction::CPY, AddressingMode::Immediate),
             0xC4 => (Instruction::CPY, AddressingMode::ZeroPage),
             0xCC => (Instruction::CPY, AddressingMode::Absolute),
             // DEC
@@ -357,6 +451,30 @@ impl Cpu {
             0x36 => (Instruction::ROL, AddressingMode::ZeroPageX),
             0x2E => (Instruction::ROL, AddressingMode::Absolute),
             0x3E => (Instruction::ROL, AddressingMode::AbsoluteX),
+            // RLA
+            0x27 => (Instruction::RLA, AddressingMode::ZeroPage),
+            0x37 => (Instruction::RLA, AddressingMode::ZeroPageX),
+            0x2F => (Instruction::RLA, AddressingMode::Absolute),
+            0x3F => (Instruction::RLA, AddressingMode::AbsoluteX),
+            0x3B => (Instruction::RLA, AddressingMode::AbsoluteY),
+            0x23 => (Instruction::RLA, AddressingMode::IndexedIndirect),
+            0x33 => (Instruction::RLA, AddressingMode::IndirectIndexed),
+            // RRA
+            0x67 => (Instruction::RRA, AddressingMode::ZeroPage),
+            0x77 => (Instruction::RRA, AddressingMode::ZeroPageX),
+            0x6F => (Instruction::RRA, AddressingMode::Absolute),
+            0x7F => (Instruction::RRA, AddressingMode::AbsoluteX),
+            0x7B => (Instruction::RRA, AddressingMode::AbsoluteY),
+            0x63 => (Instruction::RRA, AddressingMode::IndexedIndirect),
+            0x73 => (Instruction::RRA, AddressingMode::IndirectIndexed),
+            // SRE
+            0x47 => (Instruction::SRE, AddressingMode::ZeroPage),
+            0x57 => (Instruction::SRE, AddressingMode::ZeroPageX),
+            0x4F => (Instruction::SRE, AddressingMode::Absolute),
+            0x5F => (Instruction::SRE, AddressingMode::AbsoluteX),
+            0x5B => (Instruction::SRE, AddressingMode::AbsoluteY),
+            0x43 => (Instruction::SRE, AddressingMode::IndexedIndirect),
+            0x53 => (Instruction::SRE, AddressingMode::IndirectIndexed),
             // RTI
             0x40 => (Instruction::RTI, AddressingMode::Implied),
             // JSR
@@ -364,7 +482,7 @@ impl Cpu {
             // RTS
             0x60 => (Instruction::RTS, AddressingMode::Implied),
             // SBC
-            0xE9 => (Instruction::SBC, AddressingMode::Immediate),
+            0xE9 | 0xEB => (Instruction::SBC, AddressingMode::Immediate),
             0xE5 => (Instruction::SBC, AddressingMode::ZeroPage),
             0xF5 => (Instruction::SBC, AddressingMode::ZeroPageX),
             0xED => (Instruction::SBC, AddressingMode::Absolute),
@@ -372,6 +490,22 @@ impl Cpu {
             0xF9 => (Instruction::SBC, AddressingMode::AbsoluteY),
             0xE1 => (Instruction::SBC, AddressingMode::IndexedIndirect),
             0xF1 => (Instruction::SBC, AddressingMode::IndirectIndexed),
+            // ISB
+            0xE7 => (Instruction::ISB, AddressingMode::ZeroPage),
+            0xF7 => (Instruction::ISB, AddressingMode::ZeroPageX),
+            0xEF => (Instruction::ISB, AddressingMode::Absolute),
+            0xFF => (Instruction::ISB, AddressingMode::AbsoluteX),
+            0xFB => (Instruction::ISB, AddressingMode::AbsoluteY),
+            0xE3 => (Instruction::ISB, AddressingMode::IndexedIndirect),
+            0xF3 => (Instruction::ISB, AddressingMode::IndirectIndexed),
+            // SLO
+            0x07 => (Instruction::SLO, AddressingMode::ZeroPage),
+            0x17 => (Instruction::SLO, AddressingMode::ZeroPageX),
+            0x0F => (Instruction::SLO, AddressingMode::Absolute),
+            0x1F => (Instruction::SLO, AddressingMode::AbsoluteX),
+            0x1B => (Instruction::SLO, AddressingMode::AbsoluteY),
+            0x03 => (Instruction::SLO, AddressingMode::IndexedIndirect),
+            0x13 => (Instruction::SLO, AddressingMode::IndirectIndexed),
             // SEC
             0x38 => (Instruction::SEC, AddressingMode::Implied),
             // SED
@@ -402,328 +536,271 @@ impl Cpu {
             0x00 => (Instruction::BRK, AddressingMode::Implied),
 
             _ => {
-                panic!("Invalid opcode: {opcode}", opcode=opcode);
+                panic!("Invalid opcode: ${opcode}", opcode=format!("{:X}", opcode));
             }
         };
 
-        State::Execute(instr, mode, 0)
+        let operand_data = self.fetch_operand_data(io, mode.operand_len());
+        let opcode_data: [u8; 3] = [opcode, operand_data[0], operand_data[1]];
+
+        State::Execute(instr, mode, opcode_data, 0)
+    }
+
+    fn fetch_operand_data(&mut self, io: &mut dyn IoAccess, num_bytes: usize) -> [u8; 2] {
+        let mut operand_data = [0u8; 2];
+
+        for i in 0..num_bytes {
+            operand_data[i] = self.read_next_u8(io);
+        }
+
+        operand_data
     }
 
     //------------------------------------------------------------------------------------------------------------------
     // Instruction Implementation
     //------------------------------------------------------------------------------------------------------------------
 
-    // TODO: BRK
-
-    fn nop(&mut self, cycle: u8) -> bool {
-        cycle == 1
+    /// Load Accumulator
+    fn lda(&mut self, a: u8) {
+        self.a = a;
+        self.update_flags(self.a);
     }
 
-    /// Load Accumulator
-    fn lda(&mut self, io: &mut dyn IoAccess) -> bool {
-        self.a = self.read_bus(io);
+    fn lax(&mut self, m: u8) {
+        self.a = m;
+        self.x = m;
+
         self.update_flags(self.a);
-        true
+    }
+
+    fn sax(&self) -> u8 {
+        self.a & self.x
+    }
+
+    fn dcp(&self, m: u8) -> u8 {
+        (Wrapping(m) - Wrapping(1)).0
     }
 
     /// Jump
-    fn jmp(&mut self) -> bool {
-        self.pc = Wrapping(self.address_bus);
-        true
+    fn jmp(&mut self, addr: u16) {
+        self.pc = addr;
     }
 
     /// ADC - Add with Carry
-    fn adc(&mut self, io: &mut dyn IoAccess) -> bool {
+    fn adc(&mut self, m: u8) {
         // A,Z,C,N = A+M+C
         let a = self.a as u16;
-        let m = self.read_bus(io) as u16;
+        let m = m as u16;
         let c = self.get_carry() as u16;
 
         let r = a + m + c;
         let is_carry = r > 0xFF;
+    
+        let sign_bit = bit_is_set!(r, 7);
+        let v = bit_is_set!(a, 7) != sign_bit && bit_is_set!(m, 7) != sign_bit;
+
         self.a = (r & 0x0FF) as u8;
 
         self.update_flags_with_carry(self.a, is_carry);
-
-        true
+        self.set_flag_bit(Flags::Overflow, v);
     }
 
     /// AND - Logical AND
-    fn and(&mut self, io: &mut dyn IoAccess) -> bool {
+    fn and(&mut self, m: u8) {
         // A,Z,N = A&M
-        let a = self.a;
-        let m = self.read_bus(io);
-
-        self.a = a & m;
+        self.a &= m;
 
         self.update_flags(self.a);
 
-        true
     }
 
     /// ASL - Arithmetic shift left
-    fn asl(&mut self, io: &mut dyn IoAccess) -> bool {
-        let m = self.read_bus(io);
+    fn asl(&mut self, m: u8) -> u8 {
         let c = bit_is_set!(m, 7);
 
         let r = m << 1;
-
-        self.write_bus(io, r);
-
-        self.set_zero_flag(self.a);
-        self.set_negative_flag(r);
-        self.set_flag_bit(Flags::Carry, c);
-
-        true
-    }
-
-    fn sta(&mut self, io: &mut dyn IoAccess) -> bool {
-        self.write_bus(io, self.a);
-        true
-    }
-
-    fn bcc(&mut self) -> bool {
-        self.branch(self.get_flag_bit(Flags::Carry) == false);
-        true
-    }
-
-    fn bcs(&mut self) -> bool {
-        self.branch(self.get_flag_bit(Flags::Carry));
-        true
-    }
-
-    fn beq(&mut self) -> bool {
-        self.branch(self.get_flag_bit(Flags::Zero));
-        true
-    }
-
-    fn bne(&mut self) -> bool {
-        self.branch(self.get_flag_bit(Flags::Zero) == false);
-        true
-    }
-
-    fn bmi(&mut self) -> bool {
-        self.branch(self.get_flag_bit(Flags::Negative));
-        true
-    }
-
-    /// BPL - Branch if Positive
-    fn bpl(&mut self) -> bool {
-        self.branch(self.get_flag_bit(Flags::Negative) == false);
-        true
-    }
-
-    fn bvc(&mut self) -> bool {
-        self.branch(!self.get_flag_bit(Flags::Overflow));
-        true
-    }
-
-    fn bvs(&mut self) -> bool {
-        self.branch(self.get_flag_bit(Flags::Overflow));
-        true
-    }
-
-    /// BIT - Bit Test
-    fn bit(&mut self, io: &mut dyn IoAccess) -> bool {
-        let m = self.read_bus(io);
-        let r = self.a & m;
-
-        // Copy bit 6 to V flag, and bit 7 to N flag
-        self.set_flag_bit(Flags::Overflow, bit_is_set!(r, 6));
-        self.set_flag_bit(Flags::Negative, bit_is_set!(r, 7));
-
-        self.set_flag_bit(Flags::Zero, r == 0);
-
-        true
-    }
-
-    fn clc(&mut self) -> bool {
-        self.set_flag_bit(Flags::Carry, false);
-        true
-    }
-
-    fn cld(&mut self) -> bool {
-        self.set_flag_bit(Flags::Decimal, false);
-        true
-    }
-
-    fn cli(&mut self) -> bool {
-        self.set_flag_bit(Flags::InterruptDisable, false);
-        true
-    }
-
-    fn clv(&mut self) -> bool {
-        self.set_flag_bit(Flags::Overflow, false);
-        true
-    }
-
-    fn cmp(&mut self, io: &mut dyn IoAccess) -> bool {
-        self.compare(self.a, self.read_bus(io));
-        true
-    }
-
-    fn cpx(&mut self, io: &mut dyn IoAccess) -> bool {
-        self.compare(self.x, self.read_bus(io));
-        true
-    }
-
-    fn cpy(&mut self, io: &mut dyn IoAccess) -> bool {
-        self.compare(self.y, self.read_bus(io));
-        true
-    }
-
-    fn dec(&mut self, io: &mut dyn IoAccess, _cycle: u8) -> bool {
-        let mut m = self.read_bus(io);
-        m = self.decrement(m);
-        self.write_bus(io, m);
-
-        true
-    }
-
-    fn dex(&mut self) -> bool {
-        self.x = self.decrement(self.x);
-        true
-    }
-
-    fn dey(&mut self) -> bool {
-        self.y = self.decrement(self.y);
-        true
-    }
-
-    fn inc(&mut self, io: &mut dyn IoAccess) -> bool {
-        let mut m = self.read_bus(io);
-        m = self.increment(m);
-        self.write_bus(io, m);
-
-        true
-    }
-
-    fn inx(&mut self) -> bool {
-        self.x = self.increment(self.x);
-        true
-    }
-
-    fn iny(&mut self) -> bool {
-        self.y = self.increment(self.y);
-        true
-    }
-
-    fn eor(&mut self, io: &mut dyn IoAccess) -> bool {
-        let m = self.read_bus(io);
-        self.a ^= m;
-        self.set_zero_flag(self.a);
-        self.set_negative_flag(self.a);
-        true
-    }
-
-    fn ldx(&mut self, io: &mut dyn IoAccess) -> bool {
-        self.x = self.read_bus(io);
-        self.set_zero_flag(self.x);
-        self.set_negative_flag(self.x);
-        true
-    }
-
-    fn ldy(&mut self, io: &mut dyn IoAccess) -> bool {
-        self.y = self.read_bus(io);
-        self.set_zero_flag(self.y);
-        self.set_negative_flag(self.y);
-        true
-    }
-
-    fn pha(&mut self, io: &mut dyn IoAccess, cycle: u8) -> bool {
-        match cycle {
-            2 => {
-                self.push(io, self.a);
-                true
-            },
-            _ => {
-                false
-            }
-        }
-    }
-
-    fn php(&mut self, io: &mut dyn IoAccess, cycle: u8) -> bool {
-        match cycle {
-            2 => {
-                self.push(io, self.p);
-                true
-            },
-            _ => {
-                false
-            }
-        }
-    }
-
-    fn pla(&mut self, io: &mut dyn IoAccess, cycle: u8) -> bool {
-        match cycle {
-            3 => {
-                self.a = self.pull(io);
-                true
-            },
-            _ => {
-                false
-            }
-        }
-    }
-
-    fn plp(&mut self, io: &mut dyn IoAccess, cycle: u8) -> bool {
-        match cycle {
-            3 => {
-                self.p = self.pull(io);
-                true
-            },
-            _ => {
-                false
-            }
-        }
-    }
-
-    fn lsr(&mut self, io: &mut dyn IoAccess) -> bool {
-        let m = self.read_bus(io);
-        let c = bit_is_set!(m, 0);
-
-        let r = m >> 1;
-        self.write_bus(io, r);
 
         self.set_zero_flag(r);
         self.set_negative_flag(r);
         self.set_flag_bit(Flags::Carry, c);
 
-        true
+        r
     }
 
-    fn ora(&mut self, io: &mut dyn IoAccess) -> bool {
-        let m = self.read_bus(io);
-        self.a = self.a | m;
+    fn sta(&mut self) -> u8 {
+        self.a
+    }
+
+    fn bcc(&mut self, offset: u8) {
+        self.branch(!self.get_flag_bit(Flags::Carry), offset);
+    }
+
+    fn bcs(&mut self, offset: u8) {
+        self.branch(self.get_flag_bit(Flags::Carry), offset);
+    }
+
+    fn beq(&mut self, offset: u8) {
+        self.branch(self.get_flag_bit(Flags::Zero), offset);
+    }
+
+    fn bne(&mut self, offset: u8) {
+        self.branch(!self.get_flag_bit(Flags::Zero), offset);
+    }
+
+    fn bmi(&mut self, offset: u8) {
+        self.branch(self.get_flag_bit(Flags::Negative), offset);
+    }
+
+    /// BPL - Branch if Positive
+    fn bpl(&mut self, offset: u8) {
+        self.branch(!self.get_flag_bit(Flags::Negative), offset);
+    }
+
+    fn bvc(&mut self, offset: u8) {
+        self.branch(!self.get_flag_bit(Flags::Overflow), offset);
+    }
+
+    fn bvs(&mut self, offset: u8) {
+        self.branch(self.get_flag_bit(Flags::Overflow), offset);
+    }
+
+    /// BIT - Bit Test
+    fn bit(&mut self, m: u8) {
+        let r = self.a & m;
+
+        // Copy bit 6 to V flag, and bit 7 to N flag
+        self.set_flag_bit(Flags::Overflow, bit_is_set!(m, 6));
+        self.set_flag_bit(Flags::Negative, bit_is_set!(m, 7));
+
+        self.set_flag_bit(Flags::Zero, r == 0);
+    }
+
+    fn clc(&mut self) {
+        self.set_flag_bit(Flags::Carry, false);
+    }
+
+    fn cld(&mut self) {
+        self.set_flag_bit(Flags::Decimal, false);
+    }
+
+    fn cli(&mut self) {
+        self.set_flag_bit(Flags::InterruptDisable, false);
+    }
+
+    fn clv(&mut self) {
+        self.set_flag_bit(Flags::Overflow, false);
+    }
+
+    fn cmp(&mut self, m: u8) {
+        self.compare(self.a, m);
+    }
+
+    fn cpx(&mut self, m: u8) {
+        self.compare(self.x, m);
+    }
+
+    fn cpy(&mut self, m: u8) {
+        self.compare(self.y, m);
+    }
+
+    fn dec(&mut self, m: u8) -> u8 {
+        self.decrement(m)
+    }
+
+    fn dex(&mut self) {
+        self.x = self.decrement(self.x);
+    }
+
+    fn dey(&mut self) {
+        self.y = self.decrement(self.y);
+    }
+
+    fn inc(&mut self, m: u8) -> u8 {
+        self.increment(m)
+    }
+
+    fn inx(&mut self) {
+        self.x = self.increment(self.x);
+    }
+
+    fn iny(&mut self) {
+        self.y = self.increment(self.y);
+    }
+
+    fn eor(&mut self, m: u8) {
+        self.a ^= m;
+        self.set_zero_flag(self.a);
+        self.set_negative_flag(self.a);
+    }
+
+    fn ldx(&mut self, m: u8) {
+        self.x = m;
+        self.set_zero_flag(self.x);
+        self.set_negative_flag(self.x);
+    }
+
+    fn ldy(&mut self, m: u8) {
+        self.y = m;
+        self.set_zero_flag(self.y);
+        self.set_negative_flag(self.y);
+    }
+
+    fn pha(&mut self, io: &mut dyn IoAccess) {
+        self.push(io, self.a);
+    }
+
+    fn php(&mut self, io: &mut dyn IoAccess) {
+        // The value of $30 is OR'ed in the status register for the 'B' flag values
+        // http://wiki.nesdev.com/w/index.php/Status_flags#The_B_flag
+        self.push(io, self.p | 0x30);
+    }
+
+    fn pla(&mut self, io: &mut dyn IoAccess) {
+        self.a = self.pull(io);
+        self.update_flags(self.a);
+    }
+
+    fn plp(&mut self, io: &mut dyn IoAccess) {
+        self.p = (self.pull(io) | 0x20) & 0xEF;
+    }
+
+    fn lsr(&mut self, m: u8) -> u8 {
+        let c = bit_is_set!(m, 0);
+
+        let r = m >> 1;
+
+        self.set_zero_flag(r);
+        self.set_negative_flag(r);
+        self.set_flag_bit(Flags::Carry, c);
+
+        r
+    }
+
+    fn ora(&mut self, m: u8) {
+        self.a |= m;
 
         self.set_zero_flag(self.a);
         self.set_negative_flag(self.a);
-
-        true
     }
 
-    fn ror(&mut self, io: &mut dyn IoAccess) -> bool {
-        let m = self.read_bus(io);
+    fn ror(&mut self, m: u8) -> u8 {
         let current_carry = self.get_flag_bit(Flags::Carry);
         let new_carry = bit_is_set!(m, 0);
 
         let mut r = m >> 1;
-        
+
         if current_carry {
             bit_set!(r, 7);
         }
-
-        self.write_bus(io, r);
 
         self.set_flag_bit(Flags::Carry, new_carry);
         self.set_zero_flag(r);
         self.set_negative_flag(r);
 
-        true
+        r
     }
 
-    fn rol(&mut self, io: &mut dyn IoAccess) -> bool {
-        let m = self.read_bus(io);
+    fn rol(&mut self, m: u8) -> u8 {
         let current_carry = self.get_flag_bit(Flags::Carry);
         let new_carry = bit_is_set!(m, 7);
 
@@ -733,140 +810,163 @@ impl Cpu {
             bit_set!(r, 0);
         }
 
-        self.write_bus(io, r);
-
         self.set_flag_bit(Flags::Carry, new_carry);
         self.set_zero_flag(r);
         self.set_negative_flag(r);
 
-        true
+        r
     }
 
-    fn rti(&mut self, io: &mut dyn IoAccess, cycle: u8) -> bool {
-        if cycle <= 4 {
-            return false;
-        }
+    fn rla(&mut self, m: u8) -> u8 {
+        let m = self.rol(m);
+        self.a &= m;
+        self.update_flags(self.a);
+        m
+    }
+
+    fn rra(&mut self, m: u8) -> u8 {
+        let m = self.ror(m);
+        self.adc(m);
+
+        m
+    }
+
+    fn sre(&mut self, m: u8) -> u8 {
+        let m = m >> 1;
+        self.eor(m);
+        m
+    }
+
+    fn rti(&mut self, io: &mut dyn IoAccess) {
         self.p = self.pull(io);
-        self.pc = Wrapping(self.pull16(io));
-        println!("{:X} {:X}", self.p, self.pc);
-        true
+        self.pc = self.pull16(io);
     }
 
-    fn jsr(&mut self, io: &mut dyn IoAccess, cycle: u8) -> bool {
-        if cycle <= 4 {
-            return false;
-        }
-        self.push16(io, self.sp);
-        self.pc = Wrapping(self.address_bus);
-        true
+    fn jsr(&mut self, io: &mut dyn IoAccess, addr: u16) {
+        //     JSR
+        //     #  address R/W description
+        //    --- ------- --- -------------------------------------------------
+        //     1    PC     R  fetch opcode, increment PC
+        //     2    PC     R  fetch low address byte, increment PC
+        //     3  $0100,S  R  internal operation (predecrement S?)
+        //     4  $0100,S  W  push PCH on stack, decrement S
+        //     5  $0100,S  W  push PCL on stack, decrement S
+        //     6    PC     R  copy low address byte to PCL, fetch high address
+        //                    byte to PCH
+        self.push16(io, self.pc-1);
+        self.pc = addr;
     }
 
-    fn rts(&mut self, io: &mut dyn IoAccess, cycle: u8) -> bool {
-        if cycle <= 4 {
-            return false;
-        }
-
-        self.pc = Wrapping(self.pull16(io));
-
-        true
+    fn rts(&mut self, io: &mut dyn IoAccess) {
+        //  RTS
+        //  #  address R/W description
+        // --- ------- --- -----------------------------------------------
+        //  1    PC     R  fetch opcode, increment PC
+        //  2    PC     R  read next instruction byte (and throw it away)
+        //  3  $0100,S  R  increment S
+        //  4  $0100,S  R  pull PCL from stack, increment S
+        //  5  $0100,S  R  pull PCH from stack
+        //  6    PC     R  increment PC
+        self.pc = self.pull16(io);
+        self.pc = (Wrapping(self.pc) + Wrapping(1)).0;
     }
 
-    fn sbc(&mut self, io: &mut dyn IoAccess) -> bool {
-        // TODO: Better way to do this?
-        let m = Wrapping(self.read_bus(io));
-        let c = Wrapping(self.get_carry());
-        let a = Wrapping(self.a);
+    fn sbc(&mut self, m: u8) {
+        let m = Wrapping(m as u16);
+        let c = Wrapping(1u16) - Wrapping(self.get_carry() as u16);
+        let a = Wrapping(self.a as u16);
 
-        let carry_from_bit6 = bit_is_set!(a.0, 6) && bit_is_set!(m.0, 6);
-        let bit7_a = bit_is_set!(a.0, 7);
-        let bit7_m = bit_is_set!(m.0, 7);
+        let r = a - m - c;
 
-        let v = (!bit7_a && !bit7_m && carry_from_bit6) || (bit7_a && bit7_m && !carry_from_bit6);
-        let new_c = {
-            (carry_from_bit6 as u8) + (bit7_a as u8) + (bit7_m as u8) > 2
-        };
+        // Carry set when result is [0, 255]
+        let c = bit_is_clear!(r.0, 8);
+        
+        let sign_bit = bit_is_set!(r.0, 7);
+        let v = bit_is_set!(a.0, 7) != sign_bit && bit_is_set!(!m.0, 7) != sign_bit;
 
-        self.a = (a - m - (Wrapping(1u8) - c)).0;
-
-        self.set_zero_flag(self.a);
-        self.set_negative_flag(self.a);
+        self.a = (r.0 & 0xFF) as u8;
+        self.set_flag_bit(Flags::Carry, c);
         self.set_flag_bit(Flags::Overflow, v);
-        self.set_flag_bit(Flags::Carry, new_c);
-
-        true
+        self.update_flags(self.a);
     }
 
-    fn sec(&mut self) -> bool {
+    /// Increase memory by one and subtract from the accumulator with borrow
+    fn isb(&mut self, m: u8) -> u8 {
+        let m = (Wrapping(m) + Wrapping(1)).0;
+        self.sbc(m);
+
+        m
+    }
+
+    fn slo(&mut self, m: u8) -> u8 {
+        // TODO: Set carry?
+        let m = m << 1;
+        self.ora(m);
+
+        m
+    }
+
+    fn sec(&mut self) {
         self.set_flag_bit(Flags::Carry, true);
-        true
     }
 
-    fn sed(&mut self) -> bool {
+    fn sed(&mut self) {
         self.set_flag_bit(Flags::Decimal, true);
-        true
     }
 
-    fn sei(&mut self) -> bool {
+    fn sei(&mut self) {
         self.set_flag_bit(Flags::InterruptDisable, true);
-        true
     }
 
-    fn stx(&mut self, io: &mut dyn IoAccess) -> bool {
-        self.write_bus(io, self.x);
-        true
+    fn stx(&mut self) -> u8 {
+        self.x
     }
 
-    fn sty(&mut self, io: &mut dyn IoAccess) -> bool {
-        self.write_bus(io, self.y);
-        true
+    fn sty(&mut self) -> u8 {
+        self.y
     }
 
-    fn tax(&mut self) -> bool {
+    fn tax(&mut self) {
         self.x = self.a;
         self.set_zero_flag(self.x);
         self.set_negative_flag(self.x);
-        true
     }
 
-    fn tay(&mut self) -> bool {
+    fn tay(&mut self) {
         self.y = self.a;
         self.set_zero_flag(self.y);
         self.set_negative_flag(self.y);
-        true
     }
 
-    fn tsx(&mut self) -> bool {
+    fn tsx(&mut self) {
         self.x = self.sp as u8;
         self.set_zero_flag(self.x);
         self.set_negative_flag(self.x);
-        true
     }
 
-    fn txa(&mut self) -> bool {
+    fn txa(&mut self) {
         self.a = self.x;
         self.set_negative_flag(self.a);
         self.set_zero_flag(self.a);
-        true
     }
 
-    fn txs(&mut self) -> bool {
+    fn txs(&mut self) {
         self.sp = self.x as u16;
-        true
     }
 
-    fn tya(&mut self) -> bool {
+    fn tya(&mut self) {
         self.a = self.y;
         self.set_negative_flag(self.a);
         self.set_zero_flag(self.a);
-        true
     }
 
-    fn brk(&mut self, io: &mut dyn IoAccess) -> bool {
-        self.push16(io, self.pc.0);
+    fn brk(&mut self, io: &mut dyn IoAccess) {
+        self.push16(io, self.pc);
 
         self.set_flag_bit(Flags::Break, true);
         self.push(io, self.p);
-        true
+
+        self.pc = self.read_u16(io, memorymap::IRQ_VECTOR);
     }
 
     //------------------------------------------------------------------------------------------------------------------
@@ -875,162 +975,101 @@ impl Cpu {
 
     /// Immediate Addressing.
     /// Put current PC value on the address bus
-    fn immediate(&mut self) {
-        self.address_bus = self.pc.0;
-        self.pc += Wrapping(1);
+    fn immediate(&self, data: &[u8]) -> AddressingModeResult {
+        AddressingModeResult::Byte(data[0])
+    }
 
-        self.addressing_complete = true;
+    fn accumulator(&self) -> AddressingModeResult {
+        AddressingModeResult::Byte(self.a)
     }
 
     /// Absolute Addressing.
     /// Fetch the address to read from the next two bytes
-    fn absolute(&mut self, io: &mut dyn IoAccess, cycle: u8) {
-        match cycle {
-            0 => {
-                // Fetch lower byte of address
-                self.address_bus = (self.address_bus & 0xFF00) | (self.read_next_u8(io) as u16);
-            },
-            1 => {
-                // Fetch the higher byte of address
-                self.address_bus = (self.address_bus & 0x00FF) | ((self.read_next_u8(io) as u16) << 8);
-                self.addressing_complete = true;
-            }
-            _ => panic!("Invalid cycle for absolute addressing mode")
-        }
+    fn absolute(&mut self, data: &[u8]) -> AddressingModeResult {
+        AddressingModeResult::Address(((data[1] as u16) << 8) | data[0] as u16)
     }
 
     /// Absolute Addressing Indexed by X
-    fn absolute_x(&mut self, io: &mut dyn IoAccess, cycle: u8) {
-        self.absolute_i(io, cycle, self.x);
+    fn absolute_x(&mut self, data: &[u8]) -> AddressingModeResult {
+        self.absolute_i(data, self.x)
     }
 
     /// Absolute Addressing Indexed by Y
-    fn absolute_y(&mut self, io: &mut dyn IoAccess, cycle: u8) {
-        self.absolute_i(io, cycle, self.y);
+    fn absolute_y(&mut self, data: &[u8]) -> AddressingModeResult {
+        self.absolute_i(data, self.y)
     }
 
-    fn absolute_i(&mut self, io: &mut dyn IoAccess, cycle: u8, i: u8) {
-        match cycle {
-            0 => {
-                // Fetch lower byte of address
-                self.address_bus = (self.address_bus & 0xFF00) | (self.read_next_u8(io) as u16);
-            },
-            1 => {
-                // Fetch the higher byte of address
-                self.address_bus = (self.address_bus & 0x00FF) | ((self.read_next_u8(io) as u16) << 8);
-            },
-            2 => {
-                // Add the index value to the address bus
-                self.address_bus += i as u16;
-                self.addressing_complete = true;
-            }
-            _ => panic!("Invalid cycle for absolute addressing mode")
-        }
+    fn absolute_i(&mut self, data: &[u8], i: u8) -> AddressingModeResult {
+        let addr = ((data[1] as u16) << 8) | data[0] as u16;
+        let addr = (Wrapping(addr) + Wrapping(i as u16)).0;
+        AddressingModeResult::Address(addr)
     }
 
     /// Zero Page Addressing
     /// Fetch the next byte and put it on the address bus
-    fn zeropage(&mut self, io: &mut dyn IoAccess) {
-        self.address_bus = self.read_next_u8(io) as u16;
-        self.addressing_complete = true;
+    fn zeropage(&mut self, data: &[u8]) -> AddressingModeResult {
+        AddressingModeResult::Address(data[0] as u16)
     }
 
     /// Zero Page Index X Addressing.
-    fn zeropage_x(&mut self, io: &mut dyn IoAccess, cycle: u8) {
-        self.zeropage_i(io, cycle, self.x);
+    fn zeropage_x(&mut self, data: &[u8]) -> AddressingModeResult {
+        self.zeropage_i(data, self.x)
     }
 
     /// Zero Page Index Y Addressing
-    fn zeropage_y(&mut self, io: &mut dyn IoAccess, cycle: u8) {
-        self.zeropage_i(io, cycle, self.y);
+    fn zeropage_y(&mut self, data: &[u8]) -> AddressingModeResult {
+        self.zeropage_i(data, self.y)
     }
 
-    fn zeropage_i(&mut self, io: &mut dyn IoAccess, cycle: u8, i: u8) {
-        match cycle {
-            0 => {
-                self.address_bus = self.read_next_u8(io) as u16;
-            },
-            1 => {
-                // TODO: Wrapping?
-                self.address_bus += i as u16;
-                self.addressing_complete = true;
-            }
-            _ => panic!("Invalid cycle for absolute addressing mode")
-        }
+    fn zeropage_i(&mut self, data: &[u8], i: u8) -> AddressingModeResult {
+        AddressingModeResult::Address(((data[0] as u16) + i as u16) & 0xFF)
     }
 
     /// Indexed Indirect Addressing
-    fn indexed_indirect(&mut self, io: &mut dyn IoAccess, cycle: u8) {
-        match cycle {
-            0 => {
-                self.pointer_address = self.read_next_u8(io) as u16;
-            },
-            1 => {
-                // TODO: Wrapping?
-                self.pointer_address += self.x as u16;
-            },
-            2 => {
-                // Fetch lower byte of address
-                self.address_bus = (self.address_bus & 0xFF00) | (self.read_u8(io, self.pointer_address) as u16);
-            },
-            3 => {
-                // Fetch the higher byte of address
-                self.address_bus = (self.address_bus & 0x00FF) | ((self.read_u8(io, self.pointer_address + 1) as u16) << 8);
-                self.addressing_complete = true;
-            }
-            _ => panic!("Invalid cycle for absolute addressing mode")
-        }
+    fn indexed_indirect(&mut self, io: &mut dyn IoAccess, data: &[u8]) -> AddressingModeResult {
+        let ptr = ((data[0] as u16) + (self.x as u16)) & 0xFF;
+
+        let addr = self.indirect_read(io, ptr);
+
+        AddressingModeResult::Address(addr)
     }
 
     /// Indirect Indexed Addressing
-    fn indirect_indexed(&mut self, io: &mut dyn IoAccess, cycle: u8) {
-        match cycle {
-            0 => {
-                self.pointer_address = self.read_next_u8(io) as u16;
-            },
-            1 => {
-                // Fetch lower byte of address
-                self.address_bus = (self.address_bus & 0xFF00) | (self.read_u8(io, self.pointer_address) as u16);
-            },
-            2 => {
-                // Fetch the higher byte of address
-                self.address_bus = (self.address_bus & 0x00FF) | ((self.read_u8(io, self.pointer_address + 1) as u16) << 8);
-            },
-            3 => {
-                self.address_bus += self.y as u16;
-                self.addressing_complete = true;
-            }
-            _ => panic!("Invalid cycle for absolute addressing mode")
-        }
+    fn indirect_indexed(&mut self, io: &mut dyn IoAccess, data: &[u8]) -> AddressingModeResult {
+        let ptr = data[0] as u16;
+
+        let addr = self.indirect_read(io, ptr);
+        let addr = (Wrapping(addr) + Wrapping(self.y as u16)).0;
+
+        AddressingModeResult::Address(addr)
     }
 
     /// Indirect
     /// Only applicable to JMP instruction
-    fn indirect(&mut self, io: &mut dyn IoAccess, cycle: u8) {
-        match cycle {
-            0 => {
-                // Fetch lower byte of address
-                self.pointer_address = (self.pointer_address & 0xFF00) | (self.read_next_u8(io) as u16);
-            },
-            1 => {
-                // Fetch the higher byte of address
-                self.pointer_address = (self.pointer_address & 0x00FF) | ((self.read_next_u8(io) as u16) << 8);
-            },
-            2 => {
-                let lo = self.read_u8(io, self.pointer_address) as u16;
-                let hi = self.read_u8(io, self.pointer_address + 1) as u16;
+    fn indirect(&mut self, io: &mut dyn IoAccess, data: &[u8]) -> AddressingModeResult {
+        
+        let ptr = ((data[1] as u16) << 8) | data[0] as u16;
 
-                self.address_bus = (hi << 8) | lo;
+        let addr = self.indirect_read(io, ptr);
 
-                self.addressing_complete = true;
-            }
-            _ => panic!("Invalid cycle for indirect addressing"),
-        }
+        AddressingModeResult::Address(addr)
     }
 
-    fn relative(&mut self, io: &mut dyn IoAccess) {
-        self.pointer_address = self.read_next_u8(io) as u16;
-        self.addressing_complete = true;
+    fn indirect_read(&self, io: &mut dyn IoAccess, ptr: u16) -> u16 {
+        // Note: The PCH will always be fetched from the same page
+        // as PCL, i.e. page boundary crossing is not handled.
+        let page = ptr & 0xFF00;
+        let addr_lo = ptr;
+        let addr_hi = page | ((ptr + 0x01) & 0x00FF);
+
+        let lo = self.read_u8(io, addr_lo) as u16;
+        let hi = self.read_u8(io, addr_hi) as u16;
+
+        (hi << 8) | lo
+    }
+
+    fn relative(&mut self, data: &[u8]) -> AddressingModeResult {
+        AddressingModeResult::Offset(data[0])
     }
 
     //------------------------------------------------------------------------------------------------------------------
@@ -1080,11 +1119,13 @@ impl Cpu {
     //------------------------------------------------------------------------------------------------------------------
 
     /// Branch
-    fn branch(&mut self, cond_met: bool) {
+    fn branch(&mut self, cond_met: bool, offset: u8) {
         if cond_met {
-            let offset = Wrapping(self.pointer_address as i16);
-            let pc = Wrapping(self.pc.0 as i16);
-            self.pc = Wrapping((pc + offset).0 as u16);
+            let offset = offset as i8;
+            let offset = offset as i16;
+            let base_addr = self.pc as i16;
+
+            self.pc = (Wrapping(base_addr) + Wrapping(offset)).0 as u16;
         }
     }
 
@@ -1117,20 +1158,15 @@ impl Cpu {
 
     /// Push a value onto the stack
     fn push(&mut self, io: &mut dyn IoAccess, data: u8) {
-        // Read the next instruction byte and throw it away
-        self.pc += Wrapping(1u16);
-
-        self.write_u8(io, self.sp, data);
-        self.sp -= 1u16;
+        // The stack is always stored in page 1
+        self.write_u8(io, self.sp + STACK_PAGE_OFFSET, data);
+        self.sp = (Wrapping(self.sp) - Wrapping(1u16)).0;
     }
 
     /// Pull a value off the stack
     fn pull(&mut self, io: &mut dyn IoAccess) -> u8 {
-        // Read the next instruction byte and throw it away
-        self.pc += Wrapping(1u16);
-
-        self.sp += 1u16;
-        let data = self.read_u8(io, self.sp);
+        self.sp = (Wrapping(self.sp) + Wrapping(1u16)).0;
+        let data = self.read_u8(io, self.sp + STACK_PAGE_OFFSET);
 
         data
     }
@@ -1144,8 +1180,8 @@ impl Cpu {
     }
 
     fn pull16(&mut self, io: &mut dyn IoAccess) -> u16 {
-        let hi = self.pull(io) as u16;
         let lo = self.pull(io) as u16;
+        let hi = self.pull(io) as u16;
 
         (hi << 8) | lo
     }
@@ -1159,23 +1195,9 @@ impl Cpu {
         self.read_next_u8(io)
     }
 
-    fn read_bus(&self, io: &mut dyn IoAccess) -> u8 {
+    fn write_result(&mut self, io: &mut dyn IoAccess, addressing_result: AddressingModeResult, value: u8) {
         let mode = match self.state {
-            State::Execute(_, mode, _) => mode,
-            _ => panic!("Must be in execution state!"),
-        };
-
-        if mode == AddressingMode::Accumulator {
-            self.a
-        }
-        else {
-            self.read_u8(io, self.address_bus)
-        }
-    }
-
-    fn write_bus(&mut self, io: &mut dyn IoAccess, value: u8) {
-        let mode = match self.state {
-            State::Execute(_, mode, _) => mode,
+            State::Execute(_, mode, _, _) => mode,
             _ => panic!("Must be in execution state!"),
         };
 
@@ -1183,13 +1205,13 @@ impl Cpu {
             self.a = value;
         }
         else {
-            self.write_u8(io, self.address_bus, value);
+            self.write_u8(io, addressing_result.to_address().unwrap(), value);
         }
     }
 
     fn read_next_u8(&mut self, io: &mut dyn IoAccess) -> u8 {
-        let byte = self.read_u8(io, self.pc.0);
-        self.pc += Wrapping(1u16);
+        let byte = self.read_u8(io, self.pc);
+        self.pc = (Wrapping(self.pc) + Wrapping(1)).0;
 
         byte
     }
@@ -1202,8 +1224,8 @@ impl Cpu {
     }
 
     fn read_u8(&self, io: &mut dyn IoAccess, addr: u16) -> u8 {
-        if (addr as usize) < INTERNAL_RAM_SIZE {
-            self.ram[(addr as usize) % 0x200]
+        if (addr as usize) < 0x2000 {
+            self.read_ram(addr)
         }
         else {
             io.read_byte(addr)
@@ -1211,8 +1233,8 @@ impl Cpu {
     }
 
     fn write_u8(&mut self, io: &mut dyn IoAccess, addr: u16, value: u8) {
-        if (addr as usize) < INTERNAL_RAM_SIZE {
-            self.ram[(addr as usize) % 0x200] = value;
+        if (addr as usize) < 0x2000 {
+            self.write_ram(addr, value);
         }
         else {
             io.write_byte(addr, value);
@@ -1241,11 +1263,11 @@ mod tests {
     #[test]
     fn pc_after_reset() {
         let mut cpu = Cpu::new();
-        cpu.pc = Wrapping(0x0001);
+        cpu.pc = 0x0001;
 
         simple_test_base(&mut cpu, vec![], 0);
 
-        assert_eq!(cpu.pc.0, 0x4020);
+        assert_eq!(cpu.pc, 0x4020);
     }
 
     #[test]
@@ -1253,7 +1275,7 @@ mod tests {
         let prg = vec![0xEA];
         let cpu = simple_test(prg, 2);
 
-        assert_eq!(cpu.pc.0, 0x4021);
+        assert_eq!(cpu.pc, 0x4021);
     }
 
     #[test]
@@ -1262,7 +1284,7 @@ mod tests {
             0xA9, 0xA5 // LDA $A5
         ];
 
-        let cpu = simple_test(prg, 3);
+        let cpu = simple_test(prg, 2);
 
         assert_eq!(cpu.a, 0xA5);
     }
@@ -1329,7 +1351,7 @@ mod tests {
         cpu.y = 0x0001;
 
         let prg = vec![
-            0xB9, 0x23, 0x40, // LDA $0003, Y
+            0xB9, 0x23, 0x40, // LDA $4023, Y
             0x00, 0xDE,       // Data: $DE
         ];
 
@@ -1380,7 +1402,7 @@ mod tests {
             0xA9, 0x00 // LDA $00
         ];
 
-        let cpu = simple_test(prg, 3);
+        let cpu = simple_test(prg, 2);
 
         assert_eq!(cpu.a, 0x00);
         assert_eq!(cpu.p, Flags::Zero as u8);
@@ -1392,22 +1414,65 @@ mod tests {
             0xA9, 0x80 // LDA $00
         ];
 
-        let cpu = simple_test(prg, 3);
+        let cpu = simple_test(prg, 2);
 
         assert_eq!(cpu.a, 0x80);
         assert_eq!(cpu.p, Flags::Negative as u8);
     }
 
     #[test]
-    fn jmp_absolute() {
+    fn lax() {
+        let mut cpu = Cpu::new();
+        cpu.ram[0x02] = 0xDE;
+
         let prg = vec![
-            0x4C, 0x00, 0x10 // LDA JMP $1000
+            0xA7, 0x02, // LAX $02
         ];
 
-       // FIXME: JMP with absolute addressing should be 3 cycles
-       let cpu = simple_test(prg, 4);
+        simple_test_base(&mut cpu, prg, 3);
 
-        assert_eq!(cpu.pc.0, 0x1000);
+        assert_eq!(cpu.a, 0xDE);
+        assert_eq!(cpu.x, 0xDE);
+    }
+
+    #[test]
+    fn sax() {
+        let mut cpu = Cpu::new();
+        cpu.a = 0xFF;
+        cpu.x = 0x00;
+
+        let prg = vec![
+            0x87, 0x02, // SAX $02
+        ];
+
+        simple_test_base(&mut cpu, prg, 3);
+
+        assert_eq!(cpu.ram[0x02], 0x00);
+    }
+
+    #[test]
+    fn dcp() {
+        let mut cpu = Cpu::new();
+        cpu.ram[0x02] = 0x01;
+
+        let prg = vec![
+            0xC7, 0x02, // DCP $02
+        ];
+
+        simple_test_base(&mut cpu, prg, 5);
+
+        assert_eq!(cpu.ram[0x02], 0x00);
+    }
+
+    #[test]
+    fn jmp_absolute() {
+        let prg = vec![
+            0x4C, 0x00, 0x10 // JMP $1000
+        ];
+
+       let cpu = simple_test(prg, 3);
+
+        assert_eq!(cpu.pc, 0x1000);
     }
 
     #[test]
@@ -1419,7 +1484,22 @@ mod tests {
 
         let cpu = simple_test(prg, 5);
 
-        assert_eq!(cpu.pc.0, 0x1000);
+        assert_eq!(cpu.pc, 0x1000);
+    }
+
+    #[test]
+    fn jmp_indirect_page_cross() {
+        let mut cpu = Cpu::new();
+        cpu.ram[0x0FF] = 0xAD;
+        cpu.ram[0x00] = 0xDE;
+
+        let prg = vec![
+            0x6C, 0xFF, 0x00, // LDA JMP ($00FF)
+        ];
+
+        simple_test_base(&mut cpu, prg, 5);
+        
+        assert_eq!(cpu.pc, 0xDEAD);
     }
 
     #[test]
@@ -1459,10 +1539,70 @@ mod tests {
             0x69, 0x00, // ADC $00; a=$00 -> a=$01, c=0
         ];
 
-        simple_test_base(&mut cpu, prg, 9);
+        simple_test_base(&mut cpu, prg, 6);
 
         assert_eq!(cpu.a, 0x01);
         assert_eq!(mask_is_clear!(cpu.p, Flags::Carry as u8), true);
+    }
+
+    #[test]
+    fn adc_overflow_1() {
+        let mut cpu = Cpu::new();
+        cpu.a = 0x01;
+
+        let prg = vec![
+            0x69, 0x01, // ADC $01
+        ];
+
+        simple_test_base(&mut cpu, prg, 3);
+
+        assert_eq!(cpu.a, 0x02);
+        assert_eq!(cpu.get_flag_bit(Flags::Overflow), false);
+    }
+
+    #[test]
+    fn adc_overflow_2() {
+        let mut cpu = Cpu::new();
+        cpu.a = 0x01;
+
+        let prg = vec![
+            0x69, 0xFF, // ADC $FF
+        ];
+
+        simple_test_base(&mut cpu, prg, 3);
+
+        assert_eq!(cpu.a, 0x00);
+        assert_eq!(cpu.get_flag_bit(Flags::Overflow), false);
+    }
+
+    #[test]
+    fn adc_overflow_3() {
+        let mut cpu = Cpu::new();
+        cpu.a = 0x7F;
+
+        let prg = vec![
+            0x69, 0x01, // ADC $01
+        ];
+
+        simple_test_base(&mut cpu, prg, 3);
+
+        assert_eq!(cpu.a, 0x80);
+        assert_eq!(cpu.get_flag_bit(Flags::Overflow), true);
+    }
+
+    #[test]
+    fn adc_overflow_4() {
+        let mut cpu = Cpu::new();
+        cpu.a = 0x80;
+
+        let prg = vec![
+            0x69, 0xFF, // ADC $FF
+        ];
+
+        simple_test_base(&mut cpu, prg, 3);
+
+        assert_eq!(cpu.a, 0x7F);
+        assert_eq!(cpu.get_flag_bit(Flags::Overflow), true);
     }
 
     #[test]
@@ -1503,7 +1643,7 @@ mod tests {
             0xA9, 0x01, // LDA $01; a=$1,z=0
         ];
 
-        let cpu = simple_test(prg, 6);
+        let cpu = simple_test(prg, 4);
 
         assert_eq!(cpu.a, 0x01);
         assert_eq!(mask_is_clear!(cpu.p, Flags::Zero as u8), true);
@@ -1523,6 +1663,23 @@ mod tests {
         assert_eq!(cpu.a, 0x02);
         assert_eq!(cpu.get_flag_bit(Flags::Carry), false);
         assert_eq!(cpu.get_flag_bit(Flags::Zero), false);
+        assert_eq!(cpu.get_flag_bit(Flags::Negative), false);
+    }
+
+    #[test]
+    fn asl_accumulator_is_zero() {
+        let mut cpu = Cpu::new();
+        cpu.a = 0x80;
+
+        let prg = vec![
+            0x0A, // ASL
+        ];
+
+        simple_test_base(&mut cpu, prg, 2);
+
+        assert_eq!(cpu.a, 0x00);
+        assert_eq!(cpu.get_flag_bit(Flags::Carry), true);
+        assert_eq!(cpu.get_flag_bit(Flags::Zero), true);
         assert_eq!(cpu.get_flag_bit(Flags::Negative), false);
     }
 
@@ -1568,7 +1725,7 @@ mod tests {
 
         simple_test_base(&mut cpu, prg, 3);
 
-        assert_eq!(cpu.pc.0, 0x4024);
+        assert_eq!(cpu.pc, 0x4024);
     }
 
     #[test]
@@ -1582,7 +1739,7 @@ mod tests {
 
         simple_test_base(&mut cpu, prg, 3);
 
-        assert_eq!(cpu.pc.0, 0x4022);
+        assert_eq!(cpu.pc, 0x4022);
     }
 
     #[test]
@@ -1596,7 +1753,7 @@ mod tests {
 
         simple_test_base(&mut cpu, prg, 3);
 
-        assert_eq!(cpu.pc.0, 0x4022);
+        assert_eq!(cpu.pc, 0x4022);
     }
 
     #[test]
@@ -1610,7 +1767,7 @@ mod tests {
 
         simple_test_base(&mut cpu, prg, 3);
 
-        assert_eq!(cpu.pc.0, 0x4024);
+        assert_eq!(cpu.pc, 0x4024);
     }
 
     #[test]
@@ -1624,7 +1781,7 @@ mod tests {
 
         simple_test_base(&mut cpu, prg, 3);
 
-        assert_eq!(cpu.pc.0, 0x4022);
+        assert_eq!(cpu.pc, 0x4022);
     }
 
     #[test]
@@ -1638,7 +1795,7 @@ mod tests {
 
         simple_test_base(&mut cpu, prg, 3);
 
-        assert_eq!(cpu.pc.0, 0x4024);
+        assert_eq!(cpu.pc, 0x4024);
     }
 
     #[test]
@@ -1652,7 +1809,21 @@ mod tests {
 
         simple_test_base(&mut cpu, prg, 3);
 
-        assert_eq!(cpu.pc.0, 0x4024);
+        assert_eq!(cpu.pc, 0x4024);
+    }
+
+    #[test]
+    fn bne_zero_not_set_negative_offset() {
+        let mut cpu = Cpu::new();
+        mask_clear!(cpu.p, Flags::Zero as u8);
+
+        let prg = vec![
+            0xD0, 0xFE, // BNE $FE
+        ];
+
+        simple_test_base(&mut cpu, prg, 3);
+
+        assert_eq!(cpu.pc, 0x4020);
     }
 
     #[test]
@@ -1666,7 +1837,7 @@ mod tests {
 
         simple_test_base(&mut cpu, prg, 3);
 
-        assert_eq!(cpu.pc.0, 0x4022);
+        assert_eq!(cpu.pc, 0x4022);
     }
 
     #[test]
@@ -1680,7 +1851,7 @@ mod tests {
 
         simple_test_base(&mut cpu, prg, 3);
 
-        assert_eq!(cpu.pc.0, 0x4022);
+        assert_eq!(cpu.pc, 0x4022);
     }
 
     #[test]
@@ -1694,7 +1865,7 @@ mod tests {
 
         simple_test_base(&mut cpu, prg, 3);
 
-        assert_eq!(cpu.pc.0, 0x4024);
+        assert_eq!(cpu.pc, 0x4024);
     }
 
     #[test]
@@ -1708,7 +1879,7 @@ mod tests {
 
         simple_test_base(&mut cpu, prg, 3);
 
-        assert_eq!(cpu.pc.0, 0x4024);
+        assert_eq!(cpu.pc, 0x4024);
     }
 
     #[test]
@@ -1722,7 +1893,7 @@ mod tests {
 
         simple_test_base(&mut cpu, prg, 3);
 
-        assert_eq!(cpu.pc.0, 0x4022);
+        assert_eq!(cpu.pc, 0x4022);
     }
 
     #[test]
@@ -1736,7 +1907,7 @@ mod tests {
 
         simple_test_base(&mut cpu, prg, 3);
 
-        assert_eq!(cpu.pc.0, 0x4024);
+        assert_eq!(cpu.pc, 0x4024);
     }
 
     #[test]
@@ -1750,7 +1921,7 @@ mod tests {
 
         simple_test_base(&mut cpu, prg, 3);
 
-        assert_eq!(cpu.pc.0, 0x4022);
+        assert_eq!(cpu.pc, 0x4022);
     }
 
     #[test]
@@ -1764,7 +1935,7 @@ mod tests {
 
         simple_test_base(&mut cpu, prg, 3);
 
-        assert_eq!(cpu.pc.0, 0x4022);
+        assert_eq!(cpu.pc, 0x4022);
     }
 
     #[test]
@@ -1778,7 +1949,7 @@ mod tests {
 
         simple_test_base(&mut cpu, prg, 3);
 
-        assert_eq!(cpu.pc.0, 0x4024);
+        assert_eq!(cpu.pc, 0x4024);
     }
 
     #[test]
@@ -1907,8 +2078,7 @@ mod tests {
             0xC6, 0x02, // DEC $02
         ];
 
-        // FIXME: Cycle accuracy
-        simple_test_base(&mut cpu, prg, 3);
+        simple_test_base(&mut cpu, prg, 5);
 
         assert_eq!(cpu.get_flag_bit(Flags::Zero), true);
         assert_eq!(cpu.ram[0x02], 0x00);
@@ -1953,8 +2123,7 @@ mod tests {
             0xE6, 0x02, // INC $02
         ];
 
-        // FIXME: Cycle accuracy
-        simple_test_base(&mut cpu, prg, 3);
+        simple_test_base(&mut cpu, prg, 5);
 
         assert_eq!(cpu.get_flag_bit(Flags::Zero), true);
         assert_eq!(cpu.ram[0x02], 0x00);
@@ -2011,7 +2180,21 @@ mod tests {
             0xA2, 0xA5 // LDX $A5
         ];
 
-        let cpu = simple_test(prg, 3);
+        let cpu = simple_test(prg, 2);
+
+        assert_eq!(cpu.x, 0xA5);
+    }
+
+    #[test]
+    fn ldx_absolute() {
+        let mut cpu = Cpu::new();
+        cpu.ram[0x07FF] = 0xA5;
+
+        let prg = vec![
+            0xAE, 0xFF, 0x07, // LDX $07FF
+        ];
+
+        simple_test_base(&mut cpu, prg, 4);
 
         assert_eq!(cpu.x, 0xA5);
     }
@@ -2022,7 +2205,7 @@ mod tests {
             0xA0, 0xA5 // LDY $A5
         ];
 
-        let cpu = simple_test(prg, 3);
+        let cpu = simple_test(prg, 2);
 
         assert_eq!(cpu.y, 0xA5);
     }
@@ -2037,23 +2220,23 @@ mod tests {
             0x48, // PHA
         ];
 
-        simple_test_base(&mut cpu, prg, 4);
+        simple_test_base(&mut cpu, prg, 3);
 
         assert_eq!(cpu.sp, 0x09);
-        assert_eq!(cpu.ram[0x0A], 0xFF);
+        assert_eq!(cpu.ram[0x10A], 0xFF);
     }
 
     #[test]
     fn pla() {
         let mut cpu = Cpu::new();
-        cpu.ram[0x0A] = 0xFF;
+        cpu.ram[0x10A] = 0xFF;
         cpu.sp = 0x09;
 
         let prg = vec![
             0x68,       // PLA
         ];
 
-        simple_test_base(&mut cpu, prg, 5);
+        simple_test_base(&mut cpu, prg, 4);
 
         assert_eq!(cpu.a, 0xFF);
         assert_eq!(cpu.sp, 0x0A);
@@ -2070,25 +2253,25 @@ mod tests {
             0x08, // PHP
         ];
 
-        simple_test_base(&mut cpu, prg, 4);
+        simple_test_base(&mut cpu, prg, 3);
 
         assert_eq!(cpu.sp, 0x09);
-        assert_eq!(cpu.ram[0x0A], 0xFF);
+        assert_eq!(cpu.ram[0x10A], 0xFF);
     }
 
     #[test]
     fn plp() {
         let mut cpu = Cpu::new();
-        cpu.ram[0x0A] = 0xFF;
+        cpu.ram[0x10A] = 0xFF;
         cpu.sp = 0x09;
 
         let prg = vec![
             0x28, // PLP
         ];
 
-        simple_test_base(&mut cpu, prg, 5);
+        simple_test_base(&mut cpu, prg, 4);
 
-        assert_eq!(cpu.p, 0xFF);
+        assert_eq!(cpu.p, 0xFF & 0xEF);
         assert_eq!(cpu.sp, 0x0A);
     }
 
@@ -2117,7 +2300,7 @@ mod tests {
             0x09, 0x0F, // ORA $0F
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        simple_test_base(&mut cpu, prg, 2);
 
         assert_eq!(cpu.a, 0xFF);
     }
@@ -2158,20 +2341,20 @@ mod tests {
     #[test]
     fn rti() {
         let mut cpu = Cpu::new();
-        cpu.ram[0x0A] = 0xAD;
-        cpu.ram[0x09] = 0xDE;
-        cpu.ram[0x08] = 0xA5;
+        cpu.ram[0x10A] = 0xDE;
+        cpu.ram[0x109] = 0xAD;
+        cpu.ram[0x108] = 0xA5;
         cpu.sp = 0x0007;
 
         let prg = vec![
             0x40, // RTI
         ];
 
-        simple_test_base(&mut cpu, prg, 7);
+        simple_test_base(&mut cpu, prg, 6);
 
         assert_eq!(cpu.p, 0xA5);
         assert_eq!(cpu.sp, 0x0A);
-        assert_eq!(cpu.pc.0, 0xDEAD);
+        assert_eq!(cpu.pc, 0xDEAD);
     }
 
     #[test]
@@ -2183,14 +2366,15 @@ mod tests {
             0x20, 0xAD, 0xDE, // JSR $DEAD
         ];
 
-        simple_test_base(&mut cpu, prg, 7);
+        simple_test_base(&mut cpu, prg, 6);
 
-        assert_eq!(cpu.pc.0, 0xDEAD);
+        assert_eq!(cpu.pc, 0xDEAD);
+        assert_eq!(cpu.ram[0x010A], 0x40);
+        assert_eq!(cpu.ram[0x0109], 0x22);
     }
 
     #[test]
     fn sbc() {
-        // TODO: This test could be better...
         let mut cpu = Cpu::new();
         cpu.a = 0x01;
 
@@ -2198,26 +2382,91 @@ mod tests {
             0xE9, 0x01, // SBC $01
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        simple_test_base(&mut cpu, prg, 2);
 
         assert_eq!(cpu.a, 0xFF);
     }
 
     #[test]
+    fn sbc2() {
+        let mut cpu = Cpu::new();
+        cpu.a = 0x40;
+        mask_set!(cpu.p, Flags::Carry as u8);
+
+        let prg = vec![
+            0xE9, 0x40, // SBC $40
+        ];
+
+        simple_test_base(&mut cpu, prg, 2);
+
+        assert_eq!(cpu.a, 0x00);
+        assert_eq!(mask_is_set!(cpu.p, Flags::Carry as u8), true);
+        assert_eq!(mask_is_set!(cpu.p, Flags::Zero as u8), true);
+        assert_eq!(mask_is_set!(cpu.p, Flags::Overflow as u8), false);
+        assert_eq!(mask_is_set!(cpu.p, Flags::Negative as u8), false);
+    }
+
+    #[test]
+    fn sbc_overflow_1() {
+        let mut cpu = Cpu::new();
+        cpu.a = 0x00;
+
+        let prg = vec![
+            0xE9, 0x01, // SBC $01
+        ];
+
+        simple_test_base(&mut cpu, prg, 2);
+
+        assert_eq!(cpu.a, 0xFE);
+        assert_eq!(mask_is_set!(cpu.p, Flags::Overflow as u8), false);
+    }
+
+    #[test]
+    fn sbc_overflow_2() {
+        let mut cpu = Cpu::new();
+        cpu.a = 0x80;
+
+        let prg = vec![
+            0xE9, 0x01, // SBC $01
+        ];
+
+        simple_test_base(&mut cpu, prg, 2);
+
+        assert_eq!(cpu.a, 0x7E);
+        assert_eq!(mask_is_set!(cpu.p, Flags::Overflow as u8), true);
+    }
+
+    #[test]
+    fn isb() {
+        let mut cpu = Cpu::new();
+        cpu.a = 0x01;
+        cpu.ram[0x02] = 0x00;
+
+        let prg = vec![
+            0xE7, 0x02, // ISB $02
+        ];
+
+        simple_test_base(&mut cpu, prg, 5);
+
+        assert_eq!(cpu.a, 0xFF);
+        assert_eq!(cpu.ram[0x02], 0x01);
+    }
+
+    #[test]
     fn rts() {
         let mut cpu = Cpu::new();
-        cpu.ram[0x0A] = 0xAD;
-        cpu.ram[0x09] = 0xDE;
+        cpu.ram[0x10A] = 0xDE;
+        cpu.ram[0x109] = 0xAC;
         cpu.sp = 0x0008;
 
         let prg = vec![
             0x60, // RTS
         ];
 
-        simple_test_base(&mut cpu, prg, 7);
+        simple_test_base(&mut cpu, prg, 6);
 
         assert_eq!(cpu.sp, 0x0A);
-        assert_eq!(cpu.pc.0, 0xDEAD);
+        assert_eq!(cpu.pc, 0xDEAD);
     }
 
     #[test]
@@ -2370,10 +2619,10 @@ mod tests {
                 }
                 else {
                     if addr >= 0x4020 {
-                        self.prg_rom[(addr as usize) - self.rom_offest]
+                        self.prg_rom[((addr as usize) - self.rom_offest) % self.prg_rom.len()]
                     }
                     else {
-                        panic!("Address out of supplied program ROM range");
+                        0
                     }
                 }
             }
@@ -2385,6 +2634,7 @@ mod tests {
 
         pub fn simple_test(prg: Vec<u8>, ticks: usize) -> Cpu {
             let mut cpu = Cpu::new();
+            cpu.p = 0x00;
             simple_test_base(&mut cpu, prg, ticks);
 
             cpu
