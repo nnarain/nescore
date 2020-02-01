@@ -106,7 +106,7 @@ mod tests {
         Unrom {
             prg_rom: Memory::new(data, bank_size),
             prg_ram: [0; 0x2000],
-            chr_ram: Memory::new(vec![0; 20], 10),
+            _chr_ram: Memory::new(vec![0; 20], 10),
             rom_bank_selection: 0,
         }
     }
