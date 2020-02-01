@@ -23,21 +23,21 @@ enum Mirroring {
 
 /// Program ROM Bank Mode Options
 enum PrgRomBankMode {
-    SWITCH_32K,
-    SWITCH_C000,
-    SWITCH_8000,
+    Switch32K,
+    SwitchC000,
+    Switch8000,
 }
 
 enum ChrRomBankMode {
-    SWITCH_8K,
-    SWITCH_4K,
+    Switch8K,
+    Switch4K,
 }
 
 /// MMC1 Mapper
 pub struct Mmc1 {
     prg_rom: Memory,             // Program ROM
     prg_ram: [u8; PRG_RAM_SIZE], // Program RAM
-    chr_rom: Memory,
+    _chr_rom: Memory,
 
     shift_register: u8,
 
@@ -52,18 +52,18 @@ pub struct Mmc1 {
 
 impl Mmc1 {
     pub fn from(cart: Cartridge) -> Self {
-        let (info, prg_rom, chr_rom) = cart.to_parts();
+        let (_, prg_rom, chr_rom) = cart.to_parts();
 
         Mmc1{
             prg_rom: Memory::new(prg_rom, PRG_ROM_BANK_SIZE),
             prg_ram: [0; PRG_RAM_SIZE],
-            chr_rom: Memory::new(chr_rom, CHR_ROM_BANK_SIZE),
+            _chr_rom: Memory::new(chr_rom, CHR_ROM_BANK_SIZE),
 
             shift_register: SHIFT_REGISTER_INIT_VALUE,
 
             mirroring: Mirroring::Vertical,
-            prg_rom_bank_mode: PrgRomBankMode::SWITCH_8000,
-            chr_rom_bank_mode: ChrRomBankMode::SWITCH_8K,
+            prg_rom_bank_mode: PrgRomBankMode::Switch8000,
+            chr_rom_bank_mode: ChrRomBankMode::Switch8K,
 
             prg_bank_selection: 0,
             chr_bank0_selection: 0,
@@ -97,20 +97,20 @@ impl Mmc1 {
         };
 
         self.prg_rom_bank_mode = match (flags >> 2) & 0x03 {
-            0 | 1 => PrgRomBankMode::SWITCH_32K,
-            2     => PrgRomBankMode::SWITCH_C000,
-            3     => PrgRomBankMode::SWITCH_8000,
+            0 | 1 => PrgRomBankMode::Switch32K,
+            2     => PrgRomBankMode::SwitchC000,
+            3     => PrgRomBankMode::Switch8000,
             _ => unreachable!(),
         };
 
         self.chr_rom_bank_mode = match mask_is_set!(flags, 4) {
-            false => ChrRomBankMode::SWITCH_8K,
-            true  => ChrRomBankMode::SWITCH_4K,
+            false => ChrRomBankMode::Switch8K,
+            true  => ChrRomBankMode::Switch4K,
         };
 
         let prg_switch_size = match self.prg_rom_bank_mode {
-            PrgRomBankMode::SWITCH_32K                        => kb!(32),
-            PrgRomBankMode::SWITCH_8000 | PrgRomBankMode::SWITCH_C000 => kb!(16),
+            PrgRomBankMode::Switch32K                                => kb!(32),
+            PrgRomBankMode::Switch8000 | PrgRomBankMode::SwitchC000 => kb!(16),
         };
 
         self.prg_rom.set_bank_size(prg_switch_size);
@@ -163,17 +163,17 @@ impl MapperControl for Mmc1 {
             },
             0x8000..=0xFFFF => {
                 match self.prg_rom_bank_mode {
-                    PrgRomBankMode::SWITCH_32K => {
+                    PrgRomBankMode::Switch32K => {
                         self.prg_rom.read(self.prg_bank_selection, (addr - 0x8000) as usize)
                     },
-                    PrgRomBankMode::SWITCH_8000 => {
+                    PrgRomBankMode::Switch8000 => {
                         match addr {
                             0x8000..=0xBFFF => self.prg_rom.read(self.prg_bank_selection, (addr - 0x8000) as usize),
                             0xC000..=0xFFFF => self.prg_rom.read_last((addr - 0xC000) as usize),
                             _ => unreachable!(),
                         }
                     },
-                    PrgRomBankMode::SWITCH_C000 => {
+                    PrgRomBankMode::SwitchC000 => {
                         match addr {
                             0x8000..=0xBFFF => self.prg_rom.read_first((addr - 0x8000) as usize),
                             0xC000..=0xFFFF => self.prg_rom.read(self.prg_bank_selection, (addr - 0xC000) as usize),

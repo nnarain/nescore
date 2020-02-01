@@ -44,6 +44,8 @@ pub struct Cpu {
     ram: [u8; INTERNAL_RAM_SIZE], // CPU RAM
 
     state: State,                 // Internal CPU cycle state
+
+    debug: bool,                  // Debug mode
 }
 
 impl Cpu {
@@ -59,6 +61,8 @@ impl Cpu {
             ram: [0; INTERNAL_RAM_SIZE],
 
             state: State::Reset,
+
+            debug: false,
         }
     }
 
@@ -67,6 +71,10 @@ impl Cpu {
         self.pc = pc;
         // move to fetch state, as we no longer need to read the reset vector
         self.state = State::Fetch;
+    }
+
+    pub fn set_debug(&mut self, debug: bool) {
+        self.debug = debug;
     }
 
     pub fn get_pc(&self) -> u16 {
@@ -103,13 +111,14 @@ impl Cpu {
 
                 let operand_data = &opcode_data[1..];
 
-                #[cfg(test)]
-                println!("${:04X} | {} | {} | A={:02X}, X={:02X}, Y={:02X}, P={:02X}, SP={:04X}",
-                        self.pc - (mode.operand_len() + 1) as u16,
-                        format::operands(opcode_data, mode.operand_len()),
-                        format::disassemble(*instr, *mode, operand_data),
+                if self.debug {
+                    println!("${:04X} | {} | {} | A={:02X}, X={:02X}, Y={:02X}, P={:02X}, SP={:04X}",
+                            self.pc - (mode.operand_len() + 1) as u16,
+                            format::operands(opcode_data, mode.operand_len()),
+                            format::disassemble(*instr, *mode, operand_data),
                         self.a, self.x, self.y, self.p, self.sp);
-
+                }
+                
                 // Apply addressing mode
                 let addressing_result = match mode {
                     AddressingMode::Immediate       => self.immediate(operand_data),

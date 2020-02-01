@@ -64,6 +64,12 @@ impl Nes {
         self
     }
 
+    /// Builder function to set debug mode
+    pub fn debug_mode(mut self, debug: bool) -> Self {
+        self.cpu.set_debug(debug);
+        self
+    }
+
     /// Run the emulator for a single frame
     pub fn emulate_frame(&mut self) {
         if let Some(ref mut mapper) = self.mapper {
@@ -95,7 +101,6 @@ impl Nes {
     }
 
     /// Load a cartridge
-    /// TODO: Should the cartridge actually be consumed? (Multiple NES instances)
     pub fn insert(&mut self, cart: Cartridge) {
         // Consume provided cartridge and get the mapper
         self.mapper = Some(mapper::from_cartridge(cart));

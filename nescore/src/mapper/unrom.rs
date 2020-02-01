@@ -33,26 +33,23 @@ use super::MapperControl;
 use super::mem::Memory;
 use crate::cart::{Cartridge, PRG_ROM_BANK_SIZE};
 
-use crate::cpu::memorymap;
-
-
 /// UNROM Mapper
 pub struct Unrom {
     prg_rom: Memory,
     prg_ram: [u8; 0x2000],
-    chr_ram: Memory,
+    _chr_ram: Memory,
     rom_bank_selection: usize, // Select ROM bank
 }
 
 impl Unrom {
     pub fn from(cart: Cartridge) -> Self {
         // Extract info and ROM data, VROM is unused
-        let (info, prg_rom, _) = cart.to_parts();
+        let (_, prg_rom, _) = cart.to_parts();
 
         Unrom{
             prg_rom: Memory::new(prg_rom, PRG_ROM_BANK_SIZE),
             prg_ram: [0; 0x2000],
-            chr_ram: Memory::new(vec![0; 8 * 1024], 8 * 1024),
+            _chr_ram: Memory::new(vec![0; 8 * 1024], 8 * 1024),
             rom_bank_selection: 0,
         }
     }
