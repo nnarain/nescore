@@ -6,7 +6,7 @@
 //
 
 use crate::io::IoAccess;
-use crate::mapper::{Mapper, MapperControl};
+use crate::mapper::{Mapper};
 
 pub struct CpuIoBus<'a> {
     ppu: &'a mut dyn IoAccess,
@@ -58,6 +58,7 @@ impl<'a> IoAccess for CpuIoBus<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::mapper::{MapperControl};
 
     #[test]
     fn mirroring_function() {
