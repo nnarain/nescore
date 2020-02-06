@@ -20,6 +20,8 @@ jobs:
       run: cargo build
     - name: Test
       run: cargo test
+    - name: Benchmark
+      run: cargo bench
     - name: Generate Coverage Report
       run: cargo install cargo-tarpaulin && cargo tarpaulin --out Xml --all-features
       if: matrix.os == 'ubuntu-latest'
