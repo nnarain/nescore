@@ -25,6 +25,13 @@ impl PpuCtrl {
     pub fn vram_increment(&self) -> u16 {
         if self.inc_mode { 32 } else { 1 }
     }
+
+    pub fn base_scroll(&self) -> (u16, u16) {
+        let base_x = (self.base_nametable_address & 0x01) as u16 * 256;
+        let base_y = ((self.base_nametable_address >> 1) & 0x01) as u16 * 240;
+
+        (base_x, base_y)
+    }
 }
 
 impl Register<u8> for PpuCtrl {
@@ -109,6 +116,29 @@ impl Register<u8> for PpuMask {
     }
 }
 
+#[derive(Default)]
+pub struct PpuScroll {
+    pub x: u8,
+    pub y: u8,
+    flag: bool,
+}
+
+impl Register<u8> for PpuScroll {
+    fn load(&mut self, value: u8) {
+        if !self.flag {
+            self.x = value;
+        }
+        else {
+            self.y = value;
+        }
+
+        self.flag = !self.flag;
+    }
+    fn value(&self) -> u8 {
+        self.x
+    }
+}
+
 /// PPU Address Register
 #[derive(Default)]
 pub struct PpuAddr {
@@ -149,6 +179,9 @@ mod tests {
 
         let value = ctrl.value();
         assert_eq!(value, 0xFF);
+
+        let scroll = ctrl.base_scroll();
+        assert_eq!(scroll, (256, 240));
     }
 
     #[test]
@@ -198,5 +231,15 @@ mod tests {
         addr.load(0xAD);
 
         assert_eq!(addr.value(), 0xDEAD);
+    }
+
+    #[test]
+    fn ppuscroll() {
+        let mut scroll = PpuScroll::default();
+        scroll.load(0xDE);
+        scroll.load(0xAD);
+
+        assert_eq!(scroll.x, 0xDE);
+        assert_eq!(scroll.y, 0xAD);
     }
 }

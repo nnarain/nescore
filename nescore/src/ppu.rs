@@ -9,6 +9,8 @@ mod regs;
 use regs::*;
 use crate::common::{IoAccess, Clockable, Register};
 
+use std::num::Wrapping;
+
 const NUM_SCANLINES: usize = 262;
 const CYCLES_PER_SCANLINE: usize = 341;
 
@@ -39,10 +41,12 @@ pub struct Ppu {
     vram: [u8; 0x4000],
     oam: [u8; 256],
 
-    ctrl: PpuCtrl,     // PPUCTRL - Control Register
+    ctrl: PpuCtrl,     // PPUCTRL   - Control Register
     status: PpuStatus, // PPUSTATUS - Status Register
-    mask: PpuMask,     // PPUMASK - Mask Register (Render controls)
-    addr: PpuAddr,     // PPUADDR - VRAM Address
+    mask: PpuMask,     // PPUMASK   - Mask Register (Render controls)
+    addr: PpuAddr,     // PPUADDR   - VRAM Address
+    scroll: PpuScroll, // PPUSCROLL - Scroll register
+    oam_addr: u16,     // OAMADDR   - OAM Address
 
     cycle: usize,      // Cycle count per scanline
     scanline: usize,   // Current scanline
@@ -58,6 +62,8 @@ impl Ppu {
             status: PpuStatus::default(),
             mask: PpuMask::default(),
             addr: PpuAddr::default(),
+            scroll: PpuScroll::default(),
+            oam_addr: 0,
 
             cycle: 0,
             scanline: NUM_SCANLINES - 1, // Initialize to the Pre-render scanline
@@ -97,10 +103,10 @@ impl Ppu {
                 // PPU is idle
             },
             Scanline::VBlank => {
-                self.status.vblank = false;
+                self.status.vblank = true;
                 // Set NMI during 2nd cycle of VBlank period
-                if self.cycle == 1 {
-                    // TODO: Set NMI if NMI is enabled
+                if self.ctrl.nmi_enable && self.cycle == 1 {
+                    // TODO: Set NMI
                 }
             }
         }
@@ -135,16 +141,36 @@ impl IoAccess for Ppu {
             0x2000 => {
                 self.ctrl.load(value);
             },
+            // PPU Mask
+            0x2001 => {
+                self.mask.load(value);
+            },
+            // OAM ADDR
+            0x2003 => {
+                self.oam_addr = value as u16;
+                self.oam_addr = self.oam_addr.wrapping_add(1);
+            },
+            // OAM DATA
+            0x2004 => {
+                self.oam[self.oam_addr as usize] = value;
+            },
+            // PPU Scroll
+            0x2005 => {
+                self.scroll.load(value);
+            },
             // PPU Address
             0x2006 => {
                 self.addr.load(value as u16);
             },
+            // PPU Data
             0x2007 => {
                 self.write_vram(self.addr.value(), value);
                 self.addr += self.ctrl.vram_increment();
             }
             _ => {}
         }
+
+        self.status.lsb = value;
     }
 }
 
@@ -165,6 +191,37 @@ impl Clockable for Ppu {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn vram_write() {
+        let mut ppu = Ppu::new();
+
+        // VRAM increment mode to 1
+        ppu.write_byte(0x2000, 0x00);
+        // Load VRAM addr $150
+        ppu.write_byte(0x2006, 0x01);
+        ppu.write_byte(0x2006, 0x50);
+        // Write to VRAM
+        ppu.write_byte(0x2007, 0xDE);
+        ppu.write_byte(0x2007, 0xAD);
+
+        assert_eq!(ppu.read_vram(0x0150), 0xDE);
+        assert_eq!(ppu.read_vram(0x0151), 0xAD);
+    }
+
+    #[test]
+    fn vblank() {
+        const CYCLES_TO_VBLANK: usize = CYCLES_PER_SCANLINE * 242 + 1;
+
+        let mut io = PpuIoBus{};
+        let mut ppu = Ppu::new();
+
+        for _ in 0..CYCLES_TO_VBLANK {
+            ppu.tick(&mut io);
+        }
+
+        assert_eq!(ppu.is_vblank(), true);
+    }
 
     #[test]
     fn scanline_state() {

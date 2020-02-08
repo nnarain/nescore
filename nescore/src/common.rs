@@ -5,8 +5,6 @@
 // @date Nov 21 2019
 //
 
-use std::ops::Deref;
-
 /// Access a memory mapped component
 pub trait IoAccess {
     fn read_byte(&self, addr: u16) -> u8;
