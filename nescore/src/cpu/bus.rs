@@ -5,8 +5,8 @@
 // @date Nov 21 2019
 //
 
-use crate::io::IoAccess;
-use crate::mapper::{Mapper};
+use crate::common::IoAccess;
+use crate::mapper::Mapper;
 
 pub struct CpuIoBus<'a> {
     ppu: &'a mut dyn IoAccess,

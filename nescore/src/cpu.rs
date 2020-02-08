@@ -10,8 +10,7 @@ pub mod memorymap;
 
 mod state;
 
-use crate::io::IoAccess;
-use crate::clk::Clockable;
+use crate::common::{IoAccess, Clockable};
 
 use std::num::Wrapping;
 

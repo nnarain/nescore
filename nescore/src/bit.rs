@@ -82,7 +82,6 @@ macro_rules! low_byte {
     };
 }
 
-
 #[cfg(test)]
 mod tests {
     #[test]

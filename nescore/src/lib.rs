@@ -8,8 +8,7 @@
 
 #[macro_use] mod bit;
 
-mod io;
-mod clk;
+mod common;
 mod cpu;
 mod ppu;
 mod mapper;
@@ -26,7 +25,7 @@ use ppu::Ppu;
 
 use mapper::Mapper;
 
-use clk::Clockable;
+use common::Clockable;
 
 /// CPU Cycles in a frame: (256x240) - resolution, 1 px per PPU tick. 1 CPU tick for 3 PPU ticks
 const CPU_CYCLES_PER_FRAME: usize = (256 * 240) / 3;

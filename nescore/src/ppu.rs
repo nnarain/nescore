@@ -4,11 +4,11 @@
 // @author Natesh Narain <nnaraindev@gmail.com>
 // @date Nov 10 2019
 //
+mod regs;
 
-use crate::io::IoAccess;
-use crate::clk::Clockable;
+use crate::common::{IoAccess, Clockable};
+use regs::*;
 
-const NUM_SCANLINES: usize = 262;
 const CYCLES_PER_SCANLINE: usize = 341;
 
 #[derive(Clone, Copy)]
@@ -23,10 +23,6 @@ impl IncMode {
     }
 }
 
-enum SpriteSize {
-    Size8x8, Size8x16,
-}
-
 #[derive(Debug, Copy, Clone, PartialEq)]
 enum Scanline {
     PreRender,
@@ -36,7 +32,7 @@ enum Scanline {
 }
 
 impl Scanline {
-    pub fn from(scanline: isize) -> Scanline {
+    pub fn from(scanline: isize) -> Self {
         match scanline {
             -1 => Scanline::PreRender,
             0..=239 => Scanline::Visible,
@@ -53,12 +49,12 @@ pub struct Ppu {
     vram: [u8; 0x4000],
     oam: [u8; 256],
 
-    // PPUCTRL
-    vram_addr: u16,
-    inc_mode: IncMode,
+    ctrl: PpuCtrl,     // PPUCTRL - Control Register
+    status: PpuStatus, // PPUSTATUS - Status Register
+    mask: PpuMask,     // PPUMASK - Mask Register (Render controls)
 
-    cycle: usize,
-    scanline: isize,
+    cycle: usize,      // Cycle count per scanline
+    scanline: isize,   // Current scanline
 }
 
 impl Ppu {
@@ -67,8 +63,9 @@ impl Ppu {
             vram: [0; 0x4000],
             oam: [0; 256],
 
-            vram_addr: 0,
-            inc_mode: IncMode::Add1,
+            ctrl: PpuCtrl::default(),
+            status: PpuStatus::default(),
+            mask: PpuMask::default(),
 
             cycle: 0,
             scanline: -1,
@@ -76,13 +73,50 @@ impl Ppu {
     }
     
     fn run_cycle(&mut self, io: &mut dyn IoAccess) {
-        let state = Scanline::from(self.scanline);
-        match state {
-            Scanline::PreRender => {},
-            Scanline::Visible => {},
-            Scanline::PostRender => {},
-            Scanline::VBlank => {}
+        match Scanline::from(self.scanline) {
+            Scanline::PreRender => {
+                self.status.vblank = false;
+                // Same as a normal scanline but no output to the screen
+                // Fills shift register with data for first two tiles of the next scanline
+            },
+            Scanline::Visible => {
+                // Cycle 0 is idle
+
+                // Cycles 1 - 256: is accessing data for each tile
+                // 2 cycles for each memory access
+                // accesses: 2 nametable bytes, attribute, pattern table low, pattern table high
+                // Do something every 8 bytes?
+
+                // Cycles 257 - 320: Get tile data for sprites on next scanline
+                // accesses: 2 garbage nametable bytes, pattern table low, pattern table high
+
+                // Cycles 321-336: Fetch first two tiles of the next scanline
+                // accesses: 2 nametable bytes, attribute, pattern table low, pattern table high
+
+                // Cycles 337 - 340
+                // Two nametable bytes are fetch, unknown purpose
+
+
+                // In addition to all that, the sprite evaluation happens independently
+
+                // Every cycles produces a pixel....
+            },
+            Scanline::PostRender => {
+                // PPU is idle
+            },
+            Scanline::VBlank => {
+                self.status.vblank = false;
+                // Set NMI during 2nd cycle of VBlank period
+                if self.cycle == 1 {
+                    // TODO: Set NMI if NMI is enabled
+                }
+            }
         }
+    }
+
+    /// Check if the PPU is in vertical blanking mode
+    pub fn is_vblank(&self) -> bool {
+        self.status.vblank
     }
 
     pub fn read_direct(&self, addr: u16) -> u8 {
@@ -100,14 +134,14 @@ impl IoAccess for Ppu {
         // TODO: Latch behaviour
         match addr {
             0x2000 => {
-                self.inc_mode = if bit_is_set!(value, 2) { IncMode::Add32 } else { IncMode::Add1 };
+                // self.inc_mode = if bit_is_set!(value, 2) { IncMode::Add32 } else { IncMode::Add1 };
             },
             0x2006 => {
-                self.vram_addr = (self.vram_addr << 8) | (value as u16);
+                // self.vram_addr = (self.vram_addr << 8) | (value as u16);
             },
             0x2007 => {
-                self.vram[self.vram_addr as usize] = value;
-                self.vram_addr += self.inc_mode.to_u16();
+                // self.vram[self.vram_addr as usize] = value;
+                // self.vram_addr += self.inc_mode.to_u16();
             }
             _ => {}
         }
