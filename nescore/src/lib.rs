@@ -126,7 +126,7 @@ impl Nes {
 
     /// Read directly from VRAM
     pub fn read_ppu_memory(&self, addr: u16) -> u8 {
-        self.ppu.read_direct(addr)
+        self.ppu.read_vram(addr)
     }
 }
 

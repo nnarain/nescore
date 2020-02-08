@@ -5,13 +5,15 @@
 // @date Feb 07 2020
 //
 
-// TODO: Do this with From<Register> and From<u8>... I think...
+use crate::common::Register;
+use std::ops::AddAssign;
+use std::num::Wrapping;
 
 /// PPU Control Register
 #[derive(Default)]
 pub struct PpuCtrl {
     pub base_nametable_address: u8,     // Base nametable address (0=$2000, 1=$2400, 2=$2800, 3=$2C00)
-    pub inc_mode: bool,                 // VRAM address increment mode
+    pub inc_mode: bool,                 // VRAM address increment mode (0: Add 1, 1: Add 32)
     pub sprite_pattern_table: bool,     // Sprite pattern table address
     pub background_pattern_table: bool, // Background pattern table address
     pub sprite_size: bool,              // 0: 8x8, 1: 8x16
@@ -20,19 +22,23 @@ pub struct PpuCtrl {
 }
 
 impl PpuCtrl {
-    pub fn from(value: u8) -> Self {
-        PpuCtrl {
-            base_nametable_address: value & 0x03,
-            inc_mode: bit_is_set!(value, 2),
-            sprite_pattern_table: bit_is_set!(value, 3),
-            background_pattern_table: bit_is_set!(value, 4),
-            sprite_size: bit_is_set!(value, 5),
-            master_slave_select: bit_is_set!(value, 6),
-            nmi_enable: bit_is_set!(value, 7),
-        }
+    pub fn vram_increment(&self) -> u16 {
+        if self.inc_mode { 32 } else { 1 }
+    }
+}
+
+impl Register<u8> for PpuCtrl {
+    fn load(&mut self, value: u8) {
+        self.base_nametable_address = value & 0x03;
+        self.inc_mode = bit_is_set!(value, 2);
+        self.sprite_pattern_table = bit_is_set!(value, 3);
+        self.background_pattern_table = bit_is_set!(value, 4);
+        self.sprite_size = bit_is_set!(value, 5);
+        self.master_slave_select = bit_is_set!(value, 6);
+        self.nmi_enable = bit_is_set!(value, 7);
     }
 
-    pub fn value(&self) -> u8 {
+    fn value(&self) -> u8 {
         self.base_nametable_address
         | (self.inc_mode as u8) << 2
         | (self.sprite_pattern_table as u8) << 3
@@ -41,7 +47,9 @@ impl PpuCtrl {
         | (self.master_slave_select as u8) << 6
         | (self.nmi_enable as u8) << 7
     }
+}
 
+impl PpuCtrl {
     pub fn nametable(&self) -> u16 {
         0x2000u16 + (0x400u16 * self.base_nametable_address as u16)
     }
@@ -56,8 +64,8 @@ pub struct PpuStatus {
     pub vblank: bool,          // Set when PPU enters vertical blanking period
 }
 
-impl PpuStatus {
-    pub fn value(&self) -> u8 {
+impl Register<u8> for PpuStatus {
+    fn value(&self) -> u8 {
         self.lsb
         | (self.sprite_overflow as u8) << 5
         | (self.sprite0_hit as u8) << 6
@@ -77,21 +85,19 @@ pub struct PpuMask {
     pub emphasize_blue: bool,       // Emphasize Blue
 }
 
-impl PpuMask {
-    pub fn from(value: u8) -> Self {
-        PpuMask {
-            greyscale: bit_is_set!(value, 0),
-            show_background_left: bit_is_set!(value, 1),
-            show_sprites_left: bit_is_set!(value, 2),
-            background_enabled: bit_is_set!(value, 3),
-            sprites_enabled: bit_is_set!(value, 4),
-            emphasize_red: bit_is_set!(value, 5),
-            emphasize_green: bit_is_set!(value, 6),
-            emphasize_blue: bit_is_set!(value, 7)
-        }
+impl Register<u8> for PpuMask {
+    fn load(&mut self, value: u8) {
+        self.greyscale = bit_is_set!(value, 0);
+        self.show_background_left = bit_is_set!(value, 1);
+        self.show_sprites_left = bit_is_set!(value, 2);
+        self.background_enabled = bit_is_set!(value, 3);
+        self.sprites_enabled = bit_is_set!(value, 4);
+        self.emphasize_red = bit_is_set!(value, 5);
+        self.emphasize_green = bit_is_set!(value, 6);
+        self.emphasize_blue = bit_is_set!(value, 7);
     }
 
-    pub fn value(&self) -> u8 {
+    fn value(&self) -> u8 {
         self.greyscale as u8
         | (self.show_background_left as u8) << 1
         | (self.show_sprites_left as u8) << 2
@@ -103,13 +109,35 @@ impl PpuMask {
     }
 }
 
+/// PPU Address Register
+#[derive(Default)]
+pub struct PpuAddr {
+    addr: u16,
+}
+
+impl Register<u16> for PpuAddr {
+    fn load(&mut self, value: u16) {
+        self.addr = (self.addr << 8) | value;
+    }
+
+    fn value(&self) -> u16 {
+        self.addr
+    }
+}
+
+impl AddAssign<u16> for PpuAddr {
+    fn add_assign(&mut self, rhs: u16) {
+        self.addr = (Wrapping(self.addr) + Wrapping(rhs)).0;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn ppuctrl() {
-        let ctrl = PpuCtrl::from(0xFF);
+        let ctrl = PpuCtrl::new(0xFF);
 
         assert_eq!(ctrl.base_nametable_address, 0x03);
         assert_eq!(ctrl.inc_mode, true);
@@ -125,13 +153,14 @@ mod tests {
 
     #[test]
     fn nametable_address() {
-        let ctrl = PpuCtrl::from(0x00);
+        let mut ctrl = PpuCtrl::default();
+        ctrl.load(0x00);
         assert_eq!(ctrl.nametable(), 0x2000);
-        let ctrl = PpuCtrl::from(0x01);
+        ctrl.load(0x01);
         assert_eq!(ctrl.nametable(), 0x2400);
-        let ctrl = PpuCtrl::from(0x02);
+        ctrl.load(0x02);
         assert_eq!(ctrl.nametable(), 0x2800);
-        let ctrl = PpuCtrl::from(0x03);
+        ctrl.load(0x03);
         assert_eq!(ctrl.nametable(), 0x2C00);
     }
 
@@ -149,7 +178,9 @@ mod tests {
 
     #[test]
     fn ppumask() {
-        let mask = PpuMask::from(0xFF);
+        let mut mask = PpuMask::default();
+        mask.load(0xFF);
+
         assert_eq!(mask.greyscale, true);
         assert_eq!(mask.show_background_left, true);
         assert_eq!(mask.show_sprites_left, true);
@@ -158,5 +189,14 @@ mod tests {
         assert_eq!(mask.emphasize_red, true);
         assert_eq!(mask.emphasize_blue, true);
         assert_eq!(mask.emphasize_green, true);
+    }
+
+    #[test]
+    fn ppuaddr() {
+        let mut addr = PpuAddr::default();
+        addr.load(0xDE);
+        addr.load(0xAD);
+
+        assert_eq!(addr.value(), 0xDEAD);
     }
 }

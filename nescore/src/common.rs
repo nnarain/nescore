@@ -5,6 +5,8 @@
 // @date Nov 21 2019
 //
 
+use std::ops::Deref;
+
 /// Access a memory mapped component
 pub trait IoAccess {
     fn read_byte(&self, addr: u16) -> u8;
@@ -18,6 +20,12 @@ pub trait Clockable {
 
 // TODO: Too generic for a 'Register'
 pub trait Register<T> {
-    fn from(t: T) -> Self;
-    fn into(self) -> T;
+    fn new(value: T) -> Self
+    where Self: Default {
+        let mut r = Self::default();
+        r.load(value);
+        r
+    }
+    fn load(&mut self, _value: T){}
+    fn value(&self) -> T;
 }
