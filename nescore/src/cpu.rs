@@ -2639,7 +2639,7 @@ mod tests {
         }
 
         impl IoAccess for CpuIoBus {
-            fn read_byte(&self, addr: u16) -> u8 {
+            fn read_byte(&mut self, addr: u16) -> u8 {
                 if addr == 0xFFFC {
                     0x20
                 }

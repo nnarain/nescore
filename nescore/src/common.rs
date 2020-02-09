@@ -7,7 +7,7 @@
 
 /// Access a memory mapped component
 pub trait IoAccess {
-    fn read_byte(&self, addr: u16) -> u8;
+    fn read_byte(&mut self, addr: u16) -> u8;
     fn write_byte(&mut self, addr: u16, data: u8);
 }
 

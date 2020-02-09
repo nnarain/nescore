@@ -128,14 +128,38 @@ impl Ppu {
     }
 }
 
+// TODO: Latch behaviour
+
 impl IoAccess for Ppu {
-    fn read_byte(&self, _addr: u16) -> u8 {
-        // TODO: Latch behaviour
-        0
+    fn read_byte(&mut self, addr: u16) -> u8 {
+        match addr {
+            0x2000 => {
+                self.ctrl.value()
+            },
+            0x2001 => {
+                self.mask.value()
+            },
+            0x2002 => {
+                self.status.value()
+            },
+            0x2004 => {
+                let data = self.oam[self.oam_addr as usize];
+                self.oam_addr = self.oam_addr.wrapping_add(1);
+
+                data
+            },
+            0x2007 => {
+                let data = self.read_vram(self.addr.value());
+                self.addr += self.ctrl.vram_increment();
+
+                data
+            },
+
+            _ => panic!("Invalid read from PPU: ${:04X}", addr),
+        }
     }
 
     fn write_byte(&mut self, addr: u16, value: u8) {
-        // TODO: Latch behaviour
         match addr {
             // PPU Control Register
             0x2000 => {
@@ -255,7 +279,7 @@ mod tests {
 
     struct PpuIoBus {}
     impl IoAccess for PpuIoBus {
-        fn read_byte(&self, _addr: u16) -> u8 {
+        fn read_byte(&mut self, _addr: u16) -> u8 {
             0
         }
         fn write_byte(&mut self, _addr: u16, _value: u8) {

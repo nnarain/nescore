@@ -27,7 +27,7 @@ impl<'a> CpuIoBus<'a> {
 }
 
 impl<'a> IoAccess for CpuIoBus<'a> {
-    fn read_byte(&self, addr: u16) -> u8 {
+    fn read_byte(&mut self, addr: u16) -> u8 {
         match addr {
             0x2000..=0x3FFF => self.ppu.read_byte(mirror_address(addr, 0x2000, 8)),
             0x4000..=0x401F => {
@@ -115,7 +115,7 @@ mod tests {
     }
 
     impl IoAccess for FakePpu {
-        fn read_byte(&self, addr: u16) -> u8 {
+        fn read_byte(&mut self, addr: u16) -> u8 {
             self.data[(addr as usize) - 0x2000]
         }
 
