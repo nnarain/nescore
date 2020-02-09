@@ -81,29 +81,10 @@ impl<Io: IoAccess> Ppu<Io> {
             Scanline::PreRender => {
                 self.status.vblank = false;
                 // Same as a normal scanline but no output to the screen
-                // Fills shift register with data for first two tiles of the next scanline
+                self.process_scanline(self.cycle);
             },
             Scanline::Visible => {
-                // Cycle 0 is idle
-
-                // Cycles 1 - 256: is accessing data for each tile
-                // 2 cycles for each memory access
-                // accesses: 2 nametable bytes, attribute, pattern table low, pattern table high
-                // Do something every 8 bytes?
-
-                // Cycles 257 - 320: Get tile data for sprites on next scanline
-                // accesses: 2 garbage nametable bytes, pattern table low, pattern table high
-
-                // Cycles 321-336: Fetch first two tiles of the next scanline
-                // accesses: 2 nametable bytes, attribute, pattern table low, pattern table high
-
-                // Cycles 337 - 340
-                // Two nametable bytes are fetch, unknown purpose
-
-
-                // In addition to all that, the sprite evaluation happens independently
-
-                // Every cycles produces a pixel....
+                self.process_scanline(self.cycle);
             },
             Scanline::PostRender => {
                 // PPU is idle
@@ -116,6 +97,47 @@ impl<Io: IoAccess> Ppu<Io> {
                 }
             }
         }
+
+        // TODO: Every cycles produces a pixel
+    }
+
+    // Processing a single scanline per cycle
+    fn process_scanline(&mut self, cycle: usize) {
+        // Cycle 0 is idle
+
+        // Cycles 1 - 256: is accessing data for each tile
+        // 2 cycles for each memory access
+        // accesses: 2 nametable bytes, attribute, pattern table low, pattern table high
+        // Do something every 8 bytes?
+
+        // Cycles 257 - 320: Get tile data for sprites on next scanline
+        // accesses: 2 garbage nametable bytes, pattern table low, pattern table high
+
+        // Cycles 321-336: Fetch first two tiles of the next scanline
+        // accesses: 2 nametable bytes, attribute, pattern table low, pattern table high
+
+        // Cycles 337 - 340
+        // Two nametable bytes are fetch, unknown purpose
+
+
+        // In addition to all that, the sprite evaluation happens independently
+
+        match cycle {
+            0 => {
+                // Idle cycle
+            },
+            1..=256 => {
+                // 4 memory accesses each taking 2 cycles
+                if cycle % 8 == 0 {
+
+                }
+            },
+            _ => panic!("Invalid cycle for scanline! {}", cycle),
+        }
+    }
+
+    fn read_nametable(&self, idx: u8) -> u8 {
+        0
     }
 
     /// Check if the PPU is in vertical blanking mode
