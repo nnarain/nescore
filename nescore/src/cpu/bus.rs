@@ -5,20 +5,20 @@
 // @date Nov 21 2019
 //
 
-use crate::common::IoAccess;
+use crate::common::{IoAccess, IoAccessRef};
 use crate::mapper::Mapper;
 
-pub struct CpuIoBus<'a> {
-    ppu: &'a mut dyn IoAccess,
-    mapper: &'a mut Mapper,
+pub struct CpuIoBus {
+    ppu: IoAccessRef,
+    mapper: Mapper,
 }
 
 fn mirror_address(addr: u16, base: u16, count: u16) -> u16 {
     base + (addr % count)
 }
 
-impl<'a> CpuIoBus<'a> {
-    pub fn new(ppu_io: &'a mut dyn IoAccess, mapper: &'a mut Mapper) -> Self {
+impl CpuIoBus {
+    pub fn new(ppu_io: IoAccessRef, mapper: Mapper) -> Self {
         CpuIoBus {
             ppu: ppu_io,
             mapper: mapper,
@@ -26,15 +26,15 @@ impl<'a> CpuIoBus<'a> {
     }
 }
 
-impl<'a> IoAccess for CpuIoBus<'a> {
-    fn read_byte(&mut self, addr: u16) -> u8 {
+impl IoAccess for CpuIoBus {
+    fn read_byte(&self, addr: u16) -> u8 {
         match addr {
-            0x2000..=0x3FFF => self.ppu.read_byte(mirror_address(addr, 0x2000, 8)),
+            0x2000..=0x3FFF => self.ppu.borrow_mut().read_byte(mirror_address(addr, 0x2000, 8)),
             0x4000..=0x401F => {
                 // APU and IO
                 0
             },
-            0x4020..=0xFFFF => self.mapper.read(addr),
+            0x4020..=0xFFFF => self.mapper.borrow().read(addr),
             _ => {
                 panic!("Invalid address range")
             }
@@ -45,10 +45,11 @@ impl<'a> IoAccess for CpuIoBus<'a> {
         match addr {
             0x2000..=0x3FFF => {
                 // First 8 bytes are mirrored up to $3FFF
-                self.ppu.write_byte(mirror_address(addr, 0x2000, 8), data);
+                self.ppu.borrow_mut().write_byte(mirror_address(addr, 0x2000, 8), data);
             },
             0x4014 => {
-                self.ppu.write_byte(addr, data);
+                // self.ppu.write_byte(addr, data);
+                self.ppu.borrow_mut().write_byte(addr, data);
             },
             _ => {}
         }
@@ -60,6 +61,9 @@ mod tests {
     use super::*;
     use crate::mapper::{MapperControl};
 
+    use std::rc::Rc;
+    use std::cell::RefCell;
+
     #[test]
     fn mirroring_function() {
         let addr1 = mirror_address(0x2000, 0x2000, 8);
@@ -70,10 +74,10 @@ mod tests {
 
     #[test]
     fn ppu_mirrored_registers() {
-        let mut ppu = FakePpu::new();
-        let mut mapper: Box<dyn MapperControl> = Box::new(FakeMapper::new());
+        let ppu = Rc::new(RefCell::new(FakePpu::new()));
+        let mapper = Rc::new(RefCell::new(FakeMapper::new()));
 
-        let mut bus = CpuIoBus::new(&mut ppu, &mut mapper);
+        let mut bus = CpuIoBus::new(ppu, mapper);
 
         for i in 0..8 {
             bus.write_byte(0x2000 + i, i as u8);
@@ -115,7 +119,7 @@ mod tests {
     }
 
     impl IoAccess for FakePpu {
-        fn read_byte(&mut self, addr: u16) -> u8 {
+        fn read_byte(&self, addr: u16) -> u8 {
             self.data[(addr as usize) - 0x2000]
         }
 
@@ -143,6 +147,14 @@ mod tests {
 
         fn write(&mut self, addr: u16, data: u8) {
             self.data[addr as usize] = data;
+        }
+
+        fn read_chr(&self, _addr: u16) -> u8 {
+            0
+        }
+
+        fn write_chr(&mut self, _addr: u16, _value: u8) {
+
         }
     }
 

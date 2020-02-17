@@ -7,16 +7,15 @@
 pub mod bus;
 pub mod format;
 pub mod memorymap;
-
 mod state;
 
+// use bus::CpuIoBus;
 use crate::common::{IoAccess, Clockable};
+use state::*;
 
 use std::num::Wrapping;
 
-use state::*;
-
-// Flags
+/// CPU Flags
 enum Flags {
     Carry            = 1 << 0,
     Zero             = 1 << 1,
@@ -32,7 +31,7 @@ const STACK_PAGE_OFFSET: u16 = 0x100;
 
 
 /// NES Central Processing Unit
-pub struct Cpu {
+pub struct Cpu<Io: IoAccess> {
     a: u8,                        // General Purpose Accumulator
     x: u8,                        // Index register X
     y: u8,                        // Index register Y
@@ -40,16 +39,17 @@ pub struct Cpu {
     sp: u16,                      // Stack Pointer
     p: u8,                        // Flag register
 
-    ram: [u8; INTERNAL_RAM_SIZE], // CPU RAM
+    ram: [u8; INTERNAL_RAM_SIZE], // CPU RAM; TODO: Move to bus
 
+    bus: Option<Io>,
     state: State,                 // Internal CPU cycle state
 
     debug: bool,                  // Debug mode
     is_holding: bool,             // CPU is in an infinite loop state
 }
 
-impl Cpu {
-    pub fn new() -> Self {
+impl<Io: IoAccess> Default for Cpu<Io> {
+    fn default() -> Self {
         Cpu {
             a: 0,
             x: 0,
@@ -60,11 +60,18 @@ impl Cpu {
 
             ram: [0; INTERNAL_RAM_SIZE],
 
+            bus: None,
             state: State::Reset,
 
             debug: false,
             is_holding: false,
         }
+    }
+}
+
+impl<Io: IoAccess> Cpu<Io> {
+    pub fn load_bus(&mut self, bus: Io) {
+        self.bus = Some(bus);
     }
 
     /// Set the CPU's program counter
@@ -96,16 +103,16 @@ impl Cpu {
     }
 
     /// Execute the current cycle given the internal state
-    fn run_cycle(&mut self, io: &mut dyn IoAccess, state: State) -> State {
+    fn run_cycle(&mut self, state: State) -> State {
         match state {
             State::Reset => {
                 // Read the PC address from the RESET vector
-                self.pc = self.read_u16(io, memorymap::RESET_VECTOR);
+                self.pc = self.read_u16(memorymap::RESET_VECTOR);
                 State::Fetch
             },
             State::Fetch => {
-                let opcode = self.fetch(io);
-                self.get_execute_state(io, opcode)
+                let opcode = self.fetch();
+                self.get_execute_state(opcode)
             },
             State::Execute(ref instr, ref mode, ref opcode_data, ref cycle) => {
 
@@ -134,16 +141,16 @@ impl Cpu {
                     AddressingMode::Absolute        => self.absolute(operand_data),
                     AddressingMode::AbsoluteX       => self.absolute_x(operand_data),
                     AddressingMode::AbsoluteY       => self.absolute_y(operand_data),
-                    AddressingMode::IndexedIndirect => self.indexed_indirect(io, operand_data),
-                    AddressingMode::IndirectIndexed => self.indirect_indexed(io, operand_data),
-                    AddressingMode::Indirect        => self.indirect(io, operand_data),
+                    AddressingMode::IndexedIndirect => self.indexed_indirect(operand_data),
+                    AddressingMode::IndirectIndexed => self.indirect_indexed(operand_data),
+                    AddressingMode::Indirect        => self.indirect(operand_data),
                     AddressingMode::Relative        => self.relative(operand_data),
                     AddressingMode::Accumulator     => self.accumulator(),
                     AddressingMode::Implied         => AddressingModeResult::Implied,
                 };
 
                 let read_mem = |addr: u16| -> u8 {
-                    self.read_u8(io, addr)
+                    self.read_u8(addr)
                 };
 
                 let byte = addressing_result.to_byte(read_mem);
@@ -160,12 +167,12 @@ impl Cpu {
                     Instruction::DEY => self.dey(),
                     Instruction::INX => self.inx(),
                     Instruction::INY => self.iny(),
-                    Instruction::PHA => self.pha(io),
-                    Instruction::PHP => self.php(io),
-                    Instruction::PLA => self.pla(io),
-                    Instruction::PLP => self.plp(io),
-                    Instruction::RTI => self.rti(io),
-                    Instruction::RTS => self.rts(io),
+                    Instruction::PHA => self.pha(),
+                    Instruction::PHP => self.php(),
+                    Instruction::PLA => self.pla(),
+                    Instruction::PLP => self.plp(),
+                    Instruction::RTI => self.rti(),
+                    Instruction::RTS => self.rts(),
                     Instruction::SEC => self.sec(),
                     Instruction::SED => self.sed(),
                     Instruction::SEI => self.sei(),
@@ -175,7 +182,7 @@ impl Cpu {
                     Instruction::TXA => self.txa(),
                     Instruction::TXS => self.txs(),
                     Instruction::TYA => self.tya(),
-                    Instruction::BRK => self.brk(io),
+                    Instruction::BRK => self.brk(),
                     Instruction::LDA => self.lda(byte.unwrap()),
                     Instruction::LAX => self.lax(byte.unwrap()),
                     Instruction::JMP => self.jmp(addr.unwrap()),
@@ -198,70 +205,70 @@ impl Cpu {
                     Instruction::LDY => self.ldy(byte.unwrap()),
                     Instruction::SBC => self.sbc(byte.unwrap()),
                     Instruction::ORA => self.ora(byte.unwrap()),
-                    Instruction::JSR => self.jsr(io, addr.unwrap()),
+                    Instruction::JSR => self.jsr(addr.unwrap()),
                     Instruction::STA => {
                         let v = self.sta();
-                        self.write_result(io, addressing_result, v);
+                        self.write_result(addressing_result, v);
                     },
                     Instruction::STX => {
                         let v = self.stx();
-                        self.write_result(io, addressing_result, v);
+                        self.write_result(addressing_result, v);
                     },
                     Instruction::STY => {
                         let v = self.sty();
-                        self.write_result(io, addressing_result, v);
+                        self.write_result(addressing_result, v);
                     },
                     Instruction::SAX => {
                         let v = self.sax();
-                        self.write_result(io, addressing_result, v);
+                        self.write_result(addressing_result, v);
                     }
                     Instruction::ASL => {
                         let v = self.asl(byte.unwrap());
-                        self.write_result(io, addressing_result, v);
+                        self.write_result(addressing_result, v);
                     },
                     Instruction::ROR => {
                         let v = self.ror(byte.unwrap());
-                        self.write_result(io, addressing_result, v);
+                        self.write_result(addressing_result, v);
                     },
                     Instruction::ROL => {
                         let v = self.rol(byte.unwrap());
-                        self.write_result(io, addressing_result, v);
+                        self.write_result(addressing_result, v);
                     },
                     Instruction::LSR => {
                         let v = self.lsr(byte.unwrap());
-                        self.write_result(io, addressing_result, v);
+                        self.write_result(addressing_result, v);
                     },
                     Instruction::INC => {
                         let v = self.inc(byte.unwrap());
-                        self.write_result(io, addressing_result, v);
+                        self.write_result(addressing_result, v);
                     },
                     Instruction::DEC => {
                         let v = self.dec(byte.unwrap());
-                        self.write_result(io, addressing_result, v);
+                        self.write_result(addressing_result, v);
                     },
                     Instruction::DCP => {
                         let v = self.dcp(byte.unwrap());
-                        self.write_result(io, addressing_result, v);
+                        self.write_result(addressing_result, v);
                     },
                     Instruction::ISB => {
                         let m = self.isb(byte.unwrap());
-                        self.write_result(io, addressing_result, m);
+                        self.write_result(addressing_result, m);
                     },
                     Instruction::SLO => {
                         let m = self.slo(byte.unwrap());
-                        self.write_result(io, addressing_result, m);
+                        self.write_result(addressing_result, m);
                     },
                     Instruction::RLA => {
                         let m = self.rla(byte.unwrap());
-                        self.write_result(io, addressing_result, m);
+                        self.write_result(addressing_result, m);
                     },
                     Instruction::SRE => {
                         let m = self.sre(byte.unwrap());
-                        self.write_result(io, addressing_result, m);
+                        self.write_result(addressing_result, m);
                     },
                     Instruction::RRA => {
                         let m = self.rra(byte.unwrap());
-                        self.write_result(io, addressing_result, m);
+                        self.write_result(addressing_result, m);
                     }
                 }
 
@@ -275,7 +282,7 @@ impl Cpu {
     //------------------------------------------------------------------------------------------------------------------
 
     /// Convert opcode into instruction and addressing mode and return an execute state
-    fn get_execute_state(&mut self, io: &mut dyn IoAccess, opcode: u8) -> State {
+    fn get_execute_state(&mut self, opcode: u8) -> State {
         let (instr, mode) = match opcode {
             // NOP
             0xEA | 0x1A | 0x3A | 0x5A | 0x7A | 0xDA | 0xFA => (Instruction::NOP, AddressingMode::Implied),
@@ -555,17 +562,17 @@ impl Cpu {
             }
         };
 
-        let operand_data = self.fetch_operand_data(io, mode.operand_len());
+        let operand_data = self.fetch_operand_data(mode.operand_len());
         let opcode_data: [u8; 3] = [opcode, operand_data[0], operand_data[1]];
 
         State::Execute(instr, mode, opcode_data, 0)
     }
 
-    fn fetch_operand_data(&mut self, io: &mut dyn IoAccess, num_bytes: usize) -> [u8; 2] {
+    fn fetch_operand_data(&mut self, num_bytes: usize) -> [u8; 2] {
         let mut operand_data = [0u8; 2];
 
         for i in 0..num_bytes {
-            operand_data[i] = self.read_next_u8(io);
+            operand_data[i] = self.read_next_u8();
         }
 
         operand_data
@@ -760,23 +767,23 @@ impl Cpu {
         self.set_negative_flag(self.y);
     }
 
-    fn pha(&mut self, io: &mut dyn IoAccess) {
-        self.push(io, self.a);
+    fn pha(&mut self) {
+        self.push(self.a);
     }
 
-    fn php(&mut self, io: &mut dyn IoAccess) {
+    fn php(&mut self) {
         // The value of $30 is OR'ed in the status register for the 'B' flag values
         // http://wiki.nesdev.com/w/index.php/Status_flags#The_B_flag
-        self.push(io, self.p | 0x30);
+        self.push(self.p | 0x30);
     }
 
-    fn pla(&mut self, io: &mut dyn IoAccess) {
-        self.a = self.pull(io);
+    fn pla(&mut self) {
+        self.a = self.pull();
         self.update_flags(self.a);
     }
 
-    fn plp(&mut self, io: &mut dyn IoAccess) {
-        self.p = (self.pull(io) | 0x20) & 0xEF;
+    fn plp(&mut self) {
+        self.p = (self.pull() | 0x20) & 0xEF;
     }
 
     fn lsr(&mut self, m: u8) -> u8 {
@@ -852,12 +859,12 @@ impl Cpu {
         m
     }
 
-    fn rti(&mut self, io: &mut dyn IoAccess) {
-        self.p = self.pull(io);
-        self.pc = self.pull16(io);
+    fn rti(&mut self) {
+        self.p = self.pull();
+        self.pc = self.pull16();
     }
 
-    fn jsr(&mut self, io: &mut dyn IoAccess, addr: u16) {
+    fn jsr(&mut self, addr: u16) {
         //     JSR
         //     #  address R/W description
         //    --- ------- --- -------------------------------------------------
@@ -868,11 +875,11 @@ impl Cpu {
         //     5  $0100,S  W  push PCL on stack, decrement S
         //     6    PC     R  copy low address byte to PCL, fetch high address
         //                    byte to PCH
-        self.push16(io, self.pc-1);
+        self.push16(self.pc-1);
         self.pc = addr;
     }
 
-    fn rts(&mut self, io: &mut dyn IoAccess) {
+    fn rts(&mut self) {
         //  RTS
         //  #  address R/W description
         // --- ------- --- -----------------------------------------------
@@ -882,7 +889,7 @@ impl Cpu {
         //  4  $0100,S  R  pull PCL from stack, increment S
         //  5  $0100,S  R  pull PCH from stack
         //  6    PC     R  increment PC
-        self.pc = self.pull16(io);
+        self.pc = self.pull16();
         self.pc = (Wrapping(self.pc) + Wrapping(1)).0;
     }
 
@@ -975,13 +982,13 @@ impl Cpu {
         self.set_zero_flag(self.a);
     }
 
-    fn brk(&mut self, io: &mut dyn IoAccess) {
-        self.push16(io, self.pc);
+    fn brk(&mut self) {
+        self.push16(self.pc);
 
         self.set_flag_bit(Flags::Break, true);
-        self.push(io, self.p);
+        self.push(self.p);
 
-        self.pc = self.read_u16(io, memorymap::IRQ_VECTOR);
+        self.pc = self.read_u16(memorymap::IRQ_VECTOR);
     }
 
     //------------------------------------------------------------------------------------------------------------------
@@ -1041,19 +1048,19 @@ impl Cpu {
     }
 
     /// Indexed Indirect Addressing
-    fn indexed_indirect(&mut self, io: &mut dyn IoAccess, data: &[u8]) -> AddressingModeResult {
+    fn indexed_indirect(&mut self, data: &[u8]) -> AddressingModeResult {
         let ptr = ((data[0] as u16) + (self.x as u16)) & 0xFF;
 
-        let addr = self.indirect_read(io, ptr);
+        let addr = self.indirect_read(ptr);
 
         AddressingModeResult::Address(addr)
     }
 
     /// Indirect Indexed Addressing
-    fn indirect_indexed(&mut self, io: &mut dyn IoAccess, data: &[u8]) -> AddressingModeResult {
+    fn indirect_indexed(&mut self, data: &[u8]) -> AddressingModeResult {
         let ptr = data[0] as u16;
 
-        let addr = self.indirect_read(io, ptr);
+        let addr = self.indirect_read(ptr);
         let addr = (Wrapping(addr) + Wrapping(self.y as u16)).0;
 
         AddressingModeResult::Address(addr)
@@ -1061,24 +1068,23 @@ impl Cpu {
 
     /// Indirect
     /// Only applicable to JMP instruction
-    fn indirect(&mut self, io: &mut dyn IoAccess, data: &[u8]) -> AddressingModeResult {
-        
+    fn indirect(&mut self, data: &[u8]) -> AddressingModeResult {
         let ptr = ((data[1] as u16) << 8) | data[0] as u16;
 
-        let addr = self.indirect_read(io, ptr);
+        let addr = self.indirect_read(ptr);
 
         AddressingModeResult::Address(addr)
     }
 
-    fn indirect_read(&self, io: &mut dyn IoAccess, ptr: u16) -> u16 {
+    fn indirect_read(&mut self, ptr: u16) -> u16 {
         // Note: The PCH will always be fetched from the same page
         // as PCL, i.e. page boundary crossing is not handled.
         let page = ptr & 0xFF00;
         let addr_lo = ptr;
         let addr_hi = page | ((ptr + 0x01) & 0x00FF);
 
-        let lo = self.read_u8(io, addr_lo) as u16;
-        let hi = self.read_u8(io, addr_hi) as u16;
+        let lo = self.read_u8(addr_lo) as u16;
+        let hi = self.read_u8(addr_hi) as u16;
 
         (hi << 8) | lo
     }
@@ -1172,31 +1178,31 @@ impl Cpu {
     }
 
     /// Push a value onto the stack
-    fn push(&mut self, io: &mut dyn IoAccess, data: u8) {
+    fn push(&mut self, data: u8) {
         // The stack is always stored in page 1
-        self.write_u8(io, self.sp + STACK_PAGE_OFFSET, data);
+        self.write_u8(self.sp + STACK_PAGE_OFFSET, data);
         self.sp = (Wrapping(self.sp) - Wrapping(1u16)).0;
     }
 
     /// Pull a value off the stack
-    fn pull(&mut self, io: &mut dyn IoAccess) -> u8 {
-        self.sp = (Wrapping(self.sp) + Wrapping(1u16)).0;
-        let data = self.read_u8(io, self.sp + STACK_PAGE_OFFSET);
+    fn pull(&mut self) -> u8 {
+        self.sp = self.sp.wrapping_add(1);
+        let data = self.read_u8(self.sp + STACK_PAGE_OFFSET);
 
         data
     }
 
-    fn push16(&mut self, io: &mut dyn IoAccess, data: u16) {
+    fn push16(&mut self, data: u16) {
         let hi = high_byte!(data) as u8;
         let lo = low_byte!(data) as u8;
 
-        self.push(io, hi);
-        self.push(io, lo);
+        self.push(hi);
+        self.push(lo);
     }
 
-    fn pull16(&mut self, io: &mut dyn IoAccess) -> u16 {
-        let lo = self.pull(io) as u16;
-        let hi = self.pull(io) as u16;
+    fn pull16(&mut self) -> u16 {
+        let lo = self.pull() as u16;
+        let hi = self.pull() as u16;
 
         (hi << 8) | lo
     }
@@ -1206,11 +1212,11 @@ impl Cpu {
     //------------------------------------------------------------------------------------------------------------------
 
     /// Fetch the next opcode and increment the program counter
-    fn fetch(&mut self, io: &mut dyn IoAccess) -> u8 {
-        self.read_next_u8(io)
+    fn fetch(&mut self) -> u8 {
+        self.read_next_u8()
     }
 
-    fn write_result(&mut self, io: &mut dyn IoAccess, addressing_result: AddressingModeResult, value: u8) {
+    fn write_result(&mut self, addressing_result: AddressingModeResult, value: u8) {
         let mode = match self.state {
             State::Execute(_, mode, _, _) => mode,
             _ => panic!("Must be in execution state!"),
@@ -1220,51 +1226,52 @@ impl Cpu {
             self.a = value;
         }
         else {
-            self.write_u8(io, addressing_result.to_address().unwrap(), value);
+            self.write_u8(addressing_result.to_address().unwrap(), value);
         }
     }
 
-    fn read_next_u8(&mut self, io: &mut dyn IoAccess) -> u8 {
-        let byte = self.read_u8(io, self.pc);
-        self.pc = (Wrapping(self.pc) + Wrapping(1)).0;
+    fn read_next_u8(&mut self) -> u8 {
+        let byte = self.read_u8(self.pc);
+        self.pc = self.pc.wrapping_add(1);
 
         byte
     }
 
-    fn read_u16(&self, io: &mut dyn IoAccess, addr: u16) -> u16 {
-        let lo = self.read_u8(io, addr) as u16;
-        let hi = self.read_u8(io, addr + 1) as u16;
+    fn read_u16(&mut self, addr: u16) -> u16 {
+        let lo = self.read_u8(addr) as u16;
+        let hi = self.read_u8(addr + 1) as u16;
 
         (hi << 8) | lo
     }
 
-    fn read_u8(&self, io: &mut dyn IoAccess, addr: u16) -> u8 {
+    // TODO: Is there a way to make this not `mut`?
+    fn read_u8(&mut self, addr: u16) -> u8 {
         if (addr as usize) < 0x2000 {
             self.read_ram(addr)
         }
         else {
-            io.read_byte(addr)
+            self.bus.as_ref().map(|bus|bus.read_byte(addr)).unwrap()
         }
     }
 
-    fn write_u8(&mut self, io: &mut dyn IoAccess, addr: u16, value: u8) {
+    fn write_u8(&mut self, addr: u16, value: u8) {
         if (addr as usize) < 0x2000 {
             self.write_ram(addr, value);
         }
         else {
-            io.write_byte(addr, value);
+            self.bus.as_mut().map(|bus|bus.write_byte(addr, value));
         }
     }
 }
 
-impl Clockable for Cpu {
+impl<Io: IoAccess> Clockable for Cpu<Io> {
     /// Execute one CPU cycle
-    fn tick(&mut self, io: &mut dyn IoAccess) {
+    fn tick(&mut self) {
         // Get the currnet PC
         let prev_pc = self.pc;
         // Implement one cycle of the CPU using a state machince
         // Execute the cycle based on the current CPU state and return the next CPU state
-        self.state = self.run_cycle(io, self.state);
+        self.state = self.run_cycle(self.state);
         // Is the PC pointing at the same location?
         self.is_holding = prev_pc == self.pc;
     }
@@ -1281,7 +1288,7 @@ mod tests {
 
     #[test]
     fn pc_after_reset() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.pc = 0x0001;
 
         simple_test_base(&mut cpu, vec![], 0);
@@ -1322,7 +1329,7 @@ mod tests {
 
     #[test]
     fn lda_zeropage() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.ram[0x02] = 0xDE;
 
         let prg = vec![
@@ -1336,7 +1343,7 @@ mod tests {
 
     #[test]
     fn lda_zeropage_x() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.ram[0x03] = 0xDE;
         cpu.x = 0x0001;
 
@@ -1351,7 +1358,7 @@ mod tests {
 
     #[test]
     fn lda_absolute_x() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.x = 0x0001;
 
         let prg = vec![
@@ -1366,7 +1373,7 @@ mod tests {
 
     #[test]
     fn lda_absolute_y() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.y = 0x0001;
 
         let prg = vec![
@@ -1381,7 +1388,7 @@ mod tests {
 
     #[test]
     fn lda_indexed_indirect() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.ram[0x03] = 0x05;
         cpu.ram[0x04] = 0x00;
         cpu.ram[0x05] = 0xDE;
@@ -1399,7 +1406,7 @@ mod tests {
 
     #[test]
     fn lda_indirect_indexed() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.ram[0x02] = 0x05;
         cpu.ram[0x03] = 0x00;
         cpu.ram[0x06] = 0xDE;
@@ -1441,7 +1448,7 @@ mod tests {
 
     #[test]
     fn lax() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.ram[0x02] = 0xDE;
 
         let prg = vec![
@@ -1456,7 +1463,7 @@ mod tests {
 
     #[test]
     fn sax() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.a = 0xFF;
         cpu.x = 0x00;
 
@@ -1471,7 +1478,7 @@ mod tests {
 
     #[test]
     fn dcp() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.ram[0x02] = 0x01;
 
         let prg = vec![
@@ -1508,7 +1515,7 @@ mod tests {
 
     #[test]
     fn jmp_indirect_page_cross() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.ram[0x0FF] = 0xAD;
         cpu.ram[0x00] = 0xDE;
 
@@ -1535,7 +1542,7 @@ mod tests {
 
     #[test]
     fn adc_immediate_carry() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.a = 0xFF;
 
         let prg = vec![
@@ -1550,7 +1557,7 @@ mod tests {
 
     #[test]
     fn adc_immediate_with_carry_set() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
 
         let prg = vec![
             0x69, 0xFF, // ADC $FF; a=$0  -> a=$FF
@@ -1566,7 +1573,7 @@ mod tests {
 
     #[test]
     fn adc_overflow_1() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.a = 0x01;
 
         let prg = vec![
@@ -1581,7 +1588,7 @@ mod tests {
 
     #[test]
     fn adc_overflow_2() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.a = 0x01;
 
         let prg = vec![
@@ -1596,7 +1603,7 @@ mod tests {
 
     #[test]
     fn adc_overflow_3() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.a = 0x7F;
 
         let prg = vec![
@@ -1611,7 +1618,7 @@ mod tests {
 
     #[test]
     fn adc_overflow_4() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.a = 0x80;
 
         let prg = vec![
@@ -1626,7 +1633,7 @@ mod tests {
 
     #[test]
     fn and_immediate() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.a = 0xFF;
 
         let prg = vec![
@@ -1641,7 +1648,7 @@ mod tests {
 
     #[test]
     fn and_immediate_zero_set() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.a = 0xFF;
 
         let prg = vec![
@@ -1670,7 +1677,7 @@ mod tests {
 
     #[test]
     fn asl_accumulator() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.a = 0x01;
 
         let prg = vec![
@@ -1687,7 +1694,7 @@ mod tests {
 
     #[test]
     fn asl_accumulator_is_zero() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.a = 0x80;
 
         let prg = vec![
@@ -1704,7 +1711,7 @@ mod tests {
 
     #[test]
     fn asl_accumulator_carry_and_negative_set() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.a = 0xC0;
 
         let prg = vec![
@@ -1721,7 +1728,7 @@ mod tests {
 
     #[test]
     fn sta_zeropage() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.a = 0xDE;
 
         let prg = vec![
@@ -1735,7 +1742,7 @@ mod tests {
 
     #[test]
     fn bcc_carry_not_set() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         mask_clear!(cpu.p, Flags::Carry as u8);
 
         let prg = vec![
@@ -1749,7 +1756,7 @@ mod tests {
 
     #[test]
     fn bcc_carry_set() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         mask_set!(cpu.p, Flags::Carry as u8);
 
         let prg = vec![
@@ -1763,7 +1770,7 @@ mod tests {
 
     #[test]
     fn bcs_carry_not_set() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         mask_clear!(cpu.p, Flags::Carry as u8);
 
         let prg = vec![
@@ -1777,7 +1784,7 @@ mod tests {
 
     #[test]
     fn bcs_carry_set() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         mask_set!(cpu.p, Flags::Carry as u8);
 
         let prg = vec![
@@ -1791,7 +1798,7 @@ mod tests {
 
     #[test]
     fn beq_zero_not_set() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         mask_clear!(cpu.p, Flags::Zero as u8);
 
         let prg = vec![
@@ -1805,7 +1812,7 @@ mod tests {
 
     #[test]
     fn beq_zero_set() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         mask_set!(cpu.p, Flags::Zero as u8);
 
         let prg = vec![
@@ -1819,7 +1826,7 @@ mod tests {
 
     #[test]
     fn bne_zero_not_set() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         mask_clear!(cpu.p, Flags::Zero as u8);
 
         let prg = vec![
@@ -1833,7 +1840,7 @@ mod tests {
 
     #[test]
     fn bne_zero_not_set_negative_offset() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         mask_clear!(cpu.p, Flags::Zero as u8);
 
         let prg = vec![
@@ -1847,7 +1854,7 @@ mod tests {
 
     #[test]
     fn bne_zero_set() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         mask_set!(cpu.p, Flags::Zero as u8);
 
         let prg = vec![
@@ -1861,7 +1868,7 @@ mod tests {
 
     #[test]
     fn bmi_negative_not_set() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         mask_clear!(cpu.p, Flags::Negative as u8);
 
         let prg = vec![
@@ -1875,7 +1882,7 @@ mod tests {
 
     #[test]
     fn bmi_negative_set() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         mask_set!(cpu.p, Flags::Negative as u8);
 
         let prg = vec![
@@ -1889,7 +1896,7 @@ mod tests {
 
     #[test]
     fn bpl_negative_not_set() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         mask_clear!(cpu.p, Flags::Negative as u8);
 
         let prg = vec![
@@ -1903,7 +1910,7 @@ mod tests {
 
     #[test]
     fn bpl_negative_set() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         mask_set!(cpu.p, Flags::Negative as u8);
 
         let prg = vec![
@@ -1917,7 +1924,7 @@ mod tests {
 
     #[test]
     fn bvc_overflow_not_set() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         mask_clear!(cpu.p, Flags::Overflow as u8);
 
         let prg = vec![
@@ -1931,7 +1938,7 @@ mod tests {
 
     #[test]
     fn bvc_overflow_set() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         mask_set!(cpu.p, Flags::Overflow as u8);
 
         let prg = vec![
@@ -1945,7 +1952,7 @@ mod tests {
 
     #[test]
     fn bvs_overflow_not_set() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         mask_clear!(cpu.p, Flags::Overflow as u8);
 
         let prg = vec![
@@ -1959,7 +1966,7 @@ mod tests {
 
     #[test]
     fn bvs_overflow_set() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         mask_set!(cpu.p, Flags::Overflow as u8);
 
         let prg = vec![
@@ -1973,7 +1980,7 @@ mod tests {
 
     #[test]
     fn bit_check_mask() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.a = 0x01;
         cpu.ram[0x02] = 0x01;
 
@@ -1988,7 +1995,7 @@ mod tests {
 
     #[test]
     fn bit_check_mask_not_set() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.a = 0x01;
         cpu.ram[0x02] = 0x00;
 
@@ -2003,7 +2010,7 @@ mod tests {
 
     #[test]
     fn bit_check_mask_absolute() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.a = 0x01;
         cpu.ram[0x02] = 0x01;
 
@@ -2018,7 +2025,7 @@ mod tests {
 
     #[test]
     fn clear_flags_instructions() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         mask_set!(cpu.p, Flags::Carry as u8);
         mask_set!(cpu.p, Flags::Decimal as u8);
         mask_set!(cpu.p, Flags::InterruptDisable as u8);
@@ -2041,7 +2048,7 @@ mod tests {
 
     #[test]
     fn set_flags_instructions() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         mask_clear!(cpu.p, Flags::Carry as u8);
         mask_clear!(cpu.p, Flags::Decimal as u8);
         mask_clear!(cpu.p, Flags::InterruptDisable as u8);
@@ -2062,7 +2069,7 @@ mod tests {
 
     #[test]
     fn cmp_zero_set() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.a = 0x02;
 
         let prg = vec![
@@ -2076,7 +2083,7 @@ mod tests {
 
     #[test]
     fn cmp_negative_set() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.a = 0x00;
 
         let prg = vec![
@@ -2090,7 +2097,7 @@ mod tests {
 
     #[test]
     fn dec_mem() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.ram[0x02] = 0x01;
 
         let prg = vec![
@@ -2105,7 +2112,7 @@ mod tests {
 
     #[test]
     fn dex() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.x = 0x01;
 
         let prg = vec![
@@ -2120,7 +2127,7 @@ mod tests {
 
     #[test]
     fn dey() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.y = 0x01;
 
         let prg = vec![
@@ -2135,7 +2142,7 @@ mod tests {
 
     #[test]
     fn inc_mem() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.ram[0x02] = 0xFF;
 
         let prg = vec![
@@ -2150,7 +2157,7 @@ mod tests {
 
     #[test]
     fn inx() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.x = 0xFF;
 
         let prg = vec![
@@ -2165,7 +2172,7 @@ mod tests {
 
     #[test]
     fn iny() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.y = 0xFF;
 
         let prg = vec![
@@ -2180,7 +2187,7 @@ mod tests {
 
     #[test]
     fn eor() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.a = 0xFF;
 
         let prg = vec![
@@ -2206,7 +2213,7 @@ mod tests {
 
     #[test]
     fn ldx_absolute() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.ram[0x07FF] = 0xA5;
 
         let prg = vec![
@@ -2231,7 +2238,7 @@ mod tests {
 
     #[test]
     fn pha() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.a = 0xFF;
         cpu.sp = 0x0A;
 
@@ -2247,7 +2254,7 @@ mod tests {
 
     #[test]
     fn pla() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.ram[0x10A] = 0xFF;
         cpu.sp = 0x09;
 
@@ -2264,7 +2271,7 @@ mod tests {
 
     #[test]
     fn php() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.p = 0xFF;
         cpu.sp = 0x0A;
 
@@ -2280,7 +2287,7 @@ mod tests {
 
     #[test]
     fn plp() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.ram[0x10A] = 0xFF;
         cpu.sp = 0x09;
 
@@ -2296,7 +2303,7 @@ mod tests {
 
     #[test]
     fn lsr_zero_set() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.a = 0x01;
 
         let prg = vec![
@@ -2312,7 +2319,7 @@ mod tests {
 
     #[test]
     fn ora() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.a = 0xF0;
 
         let prg = vec![
@@ -2326,7 +2333,7 @@ mod tests {
 
     #[test]
     fn ror_carry() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         mask_set!(cpu.p, Flags::Carry as u8);
         cpu.a = 0x01;
 
@@ -2343,7 +2350,7 @@ mod tests {
 
     #[test]
     fn rol_carry() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         mask_set!(cpu.p, Flags::Carry as u8);
         cpu.a = 0x81;
 
@@ -2359,7 +2366,7 @@ mod tests {
 
     #[test]
     fn rti() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.ram[0x10A] = 0xDE;
         cpu.ram[0x109] = 0xAD;
         cpu.ram[0x108] = 0xA5;
@@ -2378,7 +2385,7 @@ mod tests {
 
     #[test]
     fn jsr() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.sp = 0x000A;
 
         let prg = vec![
@@ -2394,7 +2401,7 @@ mod tests {
 
     #[test]
     fn sbc() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.a = 0x01;
 
         let prg = vec![
@@ -2408,7 +2415,7 @@ mod tests {
 
     #[test]
     fn sbc2() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.a = 0x40;
         mask_set!(cpu.p, Flags::Carry as u8);
 
@@ -2427,7 +2434,7 @@ mod tests {
 
     #[test]
     fn sbc_overflow_1() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.a = 0x00;
 
         let prg = vec![
@@ -2442,7 +2449,7 @@ mod tests {
 
     #[test]
     fn sbc_overflow_2() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.a = 0x80;
 
         let prg = vec![
@@ -2457,7 +2464,7 @@ mod tests {
 
     #[test]
     fn isb() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.a = 0x01;
         cpu.ram[0x02] = 0x00;
 
@@ -2473,7 +2480,7 @@ mod tests {
 
     #[test]
     fn rts() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.ram[0x10A] = 0xDE;
         cpu.ram[0x109] = 0xAC;
         cpu.sp = 0x0008;
@@ -2490,7 +2497,7 @@ mod tests {
 
     #[test]
     fn stx() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.x = 0xA5;
 
         let prg = vec![
@@ -2504,7 +2511,7 @@ mod tests {
 
     #[test]
     fn tax() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.a = 0xA5;
 
         let prg = vec![
@@ -2519,7 +2526,7 @@ mod tests {
     
     #[test]
     fn tay() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.a = 0xA5;
 
         let prg = vec![
@@ -2534,7 +2541,7 @@ mod tests {
     
     #[test]
     fn tsx() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.sp = 0xA5;
 
         let prg = vec![
@@ -2548,7 +2555,7 @@ mod tests {
 
     #[test]
     fn txa() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.x = 0xA5;
 
         let prg = vec![
@@ -2562,7 +2569,7 @@ mod tests {
 
     #[test]
     fn txs() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.x = 0xA5;
 
         let prg = vec![
@@ -2576,7 +2583,7 @@ mod tests {
 
     #[test]
     fn tya() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.y = 0xA5;
 
         let prg = vec![
@@ -2590,7 +2597,7 @@ mod tests {
 
     #[test]
     fn sty() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::default();
         cpu.y = 0xA5;
 
         let prg = vec![
@@ -2624,22 +2631,22 @@ mod tests {
     mod helper {
         use super::*;
 
-        pub struct CpuIoBus {
+        pub struct FakeBus {
             prg_rom: Vec<u8>, // ROM
             rom_offest: usize,
         }
 
-        impl CpuIoBus {
+        impl FakeBus {
             pub fn from(prg_rom: Vec<u8>) -> Self {
-                CpuIoBus {
+                FakeBus {
                     prg_rom: prg_rom,
                     rom_offest: 0x4020,
                 }
             }
         }
 
-        impl IoAccess for CpuIoBus {
-            fn read_byte(&mut self, addr: u16) -> u8 {
+        impl IoAccess for FakeBus {
+            fn read_byte(&self, addr: u16) -> u8 {
                 if addr == 0xFFFC {
                     0x20
                 }
@@ -2661,26 +2668,29 @@ mod tests {
             }
         }
 
-        pub fn simple_test(prg: Vec<u8>, ticks: usize) -> Cpu {
-            let mut cpu = Cpu::new();
+        pub fn simple_test<'a>(prg: Vec<u8>, ticks: usize) -> Cpu<FakeBus> {
+            let mut cpu = Cpu::default();
             cpu.p = 0x00;
+
             simple_test_base(&mut cpu, prg, ticks);
 
             cpu
         }
 
-        pub fn simple_test_base(cpu: &mut Cpu, prg: Vec<u8>, ticks: usize) {
-            let mut io = CpuIoBus::from(prg);
-            run_cpu(cpu, &mut io, ticks);
+        pub fn simple_test_base(cpu: &mut Cpu<FakeBus>, prg: Vec<u8>, ticks: usize) {
+            let bus = FakeBus::from(prg);
+            cpu.load_bus(bus);
+
+            run_cpu(cpu, ticks);
         }
 
-        pub fn run_cpu(cpu: &mut Cpu, io: &mut dyn IoAccess, ticks: usize) {
+        pub fn run_cpu(cpu: &mut Cpu<FakeBus>, ticks: usize) {
             // Tick CPU once to exit Reset state
-            cpu.tick(io);
+            cpu.tick();
 
             // Tick CPU the expect number of times
             for _ in 0..ticks {
-                cpu.tick(io);
+                cpu.tick();
             }
         }
     }
