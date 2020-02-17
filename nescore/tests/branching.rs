@@ -3,7 +3,7 @@ use nescore::{Nes, Cartridge};
 #[test]
 fn branch_timing_branch_basics() {
     let cart = Cartridge::from_path("tests/roms/nes-test-roms/branch_timing_tests/1.Branch_Basics.nes").unwrap();
-    let mut nes = Nes::new().with_cart(cart);
+    let mut nes = Nes::default().with_cart(cart);
 
     while !nes.is_holding() {
         nes.emulate_frame();

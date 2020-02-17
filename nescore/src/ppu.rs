@@ -4,12 +4,12 @@
 // @author Natesh Narain <nnaraindev@gmail.com>
 // @date Nov 10 2019
 //
+pub mod bus;
 mod regs;
 
 use regs::*;
 use crate::common::{IoAccess, Clockable, Register};
 
-use std::num::Wrapping;
 
 const NUM_SCANLINES: usize = 262;
 const CYCLES_PER_SCANLINE: usize = 341;
@@ -37,8 +37,8 @@ impl Scanline {
 }
 
 /// NES Picture Processing Unit
-pub struct Ppu {
-    vram: [u8; 0x4000],
+pub struct Ppu<Io: IoAccess> {
+    // vram: [u8; 0x4000],
     oam: [u8; 256],
 
     ctrl: PpuCtrl,     // PPUCTRL   - Control Register
@@ -50,12 +50,13 @@ pub struct Ppu {
 
     cycle: usize,      // Cycle count per scanline
     scanline: usize,   // Current scanline
+
+    bus: Option<Io>,
 }
 
-impl Ppu {
-    pub fn new() -> Self {
+impl<Io: IoAccess> Default for Ppu<Io> {
+    fn default() -> Self {
         Ppu{
-            vram: [0; 0x4000],
             oam: [0; 256],
 
             ctrl: PpuCtrl::default(),
@@ -67,10 +68,14 @@ impl Ppu {
 
             cycle: 0,
             scanline: NUM_SCANLINES - 1, // Initialize to the Pre-render scanline
+
+            bus: None,
         }
     }
-    
-    fn run_cycle(&mut self, io: &mut dyn IoAccess) {
+}
+
+impl<Io: IoAccess> Ppu<Io> {
+    fn run_cycle(&mut self) {
         match Scanline::from(self.scanline) {
             Scanline::PreRender => {
                 self.status.vblank = false;
@@ -119,19 +124,23 @@ impl Ppu {
 
     /// Read directly from PPU VRAM
     pub fn read_vram(&self, addr: u16) -> u8 {
-        self.vram[addr as usize]
+        self.bus.as_ref().map(|bus| bus.read_byte(addr)).unwrap()
     }
 
     /// Write directly to PPU VRAM
     pub fn write_vram(&mut self, addr: u16, value: u8) {
-        self.vram[addr as usize] = value;
+        self.bus.as_mut().map(|bus| bus.write_byte(addr, value));
+    }
+
+    pub fn load_bus(&mut self, bus: Io) {
+        self.bus = Some(bus);
     }
 }
 
 // TODO: Latch behaviour
 
-impl IoAccess for Ppu {
-    fn read_byte(&mut self, addr: u16) -> u8 {
+impl<Io: IoAccess> IoAccess for Ppu<Io> {
+    fn read_byte(&self, addr: u16) -> u8 {
         match addr {
             0x2000 => {
                 self.ctrl.value()
@@ -144,13 +153,19 @@ impl IoAccess for Ppu {
             },
             0x2004 => {
                 let data = self.oam[self.oam_addr as usize];
-                self.oam_addr = self.oam_addr.wrapping_add(1);
+                // self.oam_addr = self.oam_addr.wrapping_add(1);
 
                 data
             },
+            0x2005 => {
+                self.scroll.x
+            },
+            0x2006 => {
+                self.addr.value() as u8
+            },
             0x2007 => {
                 let data = self.read_vram(self.addr.value());
-                self.addr += self.ctrl.vram_increment();
+                // self.addr += self.ctrl.vram_increment();
 
                 data
             },
@@ -198,9 +213,9 @@ impl IoAccess for Ppu {
     }
 }
 
-impl Clockable for Ppu {
-    fn tick(&mut self, io: &mut dyn IoAccess) {
-        self.run_cycle(io);
+impl<Io: IoAccess> Clockable for Ppu<Io> {
+    fn tick(&mut self) {
+        self.run_cycle();
 
         self.cycle += 1;
 
@@ -218,7 +233,7 @@ mod tests {
 
     #[test]
     fn vram_write() {
-        let mut ppu = Ppu::new();
+        let mut ppu = init_ppu();
 
         // VRAM increment mode to 1
         ppu.write_byte(0x2000, 0x00);
@@ -237,11 +252,10 @@ mod tests {
     fn vblank() {
         const CYCLES_TO_VBLANK: usize = CYCLES_PER_SCANLINE * 242 + 1;
 
-        let mut io = PpuIoBus{};
-        let mut ppu = Ppu::new();
+        let mut ppu: Ppu<FakeBus> = Ppu::default();
 
         for _ in 0..CYCLES_TO_VBLANK {
-            ppu.tick(&mut io);
+            ppu.tick();
         }
 
         assert_eq!(ppu.is_vblank(), true);
@@ -265,25 +279,41 @@ mod tests {
 
     #[test]
     fn scanline_transition() {
-        let mut io = PpuIoBus{};
-        let mut ppu = Ppu::new();
+        let mut ppu: Ppu<FakeBus> = Ppu::default();
 
         assert_eq!(ppu.scanline, NUM_SCANLINES - 1);
 
         for _ in 0..341 {
-            ppu.tick(&mut io);
+            ppu.tick();
         }
 
         assert_eq!(ppu.scanline, 0);
     }
+    struct FakeBus {
+        vram: [u8; 0x4000],
+    }
 
-    struct PpuIoBus {}
-    impl IoAccess for PpuIoBus {
-        fn read_byte(&mut self, _addr: u16) -> u8 {
-            0
+    impl Default for FakeBus {
+        fn default() -> Self {
+            FakeBus {
+                vram: [0; 0x4000],
+            }
         }
-        fn write_byte(&mut self, _addr: u16, _value: u8) {
+    }
 
+    impl IoAccess for FakeBus {
+        fn read_byte(&self, addr: u16) -> u8 {
+            self.vram[addr as usize]
         }
+        fn write_byte(&mut self, addr: u16, value: u8) {
+            self.vram[addr as usize] = value;
+        }
+    }
+
+    fn init_ppu() -> Ppu<FakeBus> {
+        let mut ppu: Ppu<FakeBus> = Ppu::default();
+        ppu.load_bus(FakeBus::default());
+
+        ppu
     }
 }
