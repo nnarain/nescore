@@ -10,6 +10,8 @@ mod regs;
 use regs::*;
 use crate::common::{IoAccess, Clockable, Register};
 
+use std::cell::RefCell;
+
 
 const NUM_SCANLINES: usize = 262;
 const CYCLES_PER_SCANLINE: usize = 341;
@@ -38,18 +40,17 @@ impl Scanline {
 
 /// NES Picture Processing Unit
 pub struct Ppu<Io: IoAccess> {
-    // vram: [u8; 0x4000],
     oam: [u8; 256],
 
-    ctrl: PpuCtrl,     // PPUCTRL   - Control Register
-    status: PpuStatus, // PPUSTATUS - Status Register
-    mask: PpuMask,     // PPUMASK   - Mask Register (Render controls)
-    addr: PpuAddr,     // PPUADDR   - VRAM Address
-    scroll: PpuScroll, // PPUSCROLL - Scroll register
-    oam_addr: u16,     // OAMADDR   - OAM Address
+    ctrl: PpuCtrl,          // PPUCTRL   - Control Register
+    status: PpuStatus,      // PPUSTATUS - Status Register
+    mask: PpuMask,          // PPUMASK   - Mask Register (Render controls)
+    addr: RefCell<PpuAddr>, // PPUADDR   - VRAM Address
+    scroll: PpuScroll,      // PPUSCROLL - Scroll register
+    oam_addr: RefCell<u16>, // OAMADDR   - OAM Address
 
-    cycle: usize,      // Cycle count per scanline
-    scanline: usize,   // Current scanline
+    cycle: usize,           // Cycle count per scanline
+    scanline: usize,        // Current scanline
 
     bus: Option<Io>,
 }
@@ -62,9 +63,9 @@ impl<Io: IoAccess> Default for Ppu<Io> {
             ctrl: PpuCtrl::default(),
             status: PpuStatus::default(),
             mask: PpuMask::default(),
-            addr: PpuAddr::default(),
+            addr: RefCell::new(PpuAddr::default()),
             scroll: PpuScroll::default(),
-            oam_addr: 0,
+            oam_addr: RefCell::new(0),
 
             cycle: 0,
             scanline: NUM_SCANLINES - 1, // Initialize to the Pre-render scanline
@@ -152,8 +153,8 @@ impl<Io: IoAccess> IoAccess for Ppu<Io> {
                 self.status.value()
             },
             0x2004 => {
-                let data = self.oam[self.oam_addr as usize];
-                // self.oam_addr = self.oam_addr.wrapping_add(1);
+                let data = self.oam[*self.oam_addr.borrow() as usize];
+                *self.oam_addr.borrow_mut() = self.oam_addr.borrow().wrapping_add(1);
 
                 data
             },
@@ -161,11 +162,11 @@ impl<Io: IoAccess> IoAccess for Ppu<Io> {
                 self.scroll.x
             },
             0x2006 => {
-                self.addr.value() as u8
+                self.addr.borrow().value() as u8
             },
             0x2007 => {
-                let data = self.read_vram(self.addr.value());
-                // self.addr += self.ctrl.vram_increment();
+                let data = self.read_vram(self.addr.borrow().value());
+                *self.addr.borrow_mut() += self.ctrl.vram_increment();
 
                 data
             },
@@ -186,12 +187,12 @@ impl<Io: IoAccess> IoAccess for Ppu<Io> {
             },
             // OAM ADDR
             0x2003 => {
-                self.oam_addr = value as u16;
-                self.oam_addr = self.oam_addr.wrapping_add(1);
+                *self.oam_addr.borrow_mut() = value as u16;
+                *self.oam_addr.borrow_mut() = self.oam_addr.borrow().wrapping_add(1);
             },
             // OAM DATA
             0x2004 => {
-                self.oam[self.oam_addr as usize] = value;
+                self.oam[*self.oam_addr.borrow() as usize] = value;
             },
             // PPU Scroll
             0x2005 => {
@@ -199,12 +200,14 @@ impl<Io: IoAccess> IoAccess for Ppu<Io> {
             },
             // PPU Address
             0x2006 => {
-                self.addr.load(value as u16);
+                self.addr.borrow_mut().load(value as u16);
             },
             // PPU Data
             0x2007 => {
-                self.write_vram(self.addr.value(), value);
-                self.addr += self.ctrl.vram_increment();
+                let addr = self.addr.borrow().value();
+                self.write_vram(addr, value);
+
+                *self.addr.borrow_mut() += self.ctrl.vram_increment();
             }
             _ => {}
         }
@@ -246,6 +249,27 @@ mod tests {
 
         assert_eq!(ppu.read_vram(0x0150), 0xDE);
         assert_eq!(ppu.read_vram(0x0151), 0xAD);
+    }
+
+    #[test]
+    fn vram_read() {
+        let mut ppu = init_ppu();
+
+        // VRAM increment mode to 1
+        ppu.write_byte(0x2000, 0x00);
+        // Load VRAM addr $150
+        ppu.write_byte(0x2006, 0x01);
+        ppu.write_byte(0x2006, 0x50);
+        // Write to VRAM
+        ppu.write_byte(0x2007, 0xDE);
+        ppu.write_byte(0x2007, 0xAD);
+        // Load VRAM addr $150
+        ppu.write_byte(0x2006, 0x01);
+        ppu.write_byte(0x2006, 0x50);
+
+        let data = (ppu.read_byte(0x2007), ppu.read_byte(0x2007));
+
+        assert_eq!(data, (0xDE, 0xAD));
     }
 
     #[test]
