@@ -14,8 +14,8 @@ use std::num::Wrapping;
 pub struct PpuCtrl {
     pub base_nametable_address: u8,     // Base nametable address (0=$2000, 1=$2400, 2=$2800, 3=$2C00)
     pub inc_mode: bool,                 // VRAM address increment mode (0: Add 1, 1: Add 32)
-    pub sprite_pattern_table: bool,     // Sprite pattern table address
-    pub background_pattern_table: bool, // Background pattern table address
+    pub sprite_pattern_table: bool,     // Sprite pattern table address (0: $0000, 1: $1000)
+    pub background_pattern_table: bool, // Background pattern table address (0: $0000, 1: $1000)
     pub sprite_size: bool,              // 0: 8x8, 1: 8x16
     pub master_slave_select: bool,      // Master slave, select
     pub nmi_enable: bool,               // Generate NMI on Vblank
@@ -32,7 +32,26 @@ impl PpuCtrl {
 
         (base_x, base_y)
     }
-}
+
+    /// Base nametable address
+    pub fn nametable(&self) -> u16 {
+        0x2000u16 + (0x400u16 * self.base_nametable_address as u16)
+    }
+
+    /// Attribute table for the selected nametable
+    pub fn attribute(&self) -> u16 {
+        // Nametable + Size of nametable - Size of attribute table
+        self.nametable() + 0x400 - 0x40
+    }
+
+    pub fn background_pattern_table(&self) -> u16 {
+        self.background_pattern_table as u16 * 0x1000
+    }
+
+    pub fn sprite_pattern_table(&self) -> u16 {
+        self.sprite_pattern_table as u16 * 0x1000
+    }
+ }
 
 impl Register<u8> for PpuCtrl {
     fn load(&mut self, value: u8) {
@@ -53,12 +72,6 @@ impl Register<u8> for PpuCtrl {
         | (self.sprite_size as u8) << 5
         | (self.master_slave_select as u8) << 6
         | (self.nmi_enable as u8) << 7
-    }
-}
-
-impl PpuCtrl {
-    pub fn nametable(&self) -> u16 {
-        0x2000u16 + (0x400u16 * self.base_nametable_address as u16)
     }
 }
 
@@ -90,6 +103,12 @@ pub struct PpuMask {
     pub emphasize_red: bool,        // Emphasize Red
     pub emphasize_green: bool,      // Emphasize Green
     pub emphasize_blue: bool,       // Emphasize Blue
+}
+
+impl PpuMask {
+    pub fn rendering(&self) -> bool {
+        self.background_enabled && self.sprites_enabled
+    }
 }
 
 impl Register<u8> for PpuMask {
@@ -195,6 +214,19 @@ mod tests {
         assert_eq!(ctrl.nametable(), 0x2800);
         ctrl.load(0x03);
         assert_eq!(ctrl.nametable(), 0x2C00);
+    }
+
+    #[test]
+    fn nametable_attribute_address() {
+        let mut ctrl = PpuCtrl::default();
+        ctrl.load(0x00);
+        assert_eq!(ctrl.attribute(), 0x23C0);
+        ctrl.load(0x01);
+        assert_eq!(ctrl.attribute(), 0x27C0);
+        ctrl.load(0x02);
+        assert_eq!(ctrl.attribute(), 0x2BC0);
+        ctrl.load(0x03);
+        assert_eq!(ctrl.attribute(), 0x2FC0);
     }
 
     #[test]

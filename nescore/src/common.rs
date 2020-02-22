@@ -15,9 +15,9 @@ pub trait IoAccess {
 
 pub type IoAccessRef = Rc<RefCell<dyn IoAccess>>;
 
-/// A clockable component
-pub trait Clockable {
-    fn tick(&mut self);
+/// A clockable component. Optionally, returns a value for every tick
+pub trait Clockable<T=()> {
+    fn tick(&mut self) -> T;
 }
 
 // TODO: Too generic for a 'Register'

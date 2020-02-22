@@ -82,6 +82,13 @@ macro_rules! low_byte {
     };
 }
 
+#[macro_export]
+macro_rules! bit_as_value {
+    ($x:expr, $y:expr) => {
+        (($x & bv!($y)) >> $y)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -167,5 +174,11 @@ mod tests {
         assert_eq!(bv!(5), 0x20);
         assert_eq!(bv!(6), 0x40);
         assert_eq!(bv!(7), 0x80);
+    }
+
+    #[test]
+    fn test_bit_as_value() {
+        assert_eq!(bit_as_value!(0x08, 3), 1);
+        assert_eq!(bit_as_value!(0x08, 2), 0);
     }
 }
