@@ -10,15 +10,26 @@ mod hw;
 
 use regs::*;
 use hw::*;
-
 use crate::common::{IoAccess, Clockable, Register};
 
 use std::cell::RefCell;
 
-
 const NUM_SCANLINES: usize = 262;
 const CYCLES_PER_SCANLINE: usize = 341;
 const TILES_PER_ROW: usize = 32;
+
+pub type Pixel = u32;
+
+const COLOR_INDEX_TO_RGB: [u32; 64] = [
+    0x7C7C7C, 0x0000FC, 0x0000BC, 0x4428BC, 0x940084, 0xA80020, 0xA81000, 0x881400,
+    0x503000, 0x007800, 0x006800, 0x005800, 0x004058, 0x000000, 0x000000, 0x000000,
+    0xBCBCBC, 0x0078F8, 0x0058F8, 0x6844FC, 0xD800CC, 0xE40058, 0xF83800, 0xE45C10,
+    0xAC7C00, 0x00B800, 0x00A800, 0x00A844, 0x008888, 0x000000, 0x000000, 0x000000,
+    0xF8F8F8, 0x3CBCFC, 0x6888FC, 0x9878F8, 0xF878F8, 0xF85898, 0xF87858, 0xFCA044,
+    0xF8B800, 0xB8F818, 0x58D854, 0x58F898, 0x00E8D8, 0x787878, 0x000000, 0x000000,
+    0xFCFCFC, 0xA4E4FC, 0xB8B8F8, 0xD8B8F8, 0xF8B8F8, 0xF8A4C0, 0xF0D0B0, 0xFCE0A8,
+    0xF8D878, 0xD8F878, 0xB8F8B8, 0xB8F8D8, 0x00FCFC, 0xF8D8F8, 0x000000, 0x000000
+];
 
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -86,8 +97,9 @@ impl<Io: IoAccess> Default for Ppu<Io> {
 }
 
 impl<Io: IoAccess> Ppu<Io> {
-    fn run_cycle(&mut self) {
-        match Scanline::from(self.scanline) {
+    fn run_cycle(&mut self) -> Option<Pixel> {
+        let scanline = Scanline::from(self.scanline);
+        match scanline {
             Scanline::PreRender => {
                 self.status.vblank = false;
                 // Same as a normal scanline but no output to the screen
@@ -109,61 +121,74 @@ impl<Io: IoAccess> Ppu<Io> {
         }
 
         // TODO: Every cycles produces a pixel
+        if scanline == Scanline::Visible {
+            Some(self.generate_pixel())
+        }
+        else {
+            None
+        }
     }
 
     // Processing a single scanline per cycle
     fn process_scanline(&mut self, cycle: usize) {
-        // Cycles 257 - 320: Get tile data for sprites on next scanline
-        // accesses: 2 garbage nametable bytes, pattern table low, pattern table high
-
-        // Cycles 321-336: Fetch first two tiles of the next scanline
-        // accesses: 2 nametable bytes, attribute, pattern table low, pattern table high
-
-        // Cycles 337 - 340
-        // Two nametable bytes are fetch, unknown purpose
-
-
-        // In addition to all that, the sprite evaluation happens independently
-
         match cycle {
             0 => {
                 // Cycle 0 is idle
             },
             1..=256 => {
                 // 4 memory accesses each taking 2 cycles
+                // In addition to all that, the sprite evaluation happens independently
                 if cycle % 8 == 0 {
-                    // TODO: Fix types for offsets
-
-                    // Get pixel scroll offset
-                    let (scroll_x, scroll_y) = self.ctrl.base_scroll();
-                    // Determine tile offset (+3 because the first two tiles have already been loaded)
-                    let coarse = (scroll_x / 8 + 3, scroll_y / 8);
-                    // Determine tile index for nametable
-                    let tile_idx = (coarse.1 * TILES_PER_ROW as u16) + coarse.0;
-
-                    // Read tile number from nametable
-                    let tile_no = self.read_nametable(tile_idx as usize);
-                    // Read pattern from battern pattern table memory
-                    let pattern = self.read_pattern(self.ctrl.background_pattern_table(), tile_no);
-                    // Fetch tile attributes
-                    let attribute = self.read_attribute(coarse.1 as usize, coarse.0 as usize);
-
-                    // Load shift registers
-                    self.tile_reg.load(pattern);
-                    self.pal_reg.latch(attribute);
+                    let dot = (cycle - 1) as u8;
+                    self.load_shift_registers(dot, 2, false);
                 }
             },
             257..=320 => {
-
+                // Cycles 257 - 320: Get tile data for sprites on next scanline
+                // accesses: 2 garbage nametable bytes, pattern table low, pattern table high
             },
             321..=336 => {
-
+                // Cycles 321-336: Fetch first two tiles of the next scanline
+                // accesses: 2 nametable bytes, attribute, pattern table low, pattern table high
+                if cycle % 8 == 0 {
+                    let dot = (cycle - 321) as u8;
+                    self.load_shift_registers(dot, 0, true);
+                }
             },
             337..=340 => {
-
+                // Cycles 337 - 340
+                // Two nametable bytes are fetch, unknown purpose
             },
             _ => panic!("Invalid cycle for scanline! {}", cycle),
         }
+
+        // Tick shift register
+        match cycle {
+            2..=257 | 322..=335 => self.tick_shifters(),
+            _ => {}
+        }
+    }
+
+    fn load_shift_registers(&mut self, dot: u8, tile_x_offset: u8, next_scanline: bool) {
+        // Get pixel scroll offset
+        let scroll = self.ctrl.base_scroll();
+        let (base_x, base_y) = (scroll.0 + dot as u16, scroll.1 + (next_scanline as u16));
+
+        // Determine tile offset (+3 because the first two tiles have already been loaded)
+        let coarse = ((base_x / 8) + tile_x_offset as u16, base_y / 8);
+        // Determine tile index for nametable
+        let tile_idx = (coarse.1 * TILES_PER_ROW as u16) + coarse.0;
+
+        // Read tile number from nametable
+        let tile_no = self.read_nametable(tile_idx as usize);
+        // Read pattern from pattern table memory
+        let pattern = self.read_pattern(self.ctrl.background_pattern_table(), tile_no);
+        // Fetch tile attributes
+        let attribute = self.read_attribute(coarse.1 as usize, coarse.0 as usize);
+
+        // Load shift registers
+        self.tile_reg.load(pattern);
+        self.pal_reg.latch(attribute);
     }
 
     fn read_nametable(&self, idx: usize) -> u8 {
@@ -195,11 +220,36 @@ impl<Io: IoAccess> Ppu<Io> {
 
     fn read_pattern(&self, base: u16, tile_no: u8) -> (u8, u8) {
         let tile_no = tile_no as u16;
+        // 16 bytes per tile
+        let tile_offset = tile_no * 16;
 
-        let lo = self.read_vram(base + tile_no);
-        let hi = self.read_vram(base + tile_no + 8);
+        let lo = self.read_vram(base + tile_offset);
+        let hi = self.read_vram(base + tile_offset + 8);
 
         (lo, hi)
+    }
+
+    fn generate_pixel(&mut self) -> Pixel {
+        // Use fine X to select the pixel to render
+        let fine_x = (self.ctrl.base_scroll().0 % 8) as u8;
+
+        // Fetch pattern and attributes from shifters
+        let pattern = self.tile_reg.get_value(fine_x);
+        let attribute = self.pal_reg.get_value(fine_x);
+
+        // Determine palette offset: http://wiki.nesdev.com/w/index.php/PPU_palettes
+        // TODO: Background vs sprite palette selection
+        let palette_offset = 0x00 | (attribute << 2) | pattern;
+
+        // Fetch color from palette
+        let color = self.read_vram(0x3F00 + palette_offset as u16) as usize;
+
+        COLOR_INDEX_TO_RGB[color]
+    }
+
+    fn tick_shifters(&mut self) {
+        self.tile_reg.tick();
+        self.pal_reg.tick();
     }
 
     /// Check if the PPU is in vertical blanking mode
@@ -225,6 +275,7 @@ impl<Io: IoAccess> Ppu<Io> {
 // TODO: Latch behaviour
 
 impl<Io: IoAccess> IoAccess for Ppu<Io> {
+    // TODO: Palette mirroring
     fn read_byte(&self, addr: u16) -> u8 {
         match addr {
             0x2000 => {
@@ -300,9 +351,9 @@ impl<Io: IoAccess> IoAccess for Ppu<Io> {
     }
 }
 
-impl<Io: IoAccess> Clockable for Ppu<Io> {
-    fn tick(&mut self) {
-        self.run_cycle();
+impl<Io: IoAccess> Clockable<Option<Pixel>> for Ppu<Io> {
+    fn tick(&mut self) -> Option<Pixel> {
+        let pixel = self.run_cycle();
 
         self.cycle += 1;
 
@@ -311,6 +362,8 @@ impl<Io: IoAccess> Clockable for Ppu<Io> {
         }
 
         self.cycle %= CYCLES_PER_SCANLINE;
+
+        pixel
     }
 }
 
@@ -333,6 +386,40 @@ mod helpers {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn render_one_pixel() {
+        let mut ppu = init_ppu();
+
+        // Clear scroll
+        ppu.write_byte(0x2005, 0);
+        ppu.write_byte(0x2005, 0);
+
+        // Write pattern into pattern table
+        ppu.write_vram(0x0010, 0x01);
+        ppu.write_vram(0x0018, 0x00);
+
+        // Write into nametable
+        ppu.write_vram(0x2000, 0x01);
+        // Write attribute - Top Left - Background Palette 1
+        ppu.write_vram(0x23C0, 0x01);
+        // Set first color in Background Palette 1
+        ppu.write_vram(0x3F05, 0x01);
+
+        // Run the PPU for the pre-render scanline
+        for _ in 0..CYCLES_PER_SCANLINE {
+            let pixel = ppu.tick();
+            assert_eq!(pixel.is_some(), false);
+        }
+
+        // The first tick of the visible scanline should have a pixel
+        let pixel = ppu.tick();
+        assert_eq!(pixel.is_some(), true);
+
+        // The color of the pixel should be the index one of the color table
+        let color = pixel.unwrap();
+        assert_eq!(color, COLOR_INDEX_TO_RGB[0x01], "Color was: #{:X}", color);
+    }
 
     #[test]
     fn determine_nametable_address() {
