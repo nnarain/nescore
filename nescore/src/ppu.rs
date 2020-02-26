@@ -14,13 +14,16 @@ use crate::common::{IoAccess, Clockable, Register};
 
 use std::cell::RefCell;
 
+pub type Pixel = u32;
+pub const DISPLAY_WIDTH: usize = 256;
+pub const DISPLAY_HEIGHT: usize = 240;
+
 const NUM_SCANLINES: usize = 262;
 const CYCLES_PER_SCANLINE: usize = 341;
 const TILES_PER_ROW: usize = 32;
 
-pub type Pixel = u32;
 
-const COLOR_INDEX_TO_RGB: [u32; 64] = [
+const COLOR_INDEX_TO_RGB: [Pixel; 64] = [
     0x7C7C7C, 0x0000FC, 0x0000BC, 0x4428BC, 0x940084, 0xA80020, 0xA81000, 0x881400,
     0x503000, 0x007800, 0x006800, 0x005800, 0x004058, 0x000000, 0x000000, 0x000000,
     0xBCBCBC, 0x0078F8, 0x0058F8, 0x6844FC, 0xD800CC, 0xE40058, 0xF83800, 0xE45C10,

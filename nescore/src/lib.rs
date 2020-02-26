@@ -4,18 +4,16 @@
 /// @author Natesh Narain <nnaraindev@gmail.com>
 ///
 
-// nescore submodules
-pub mod cart;
-// Public re-exports
-pub use cart::Cartridge;
-
 #[macro_use]
 mod bit;
-
 mod cpu;
 mod ppu;
 mod mapper;
 mod common;
+
+pub mod cart;
+pub use cart::Cartridge;
+pub use ppu::{DISPLAY_WIDTH, DISPLAY_HEIGHT};
 
 use cpu::Cpu;
 use cpu::bus::CpuIoBus;
@@ -27,15 +25,17 @@ use common::Clockable;
 use std::rc::Rc;
 use std::cell::RefCell;
 
+/// Size of the display frame buffer: display size * RGB (3 bytes)
+const FRAME_BUFFER_SIZE: usize = DISPLAY_WIDTH * DISPLAY_HEIGHT * 3;
 /// CPU Cycles in a frame: (256x240) - resolution, 1 px per PPU tick. 1 CPU tick for 3 PPU ticks
-const CPU_CYCLES_PER_FRAME: usize = (256 * 240) / 3;
+const CPU_CYCLES_PER_FRAME: usize = 113 * 262;//(DISPLAY_WIDTH * DISPLAY_HEIGHT) / 3;
 
 /// Representation of the NES system
 #[derive(Default)]
 pub struct Nes {
     cpu: Rc<RefCell<Cpu<CpuIoBus>>>,    // NES CPU
     ppu: Rc<RefCell<Ppu<PpuIoBus>>>,    // NES PPU
-                           // TODO: APU
+                                        // TODO: APU
     mapper: Option<Mapper> // Catridge Mapper
 }
 
@@ -63,15 +63,32 @@ impl Nes {
     }
 
     /// Run the emulator for a single frame
-    pub fn emulate_frame(&mut self) {
-        if self.mapper.is_some() {
-            // TODO: Send audio and video data back to host
+    pub fn emulate_frame(&mut self) -> [u8; FRAME_BUFFER_SIZE] {
+        let mut framebuffer = [0x00u8; FRAME_BUFFER_SIZE];
+        let mut idx = 0usize;
 
-            // Clock the CPU
+        if self.mapper.is_some() {
             for _ in 0..CPU_CYCLES_PER_FRAME {
-                self.tick_master_clock();
+                let pixels = self.tick_master_clock();
+                // TODO: Idiomatic way to do this
+                for p in &pixels {
+                    if let Some(p) = p {
+                        let r = (p & 0xFF) as u8;
+                        let g = ((p >> 8) & 0xFF) as u8;
+                        let b = ((p >> 16) & 0xFF) as u8;
+
+                        for v in &[r, g, b] {
+                            if idx < FRAME_BUFFER_SIZE {
+                                framebuffer[idx] = *v;
+                                idx += 1;
+                            }
+                        }
+                    }
+                }
             }
         }
+
+        framebuffer
     }
 
     /// Run until the CPU's PC is at address **addr**
@@ -84,12 +101,17 @@ impl Nes {
         }
     }
 
-    fn tick_master_clock(&mut self) {
-        // One master clock cycle is 1 CPU cycle and 3 PPU cycles
+    /// Clock the NES components
+    fn tick_master_clock(&mut self) -> [Option<ppu::Pixel>; 3] {
+        let mut pixels = [None; 3];
+
         self.cpu.borrow_mut().tick();
-        self.ppu.borrow_mut().tick();
-        self.ppu.borrow_mut().tick();
-        self.ppu.borrow_mut().tick();
+
+        pixels[0] = self.ppu.borrow_mut().tick();
+        pixels[1] = self.ppu.borrow_mut().tick();
+        pixels[2] = self.ppu.borrow_mut().tick();
+
+        pixels
     }
 
     /// Check if the CPU is in an infinite loop state
