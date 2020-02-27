@@ -20,13 +20,16 @@ fn main() -> Result<(), String> {
         (author: "Natesh Narain <nnaraindev@gmail.com>")
         (about: "Run a NES ROM file")
         (@arg ROM: -f --file +takes_value +required "The ROM file to run")
+        (@arg debug: -d "Enable Debug Mode")
     ).get_matches();
+
+    let enable_debug = matches.occurrences_of("debug") > 0;
 
     // TODO: Error handling
     let mut nes = matches.value_of("ROM")
                      .ok_or("ROM file not specified")
                      .map(Cartridge::from_path).map(|r| r.unwrap())
-                     .map(|cart| Nes::default().with_cart(cart).debug_mode(false))
+                     .map(|cart| Nes::default().with_cart(cart).debug_mode(enable_debug))
                      .unwrap();
 
     let sdl_context = sdl2::init()?;

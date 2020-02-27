@@ -9,8 +9,7 @@ fn branch_timing_branch_basics() {
         nes.emulate_frame();
     }
 
-    // TODO: Requires NMI
     // According to branch_timing_tests/validation.a: Results are store in $F8
     // let result = nes.read_cpu_ram(0xF8);
-    // assert_eq!(result, 1, "Branch Basics returned result {:02X}", result);
+    // assert_eq!(result, 1, "Branch Basics returned result ${:02X}", result);
 }

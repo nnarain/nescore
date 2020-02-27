@@ -44,6 +44,8 @@ pub struct Cpu<Io: IoAccess> {
     bus: Option<Io>,
     state: State,                 // Internal CPU cycle state
 
+    interrupted: bool,            // Flag indicating the CPU was interrupt
+
     debug: bool,                  // Debug mode
     is_holding: bool,             // CPU is in an infinite loop state
 }
@@ -62,6 +64,8 @@ impl<Io: IoAccess> Default for Cpu<Io> {
 
             bus: None,
             state: State::Reset,
+
+            interrupted: false,
 
             debug: false,
             is_holding: false,
@@ -111,8 +115,14 @@ impl<Io: IoAccess> Cpu<Io> {
                 State::Fetch
             },
             State::Fetch => {
-                let opcode = self.fetch();
-                self.get_execute_state(opcode)
+                if self.interrupted {
+                    self.interrupt();
+                    State::Fetch
+                }
+                else {
+                    let opcode = self.fetch();
+                    self.get_execute_state(opcode)
+                }
             },
             State::Execute(ref instr, ref mode, ref opcode_data, ref cycle) => {
 
@@ -1261,6 +1271,25 @@ impl<Io: IoAccess> Cpu<Io> {
         else {
             self.bus.as_mut().map(|bus|bus.write_byte(addr, value));
         }
+    }
+
+    fn interrupt(&mut self) {
+        self.interrupted = false;
+
+        self.push16(self.pc);
+        self.push(self.p);
+
+        self.pc = self.read_u16(memorymap::NMI_VECTOR);
+
+        if self.debug {
+            println!("NMI raised in CPU: {:04X}", self.pc);
+        }
+    }
+}
+
+impl<Io: IoAccess> IoAccess for Cpu<Io> {
+    fn raise_interrupt(&mut self) {
+        self.interrupted = true;
     }
 }
 
@@ -2625,6 +2654,18 @@ mod tests {
         assert_eq!(cpu.is_holding(), true);
     }
 
+    #[test]
+    fn enter_interrupt() {
+        // TODO: Interrupt test
+        // let bus = FakeBus::default();
+        // let mut cpu: Cpu<FakeBus> = Cpu::default();
+        // cpu.load_bus(bus);
+
+        // cpu.raise_interrupt();
+
+        // assert_eq!(cpu.pc, 0x4020);
+    }
+
     ///-----------------------------------------------------------------------------------------------------------------
     /// Helper functions
     ///-----------------------------------------------------------------------------------------------------------------
@@ -2634,6 +2675,15 @@ mod tests {
         pub struct FakeBus {
             prg_rom: Vec<u8>, // ROM
             rom_offest: usize,
+        }
+
+        impl Default for FakeBus {
+            fn default() -> Self {
+                FakeBus {
+                    prg_rom: vec![],
+                    rom_offest: 0,
+                }
+            }
         }
 
         impl FakeBus {
@@ -2647,18 +2697,16 @@ mod tests {
 
         impl IoAccess for FakeBus {
             fn read_byte(&self, addr: u16) -> u8 {
-                if addr == 0xFFFC {
-                    0x20
-                }
-                else if addr == 0xFFFD {
-                    0x40
-                }
-                else {
-                    if addr >= 0x4020 {
-                        self.prg_rom[((addr as usize) - self.rom_offest) % self.prg_rom.len()]
-                    }
-                    else {
-                        0
+                match addr {
+                    0xFFFC | 0xFFFA => 0x20,
+                    0xFFFD | 0xFFFB => 0x40,
+                    _ => {
+                        if addr >= 0x4020 {
+                            self.prg_rom[((addr as usize) - self.rom_offest) % self.prg_rom.len()]
+                        }
+                        else {
+                            0
+                        }
                     }
                 }
             }

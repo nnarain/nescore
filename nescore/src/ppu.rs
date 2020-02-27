@@ -118,7 +118,7 @@ impl<Io: IoAccess> Ppu<Io> {
                 self.status.vblank = true;
                 // Set NMI during 2nd cycle of VBlank period
                 if self.ctrl.nmi_enable && self.cycle == 1 {
-                    // TODO: Set NMI
+                    self.raise_interrupt();
                 }
             }
         }
@@ -260,6 +260,13 @@ impl<Io: IoAccess> Ppu<Io> {
         self.status.vblank
     }
 
+    /// Raise NMI interrupt
+    fn raise_interrupt(&mut self) {
+        if let Some(ref mut bus) = self.bus {
+            bus.raise_interrupt();
+        }
+    }
+
     /// Read directly from PPU VRAM
     pub fn read_vram(&self, addr: u16) -> u8 {
         self.bus.as_ref().map(|bus| bus.read_byte(addr)).unwrap()
@@ -290,9 +297,13 @@ impl<Io: IoAccess> IoAccess for Ppu<Io> {
             0x2002 => {
                 self.status.value()
             },
+            0x2003 => {
+                0
+            },
             0x2004 => {
                 let data = self.oam[*self.oam_addr.borrow() as usize];
-                *self.oam_addr.borrow_mut() = self.oam_addr.borrow().wrapping_add(1);
+                // FIXME
+                // *self.oam_addr.borrow_mut() = self.oam_addr.borrow().wrapping_add(1);
 
                 data
             },
@@ -326,7 +337,8 @@ impl<Io: IoAccess> IoAccess for Ppu<Io> {
             // OAM ADDR
             0x2003 => {
                 *self.oam_addr.borrow_mut() = value as u16;
-                *self.oam_addr.borrow_mut() = self.oam_addr.borrow().wrapping_add(1);
+                // FIXME
+                // *self.oam_addr.borrow_mut() = self.oam_addr.borrow().wrapping_add(1);
             },
             // OAM DATA
             0x2004 => {

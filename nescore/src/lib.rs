@@ -128,7 +128,7 @@ impl Nes {
         let cpu_bus = CpuIoBus::new(self.ppu.clone(), mapper.clone());
         self.cpu.borrow_mut().load_bus(cpu_bus);
 
-        let ppu_bus = PpuIoBus::new(mapper.clone());
+        let ppu_bus = PpuIoBus::new(self.cpu.clone(), mapper.clone());
         self.ppu.borrow_mut().load_bus(ppu_bus);
 
         self.mapper = Some(mapper);

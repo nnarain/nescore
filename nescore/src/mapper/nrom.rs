@@ -48,7 +48,8 @@ impl MapperControl for Nrom {
                 self.prg_rom.read(bank, (addr - 0xC000) as usize)
             }
             _ => {
-                panic!("Invalid address for mapper")
+                // panic!("Invalid address for mapper")
+                0
             }
         }
     }
