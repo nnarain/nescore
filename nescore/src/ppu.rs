@@ -174,6 +174,7 @@ impl<Io: IoAccess> Ppu<Io> {
 
     fn load_shift_registers(&mut self, dot: u8, tile_x_offset: u8, next_scanline: bool) {
         // Get pixel scroll offset
+        // TODO: If this scrolling correct?
         let scroll = self.ctrl.base_scroll();
         let (base_x, base_y) = (scroll.0 + dot as u16, scroll.1 + (next_scanline as u16));
 
