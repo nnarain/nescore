@@ -7,28 +7,33 @@
 
 
 use super::MapperControl;
-use crate::cart::{Cartridge};
+use crate::cart::Cartridge;
 
 use super::mem::Memory;
 
+const PRG_ROM_SIZE: usize = 0x2000;
+const CHR_ROM_SIZE: usize = 0x2000;
+
+/// NROM Mapper
+/// https://wiki.nesdev.com/w/index.php/NROM
 pub struct Nrom {
     prg_rom: Memory,
     prg_ram: [u8; 0x2000],
-    //chr_rom: [u8; 0x2000],
+    chr_rom: [u8; CHR_ROM_SIZE],
     mirror_rom: bool,
 }
 
 impl Nrom {
     pub fn from(cart: Cartridge) -> Self {
-        let (info, prg_rom, _) = cart.to_parts();
+        let (info, prg_rom, chr_rom) = cart.to_parts();
 
-        // let mut chr_rom_arr = [0x0u8; 0x2000];
-        // chr_rom_arr.copy_from_slice(chr_rom.as_slice());
+        let mut chr_rom_arr = [0x0u8; CHR_ROM_SIZE];
+        chr_rom_arr.copy_from_slice(chr_rom.as_slice());
 
         Nrom {
             prg_rom: Memory::new(prg_rom, info.prg_rom_banks),
-            prg_ram: [0; 0x2000],
-            //chr_rom: chr_rom_arr,
+            prg_ram: [0; PRG_ROM_SIZE],
+            chr_rom: chr_rom_arr,
             mirror_rom: info.prg_rom_banks == 1,
         }
     }
@@ -63,12 +68,12 @@ impl MapperControl for Nrom {
         }
     }
 
-    fn read_chr(&self, _addr: u16) -> u8 {
-        0
+    fn read_chr(&self, addr: u16) -> u8 {
+        self.chr_rom[addr as usize]
     }
 
-    fn write_chr(&mut self, _addr: u16, _value: u8) {
-
+    fn write_chr(&mut self, addr: u16, value: u8) {
+        self.chr_rom[addr as usize] = value;
     }
 }
 
