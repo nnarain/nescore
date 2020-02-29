@@ -28,7 +28,9 @@ impl Nrom {
         let (info, prg_rom, chr_rom) = cart.to_parts();
 
         let mut chr_rom_arr = [0x0u8; CHR_ROM_SIZE];
-        chr_rom_arr.copy_from_slice(chr_rom.as_slice());
+        for (i, byte) in chr_rom.iter().enumerate() {
+            chr_rom_arr[i] = *byte;
+        }
 
         Nrom {
             prg_rom: Memory::new(prg_rom, info.prg_rom_banks),
