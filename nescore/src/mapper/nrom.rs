@@ -7,7 +7,7 @@
 
 
 use super::MapperControl;
-use crate::cart::Cartridge;
+use crate::cart::{Cartridge, PRG_ROM_BANK_SIZE};
 
 use super::mem::Memory;
 
@@ -33,7 +33,7 @@ impl Nrom {
         }
 
         Nrom {
-            prg_rom: Memory::new(prg_rom, info.prg_rom_banks),
+            prg_rom: Memory::new(prg_rom, PRG_ROM_BANK_SIZE),
             prg_ram: [0; PRG_ROM_SIZE],
             chr_rom: chr_rom_arr,
             mirror_rom: info.prg_rom_banks == 1,
@@ -55,8 +55,7 @@ impl MapperControl for Nrom {
                 self.prg_rom.read(bank, (addr - 0xC000) as usize)
             }
             _ => {
-                // panic!("Invalid address for mapper")
-                0
+                panic!("Invalid address for mapper")
             }
         }
     }
@@ -103,6 +102,27 @@ mod tests {
     }
 
     #[test]
+    fn read_last_bank() {
+        let header = init_header(2, 1);
+        let mut prg_rom = [0x00; kb!(32)];
+        let chr_rom = [0x00; kb!(8)];
+
+        // Set IRQ Vector
+        prg_rom[0x7FFE] = 0x01;
+        prg_rom[0x7FFF] = 0x60;
+
+        let rom = [&header[..], &prg_rom[..], &chr_rom[..]].concat();
+
+        let nrom = Cartridge::from(rom).map(|cart| Nrom::from(cart)).unwrap();
+
+        let irq_lo = nrom.read(0xFFFE) as u16;
+        let irq_hi = nrom.read(0xFFFF) as u16;
+        let irq = irq_hi << 8 | irq_lo;
+
+        assert_eq!(irq, 0x6001);
+    }
+
+    #[test]
     fn read_mirrored() {
         let header = init_header(1, 1);
         let mut prg_rom = [0u8; kb!(16)];
@@ -115,10 +135,10 @@ mod tests {
         let rom = [&header[..], &prg_rom[..], &chr_rom[..]].concat();
 
         let cart = Cartridge::from(rom).unwrap();
-
         let nrom = Nrom::from(cart);
 
         assert_eq!(nrom.read(0xC000), 0xDE);
+        assert_eq!(nrom.read(0xFFFF), 0xAD);
     }
 
     fn init_header(num_prg_banks: u8, num_chr_banks: u8) -> [u8; 16] {
