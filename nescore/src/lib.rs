@@ -27,8 +27,8 @@ use std::cell::RefCell;
 
 /// Size of the display frame buffer: display size * RGB (3 bytes)
 const FRAME_BUFFER_SIZE: usize = DISPLAY_WIDTH * DISPLAY_HEIGHT * 3;
-/// CPU Cycles in a frame: (256x240) - resolution, 1 px per PPU tick. 1 CPU tick for 3 PPU ticks
-const CPU_CYCLES_PER_FRAME: usize = 113 * 262;//(DISPLAY_WIDTH * DISPLAY_HEIGHT) / 3;
+/// PPU clocks 3 times faster than the CPU
+const CPU_CYCLES_PER_FRAME: usize = ppu::CYCLES_PER_FRAME / 3;
 
 /// Representation of the NES system
 #[derive(Default)]
@@ -70,19 +70,12 @@ impl Nes {
         if self.mapper.is_some() {
             for _ in 0..CPU_CYCLES_PER_FRAME {
                 let pixels = self.tick_master_clock();
-                // TODO: Idiomatic way to do this
                 for p in &pixels {
-                    if let Some(p) = p {
-                        let r = (p & 0xFF) as u8;
-                        let g = ((p >> 8) & 0xFF) as u8;
-                        let b = ((p >> 16) & 0xFF) as u8;
-
-                        for v in &[r, g, b] {
-                            if idx < FRAME_BUFFER_SIZE {
-                                framebuffer[idx] = *v;
-                                idx += 1;
-                            }
-                        }
+                    if let Some((r, g, b)) = p {
+                        framebuffer[idx] = *r;
+                        framebuffer[idx + 1] = *g;
+                        framebuffer[idx + 2] = *b;
+                        idx += 3;
                     }
                 }
             }
@@ -121,6 +114,8 @@ impl Nes {
 
     /// Load a cartridge
     pub fn insert(&mut self, cart: Cartridge) {
+        let mirror_v = cart.info.mirror_v;
+
         // Consume provided cartridge and get the mapper
         let mapper = mapper::from_cartridge(cart);
 
@@ -128,7 +123,7 @@ impl Nes {
         let cpu_bus = CpuIoBus::new(self.ppu.clone(), mapper.clone());
         self.cpu.borrow_mut().load_bus(cpu_bus);
 
-        let ppu_bus = PpuIoBus::new(self.cpu.clone(), mapper.clone());
+        let ppu_bus = PpuIoBus::new(self.cpu.clone(), mapper.clone(), mirror_v);
         self.ppu.borrow_mut().load_bus(ppu_bus);
 
         self.mapper = Some(mapper);

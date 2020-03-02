@@ -73,8 +73,8 @@ impl MapperControl for Nrom {
         self.chr_rom[addr as usize]
     }
 
+    #[allow(unused)]
     fn write_chr(&mut self, addr: u16, value: u8) {
-        self.chr_rom[addr as usize] = value;
     }
 }
 
@@ -99,6 +99,7 @@ mod tests {
         let nrom = Nrom::from(cart);
 
         assert_eq!(nrom.read(0x8000), 0xDE);
+        assert_eq!(nrom.read(0xBFFF), 0xAD);
     }
 
     #[test]
@@ -139,6 +140,25 @@ mod tests {
 
         assert_eq!(nrom.read(0xC000), 0xDE);
         assert_eq!(nrom.read(0xFFFF), 0xAD);
+    }
+
+    #[test]
+    fn read_chr() {
+        let header = init_header(1, 1);
+        let prg_rom = [0u8; kb!(16)];
+        let mut chr_rom = [0u8; kb!(8)];
+
+        // Put markers in the PRG and CHR ROM data to identify the blocks after loading the cartridge
+        chr_rom[0x00] = 0xDE;
+        chr_rom[chr_rom.len()-1] = 0xAD;
+
+        let rom = [&header[..], &prg_rom[..], &chr_rom[..]].concat();
+
+        let cart = Cartridge::from(rom).unwrap();
+        let nrom = Nrom::from(cart);
+
+        assert_eq!(nrom.read_chr(0x0000), 0xDE);
+        assert_eq!(nrom.read_chr(0x1FFF), 0xAD);
     }
 
     fn init_header(num_prg_banks: u8, num_chr_banks: u8) -> [u8; 16] {

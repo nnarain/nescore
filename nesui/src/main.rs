@@ -1,5 +1,9 @@
-
-#[macro_use]
+//
+// Simple GUI for nescore
+//
+// @author Natesh Narain <nnaraindev@gmail.com>
+// @date Mar 01 2020
+//
 use clap::clap_app;
 
 use sdl2::pixels::{Color, PixelFormatEnum};
@@ -11,8 +15,8 @@ use std::time::Duration;
 use nescore::{Nes, Cartridge};
 use nescore::{DISPLAY_WIDTH, DISPLAY_HEIGHT};
 
-const WINDOW_WIDTH: u32 = 800;
-const WINDOW_HEIGHT: u32 = 600;
+const WINDOW_WIDTH: u32 = 256;
+const WINDOW_HEIGHT: u32 = 240;
 
 fn main() -> Result<(), String> {
     let matches = clap_app!(nesui =>

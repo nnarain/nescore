@@ -41,3 +41,12 @@ Debugging UI for `nescore`
 ```
 nesui -f <ROM>
 ```
+
+nesimg
+------
+
+Dump CHR ROM data as a monochrome image.
+
+```
+nesimg -f <ROM>
+```

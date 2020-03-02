@@ -22,7 +22,7 @@ pub struct PpuIoBus {
 }
 
 impl PpuIoBus {
-    pub fn new(cpu_io: IoAccessRef, mapper: Mapper) -> Self {
+    pub fn new(cpu_io: IoAccessRef, mapper: Mapper, mirror_v: bool) -> Self {
         PpuIoBus {
             cpu: cpu_io,
             mapper: mapper,
@@ -30,7 +30,7 @@ impl PpuIoBus {
             nametable_ram: [0x00; INTERNAL_RAM],
             palette_ram: [0x00; 256],
 
-            vertical_mirroring: false,
+            vertical_mirroring: mirror_v,
         }
     }
 }
@@ -47,7 +47,7 @@ impl IoAccess for PpuIoBus {
             },
             0x3F00..=0x3FFF => self.palette_ram[(addr - 0x3F00) as usize],
 
-            _ => panic!("Invalid read {:04X}", addr),
+            _ => panic!("Invalid read ${:04X}", addr),
         }
     }
 
@@ -96,13 +96,17 @@ mod tests {
     #[test]
     fn horizontal_mirroring() {
         assert_eq!(helpers::calc_nametable_addr(0x2000, false), 0x2400);
+        assert_eq!(helpers::calc_nametable_addr(0x2400, false), 0x2400);
         assert_eq!(helpers::calc_nametable_addr(0x2800, false), 0x2C00);
+        assert_eq!(helpers::calc_nametable_addr(0x2C00, false), 0x2C00);
     }
 
     #[test]
     fn vertical_mirroring() {
         assert_eq!(helpers::calc_nametable_addr(0x2000, true), 0x2800);
+        assert_eq!(helpers::calc_nametable_addr(0x2800, true), 0x2800);
         assert_eq!(helpers::calc_nametable_addr(0x2400, true), 0x2C00);
+        assert_eq!(helpers::calc_nametable_addr(0x2C00, true), 0x2C00);
     }
 
     //------------------------------------------------------------------------------------------------------------------

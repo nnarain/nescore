@@ -14,16 +14,16 @@ use crate::common::{IoAccess, Clockable, Register};
 
 use std::cell::RefCell;
 
-pub type Pixel = u32;
-pub const DISPLAY_WIDTH: usize = 256;
-pub const DISPLAY_HEIGHT: usize = 240;
-
 const NUM_SCANLINES: usize = 262;
 const CYCLES_PER_SCANLINE: usize = 341;
 const TILES_PER_ROW: usize = 32;
 
+pub type Pixel = (u8, u8, u8);
+pub const DISPLAY_WIDTH: usize = 256;
+pub const DISPLAY_HEIGHT: usize = 240;
+pub const CYCLES_PER_FRAME: usize = NUM_SCANLINES * CYCLES_PER_SCANLINE;
 
-const COLOR_INDEX_TO_RGB: [Pixel; 64] = [
+const COLOR_INDEX_TO_RGB: [u32; 64] = [
     0x7C7C7C, 0x0000FC, 0x0000BC, 0x4428BC, 0x940084, 0xA80020, 0xA81000, 0x881400,
     0x503000, 0x007800, 0x006800, 0x005800, 0x004058, 0x000000, 0x000000, 0x000000,
     0xBCBCBC, 0x0078F8, 0x0058F8, 0x6844FC, 0xD800CC, 0xE40058, 0xF83800, 0xE45C10,
@@ -124,7 +124,7 @@ impl<Io: IoAccess> Ppu<Io> {
         }
 
         // TODO: Every cycles produces a pixel
-        if scanline == Scanline::Visible {
+        if scanline == Scanline::Visible && self.cycle <= 255 {
             Some(self.generate_pixel())
         }
         else {
@@ -143,7 +143,7 @@ impl<Io: IoAccess> Ppu<Io> {
                 // In addition to all that, the sprite evaluation happens independently
                 if cycle % 8 == 0 {
                     let dot = (cycle - 1) as u8;
-                    self.load_shift_registers(dot, 2, false);
+                    self.load_shift_registers(dot, 2, self.scanline as u8);
                 }
             },
             257..=320 => {
@@ -155,7 +155,7 @@ impl<Io: IoAccess> Ppu<Io> {
                 // accesses: 2 nametable bytes, attribute, pattern table low, pattern table high
                 if cycle % 8 == 0 {
                     let dot = (cycle - 321) as u8;
-                    self.load_shift_registers(dot, 0, true);
+                    self.load_shift_registers(dot, 0, self.scanline as u8 + 1);
                 }
             },
             337..=340 => {
@@ -172,21 +172,21 @@ impl<Io: IoAccess> Ppu<Io> {
         }
     }
 
-    fn load_shift_registers(&mut self, dot: u8, tile_x_offset: u8, next_scanline: bool) {
+    fn load_shift_registers(&mut self, dot: u8, tile_x_offset: u8, scanline: u8) {
         // Get pixel scroll offset
-        // TODO: If this scrolling correct?
-        let scroll = self.ctrl.base_scroll();
-        let (base_x, base_y) = (scroll.0 + dot as u16, scroll.1 + (next_scanline as u16));
+        let scroll = self.scroll.offset();
+        let (base_x, base_y) = (scroll.0 as usize + dot as usize, scroll.1 as usize + scanline as usize);
 
-        // Determine tile offset (+3 because the first two tiles have already been loaded)
-        let coarse = ((base_x / 8) + tile_x_offset as u16, base_y / 8);
+        // Determine tile offset
+        let coarse = ((base_x / 8) + tile_x_offset as usize, base_y / 8);
         // Determine tile index for nametable
-        let tile_idx = (coarse.1 * TILES_PER_ROW as u16) + coarse.0;
+        let tile_idx = (coarse.1 as usize * TILES_PER_ROW) + coarse.0 as usize;
 
         // Read tile number from nametable
-        let tile_no = self.read_nametable(tile_idx as usize);
+        let tile_no = self.read_nametable(tile_idx);
         // Read pattern from pattern table memory
-        let pattern = self.read_pattern(self.ctrl.background_pattern_table(), tile_no);
+        let fine_y = (base_y % 8) as u8;
+        let pattern = self.read_pattern(self.ctrl.background_pattern_table(), tile_no, fine_y);
         // Fetch tile attributes
         let attribute = self.read_attribute(coarse.1 as usize, coarse.0 as usize);
 
@@ -222,10 +222,10 @@ impl<Io: IoAccess> Ppu<Io> {
         (attr >> c) & 0x03
     }
 
-    fn read_pattern(&self, base: u16, tile_no: u8) -> (u8, u8) {
+    fn read_pattern(&self, base: u16, tile_no: u8, fine_y: u8) -> (u8, u8) {
         let tile_no = tile_no as u16;
         // 16 bytes per tile
-        let tile_offset = tile_no * 16;
+        let tile_offset = (tile_no * 16) + fine_y as u16;
 
         let lo = self.read_vram(base + tile_offset);
         let hi = self.read_vram(base + tile_offset + 8);
@@ -233,9 +233,9 @@ impl<Io: IoAccess> Ppu<Io> {
         (lo, hi)
     }
 
-    fn generate_pixel(&mut self) -> Pixel {
+    fn generate_pixel(&self) -> Pixel {
         // Use fine X to select the pixel to render
-        let fine_x = (self.ctrl.base_scroll().0 % 8) as u8;
+        let fine_x = (self.scroll.x % 8) as u8;
 
         // Fetch pattern and attributes from shifters
         let pattern = self.tile_reg.get_value(fine_x);
@@ -248,7 +248,7 @@ impl<Io: IoAccess> Ppu<Io> {
         // Fetch color from palette
         let color = self.read_vram(0x3F00 + palette_offset as u16) as usize;
 
-        COLOR_INDEX_TO_RGB[color]
+        helpers::color_to_pixel(COLOR_INDEX_TO_RGB[color])
     }
 
     fn tick_shifters(&mut self) {
@@ -257,9 +257,9 @@ impl<Io: IoAccess> Ppu<Io> {
     }
 
     /// Check if the PPU is in vertical blanking mode
-    pub fn is_vblank(&self) -> bool {
-        self.status.vblank
-    }
+    // pub fn is_vblank(&self) -> bool {
+    //     self.status.vblank
+    // }
 
     /// Raise NMI interrupt
     fn raise_interrupt(&mut self) {
@@ -270,12 +270,19 @@ impl<Io: IoAccess> Ppu<Io> {
 
     /// Read directly from PPU VRAM
     pub fn read_vram(&self, addr: u16) -> u8 {
-        self.bus.as_ref().map(|bus| bus.read_byte(addr)).unwrap()
+        if let Some(ref bus) = self.bus {
+            bus.read_byte(addr)
+        }
+        else {
+            panic!("PPU's bus not initialized");
+        }
     }
 
     /// Write directly to PPU VRAM
     pub fn write_vram(&mut self, addr: u16, value: u8) {
-        self.bus.as_mut().map(|bus| bus.write_byte(addr, value));
+        if let Some(ref mut bus) = self.bus {
+            bus.write_byte(addr, value);
+        }
     }
 
     pub fn load_bus(&mut self, bus: Io) {
@@ -384,6 +391,8 @@ impl<Io: IoAccess> Clockable<Option<Pixel>> for Ppu<Io> {
 }
 
 mod helpers {
+    use super::Pixel;
+
     pub fn calc_nametable_address(base: u16, tile_offset: usize) -> u16 {
         base + (tile_offset as u16)
     }
@@ -397,11 +406,49 @@ mod helpers {
 
         base + row_offset + col_offset
     }
+
+    pub fn color_to_pixel(c: u32) -> Pixel {
+        (
+            (c & 0xFF) as u8,
+            ((c >> 8) & 0xFF) as u8,
+            ((c >> 16) & 0xFF) as u8
+        )
+    }
 }
+
+//----------------------------------------------------------------------------------------------------------------------
+// Tests
+//----------------------------------------------------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn visible_pixel_output() {
+        let mut ppu = init_ppu();
+
+        // Run the pre-render scanline
+        for _ in 0..CYCLES_PER_SCANLINE {
+            let pixel = ppu.tick();
+            assert!(pixel.is_none());
+        }
+
+        let mut pixel_counter = 0;
+
+        // Run for visible scanlines
+        for _ in 0..240 {
+            for _ in 0..CYCLES_PER_SCANLINE {
+                let pixel = ppu.tick();
+
+                if pixel.is_some() {
+                    pixel_counter += 1;
+                }
+            }
+        }
+
+        assert_eq!(pixel_counter, DISPLAY_WIDTH * DISPLAY_HEIGHT);
+    }
 
     #[test]
     fn render_one_pixel() {
@@ -434,7 +481,7 @@ mod tests {
 
         // The color of the pixel should be the index one of the color table
         let color = pixel.unwrap();
-        assert_eq!(color, COLOR_INDEX_TO_RGB[0x01], "Color was: #{:X}", color);
+        assert_eq!(color, helpers::color_to_pixel(COLOR_INDEX_TO_RGB[0x01]), "Color was: RGB{:?}", color);
     }
 
     #[test]

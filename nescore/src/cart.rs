@@ -12,8 +12,8 @@ use std::io::prelude::*;
 use std::fs::File;
 
 const KILO_BYTES: usize = 1024;
-pub const PRG_ROM_BANK_SIZE: usize = (16 * KILO_BYTES);
-pub const CHR_ROM_BANK_SIZE: usize = (8 * KILO_BYTES);
+pub const PRG_ROM_BANK_SIZE: usize = 16 * KILO_BYTES;
+pub const CHR_ROM_BANK_SIZE: usize = 8 * KILO_BYTES;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Format {

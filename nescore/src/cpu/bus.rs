@@ -48,7 +48,6 @@ impl IoAccess for CpuIoBus {
                 self.ppu.borrow_mut().write_byte(mirror_address(addr, 0x2000, 8), data);
             },
             0x4014 => {
-                // self.ppu.write_byte(addr, data);
                 self.ppu.borrow_mut().write_byte(addr, data);
             },
             _ => {}

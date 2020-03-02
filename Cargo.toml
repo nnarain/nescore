@@ -2,5 +2,6 @@
 members = [
     "nescore",
     "nesinfo",
-    "nesui"
+    "nesui",
+    "nesimg"
 ]
