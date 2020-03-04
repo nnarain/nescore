@@ -89,6 +89,21 @@ macro_rules! bit_as_value {
     }
 }
 
+#[macro_export]
+macro_rules! reverse_bits {
+    ($x:expr) => {
+        {
+            let mut y = 0;
+            for i in 0..8 {
+                if bit_is_set!($x, i) {
+                    bit_set!(y, (7 - i));
+                }
+            }
+            y
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -180,5 +195,10 @@ mod tests {
     fn test_bit_as_value() {
         assert_eq!(bit_as_value!(0x08, 3), 1);
         assert_eq!(bit_as_value!(0x08, 2), 0);
+    }
+
+    #[test]
+    fn bit_reverse() {
+        assert_eq!(reverse_bits!(0x80), 0x01);
     }
 }

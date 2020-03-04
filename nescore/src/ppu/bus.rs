@@ -92,6 +92,42 @@ mod helpers {
 mod tests {
     use super::*;
     use crate::mapper::MapperControl;
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    #[test]
+    fn read_write_nametable_mirroring_v() {
+        let mut bus = init_bus(true);
+
+        bus.write_byte(0x2000, 1);
+        assert_eq!(bus.read_byte(0x2800), 1);
+        bus.write_byte(0x2400, 2);
+        assert_eq!(bus.read_byte(0x2C00), 2);
+    }
+
+    #[test]
+    fn read_write_nametable_mirroring_h() {
+        let mut bus = init_bus(false);
+
+        bus.write_byte(0x2000, 1);
+        assert_eq!(bus.read_byte(0x2400), 1);
+        bus.write_byte(0x2800, 2);
+        assert_eq!(bus.read_byte(0x2C00), 2);
+    }
+
+    #[test]
+    fn nametable_mirroring() {
+        let mut bus = init_bus(false);
+
+        for i in 0..0x400 {
+            bus.write_byte((0x2000 + i) as u16, i as u8);
+        }
+
+        for i in 0..0x400 {
+            let value = bus.read_byte((0x3000 + i) as u16);
+            assert_eq!(value, i as u8);
+        }
+    }
 
     #[test]
     fn horizontal_mirroring() {
@@ -113,12 +149,19 @@ mod tests {
     // Helpers
     //------------------------------------------------------------------------------------------------------------------
 
+    fn init_bus(mirror_v: bool) -> PpuIoBus {
+        let cpu = Rc::new(RefCell::new(FakeCpu::default()));
+        let mapper = Rc::new(RefCell::new(FakeMapper::new()));
+
+        PpuIoBus::new(cpu.clone(), mapper.clone(), mirror_v)
+    }
+
     struct FakeCpu {
         interrupted: bool,
     }
 
-    impl FakeCpu {
-        fn new() -> Self {
+    impl Default for FakeCpu {
+        fn default() -> Self {
             FakeCpu {
                 interrupted: false,
             }

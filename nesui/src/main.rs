@@ -15,8 +15,8 @@ use std::time::Duration;
 use nescore::{Nes, Cartridge};
 use nescore::{DISPLAY_WIDTH, DISPLAY_HEIGHT};
 
-const WINDOW_WIDTH: u32 = 256;
-const WINDOW_HEIGHT: u32 = 240;
+const WINDOW_WIDTH: u32 = 800;
+const WINDOW_HEIGHT: u32 = 600;
 
 fn main() -> Result<(), String> {
     let matches = clap_app!(nesui =>

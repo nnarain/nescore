@@ -49,8 +49,8 @@ impl Shifter for TileRegister {
 impl TileRegister {
     /// Load tile data into the upper bytes of the two shift registers
     pub fn load(&mut self, value: (u8, u8)) {
-        self.plane0 = self.plane0 | ((value.0 as u16) << 8);
-        self.plane1 = self.plane1 | ((value.1 as u16) << 8);
+        self.plane0 = self.plane0 | ((reverse_bits!(value.0) as u16) << 8);
+        self.plane1 = self.plane1 | ((reverse_bits!(value.1) << 8));
     }
 }
 
@@ -112,22 +112,22 @@ mod tests {
             tile_reg.tick();
         }
 
-        assert_eq!(tile_reg.get_value(0), 0x01);
-        assert_eq!(tile_reg.get_value(1), 0x03);
+        assert_eq!(tile_reg.get_value(7), 0x01);
+        assert_eq!(tile_reg.get_value(6), 0x03);
     }
 
     #[test]
     fn pallette_register_load_and_shift() {
-        let mut pallette_reg = PaletteRegister::default();
+        let mut palette_reg = PaletteRegister::default();
 
         // Latch a $1 for both registers
-        pallette_reg.latch(0x03);
+        palette_reg.latch(0x03);
 
         for _ in 0..8 {
-            pallette_reg.tick();
+            palette_reg.tick();
         }
 
-        assert_eq!(pallette_reg.get_value(0), 0x03);
-        assert_eq!(pallette_reg.get_value(7), 0x03);
+        assert_eq!(palette_reg.get_value(0), 0x03);
+        assert_eq!(palette_reg.get_value(7), 0x03);
     }
 }

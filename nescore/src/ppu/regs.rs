@@ -255,10 +255,14 @@ mod tests {
     #[test]
     fn ppuaddr() {
         let mut addr = PpuAddr::default();
+
         addr.load(0xDE);
         addr.load(0xAD);
-
         assert_eq!(addr.value(), 0xDEAD);
+
+        addr.load(0x20);
+        addr.load(0x00);
+        assert_eq!(addr.value(), 0x2000);
     }
 
     #[test]

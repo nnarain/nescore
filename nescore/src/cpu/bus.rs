@@ -29,7 +29,7 @@ impl CpuIoBus {
 impl IoAccess for CpuIoBus {
     fn read_byte(&self, addr: u16) -> u8 {
         match addr {
-            0x2000..=0x3FFF => self.ppu.borrow_mut().read_byte(mirror_address(addr, 0x2000, 8)),
+            0x2000..=0x3FFF => self.ppu.borrow().read_byte(mirror_address(addr, 0x2000, 8)),
             0x4000..=0x401F => {
                 // APU and IO
                 0

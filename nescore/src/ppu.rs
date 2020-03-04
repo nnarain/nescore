@@ -155,7 +155,8 @@ impl<Io: IoAccess> Ppu<Io> {
                 // accesses: 2 nametable bytes, attribute, pattern table low, pattern table high
                 if cycle % 8 == 0 {
                     let dot = (cycle - 321) as u8;
-                    self.load_shift_registers(dot, 0, self.scanline as u8 + 1);
+                    let scanline = (self.scanline + 1) % NUM_SCANLINES;
+                    self.load_shift_registers(dot, 0, scanline as u8);
                 }
             },
             337..=340 => {
@@ -184,6 +185,7 @@ impl<Io: IoAccess> Ppu<Io> {
 
         // Read tile number from nametable
         let tile_no = self.read_nametable(tile_idx);
+
         // Read pattern from pattern table memory
         let fine_y = (base_y % 8) as u8;
         let pattern = self.read_pattern(self.ctrl.background_pattern_table(), tile_no, fine_y);
@@ -257,9 +259,9 @@ impl<Io: IoAccess> Ppu<Io> {
     }
 
     /// Check if the PPU is in vertical blanking mode
-    // pub fn is_vblank(&self) -> bool {
-    //     self.status.vblank
-    // }
+    pub fn is_vblank(&self) -> bool {
+        self.status.vblank
+    }
 
     /// Raise NMI interrupt
     fn raise_interrupt(&mut self) {
@@ -293,7 +295,6 @@ impl<Io: IoAccess> Ppu<Io> {
 // TODO: Latch behaviour
 
 impl<Io: IoAccess> IoAccess for Ppu<Io> {
-    // TODO: Palette mirroring
     fn read_byte(&self, addr: u16) -> u8 {
         match addr {
             0x2000 => {
@@ -318,9 +319,11 @@ impl<Io: IoAccess> IoAccess for Ppu<Io> {
             0x2005 => {
                 self.scroll.x
             },
+            // PPU Address
             0x2006 => {
                 self.addr.borrow().value() as u8
             },
+            // PPU Data
             0x2007 => {
                 let data = self.read_vram(self.addr.borrow().value());
                 *self.addr.borrow_mut() += self.ctrl.vram_increment();
@@ -459,7 +462,7 @@ mod tests {
         ppu.write_byte(0x2005, 0);
 
         // Write pattern into pattern table
-        ppu.write_vram(0x0010, 0x01);
+        ppu.write_vram(0x0010, 0x80);
         ppu.write_vram(0x0018, 0x00);
 
         // Write into nametable
@@ -472,12 +475,12 @@ mod tests {
         // Run the PPU for the pre-render scanline
         for _ in 0..CYCLES_PER_SCANLINE {
             let pixel = ppu.tick();
-            assert_eq!(pixel.is_some(), false);
+            assert!(pixel.is_none());
         }
 
         // The first tick of the visible scanline should have a pixel
         let pixel = ppu.tick();
-        assert_eq!(pixel.is_some(), true);
+        assert!(pixel.is_some());
 
         // The color of the pixel should be the index one of the color table
         let color = pixel.unwrap();
@@ -517,6 +520,23 @@ mod tests {
 
         assert_eq!(ppu.read_vram(0x0150), 0xDE);
         assert_eq!(ppu.read_vram(0x0151), 0xAD);
+    }
+
+    #[test]
+    fn vram_write_inc32() {
+        let mut ppu = init_ppu();
+
+        // VRAM increment mode to 1
+        ppu.write_byte(0x2000, 0x04);
+        // Load VRAM addr $150
+        ppu.write_byte(0x2006, 0x01);
+        ppu.write_byte(0x2006, 0x50);
+        // Write to VRAM
+        ppu.write_byte(0x2007, 0xDE);
+        ppu.write_byte(0x2007, 0xAD);
+
+        assert_eq!(ppu.read_vram(0x0150), 0xDE);
+        assert_eq!(ppu.read_vram(0x0150 + 32), 0xAD);
     }
 
     #[test]

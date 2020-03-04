@@ -15,6 +15,12 @@ use state::*;
 
 use std::num::Wrapping;
 
+macro_rules! exec {
+    () => {
+        println!("test");
+    };
+}
+
 /// CPU Flags
 enum Flags {
     Carry            = 1 << 0,
@@ -163,9 +169,9 @@ impl<Io: IoAccess> Cpu<Io> {
                     self.read_u8(addr)
                 };
 
-                let byte = addressing_result.to_byte(read_mem);
-                let addr = addressing_result.to_address();
-                let offset = addressing_result.to_offset();
+                // let byte = addressing_result.to_byte(read_mem);
+                // let addr = addressing_result.to_address();
+                // let offset = addressing_result.to_offset();
 
                 match instr {
                     Instruction::NOP => {},
@@ -193,29 +199,98 @@ impl<Io: IoAccess> Cpu<Io> {
                     Instruction::TXS => self.txs(),
                     Instruction::TYA => self.tya(),
                     Instruction::BRK => self.brk(),
-                    Instruction::LDA => self.lda(byte.unwrap()),
-                    Instruction::LAX => self.lax(byte.unwrap()),
-                    Instruction::JMP => self.jmp(addr.unwrap()),
-                    Instruction::ADC => self.adc(byte.unwrap()),
-                    Instruction::AND => self.and(byte.unwrap()),
-                    Instruction::BCC => self.bcc(offset.unwrap()),
-                    Instruction::BCS => self.bcs(offset.unwrap()),
-                    Instruction::BEQ => self.beq(offset.unwrap()),
-                    Instruction::BNE => self.bne(offset.unwrap()),
-                    Instruction::BMI => self.bmi(offset.unwrap()),
-                    Instruction::BPL => self.bpl(offset.unwrap()),
-                    Instruction::BVC => self.bvc(offset.unwrap()),
-                    Instruction::BVS => self.bvs(offset.unwrap()),
-                    Instruction::BIT => self.bit(byte.unwrap()),
-                    Instruction::CMP => self.cmp(byte.unwrap()),
-                    Instruction::CPX => self.cpx(byte.unwrap()),
-                    Instruction::CPY => self.cpy(byte.unwrap()),
-                    Instruction::EOR => self.eor(byte.unwrap()),
-                    Instruction::LDX => self.ldx(byte.unwrap()),
-                    Instruction::LDY => self.ldy(byte.unwrap()),
-                    Instruction::SBC => self.sbc(byte.unwrap()),
-                    Instruction::ORA => self.ora(byte.unwrap()),
-                    Instruction::JSR => self.jsr(addr.unwrap()),
+                    Instruction::LDA => {
+                        let byte = addressing_result.to_byte(read_mem);
+                        self.lda(byte.unwrap())
+                    },
+                    Instruction::LAX => {
+                        let byte = addressing_result.to_byte(read_mem);
+                        self.lax(byte.unwrap())
+                    },
+                    Instruction::JMP => {
+                        let addr = addressing_result.to_address();
+                        self.jmp(addr.unwrap())
+                    },
+                    Instruction::ADC => {
+                        let byte = addressing_result.to_byte(read_mem);
+                        self.adc(byte.unwrap())
+                    },
+                    Instruction::AND => {
+                        let byte = addressing_result.to_byte(read_mem);
+                        self.and(byte.unwrap())
+                    },
+                    Instruction::BCC => {
+                        let offset = addressing_result.to_offset();
+                        self.bcc(offset.unwrap())
+                    },
+                    Instruction::BCS => {
+                        let offset = addressing_result.to_offset();
+                        self.bcs(offset.unwrap())
+                    },
+                    Instruction::BEQ => {
+                        let offset = addressing_result.to_offset();
+                        self.beq(offset.unwrap())
+                    },
+                    Instruction::BNE => {
+                        let offset = addressing_result.to_offset();
+                        self.bne(offset.unwrap())
+                    },
+                    Instruction::BMI => {
+                        let offset = addressing_result.to_offset();
+                        self.bmi(offset.unwrap())
+                    },
+                    Instruction::BPL => {
+                        let offset = addressing_result.to_offset();
+                        self.bpl(offset.unwrap())
+                    },
+                    Instruction::BVC => {
+                        let offset = addressing_result.to_offset();
+                        self.bvc(offset.unwrap())
+                    },
+                    Instruction::BVS => {
+                        let offset = addressing_result.to_offset();
+                        self.bvs(offset.unwrap())
+                    },
+                    Instruction::BIT => {
+                        let byte = addressing_result.to_byte(read_mem);
+                        self.bit(byte.unwrap())
+                    },
+                    Instruction::CMP => {
+                        let byte = addressing_result.to_byte(read_mem);
+                        self.cmp(byte.unwrap())
+                    },
+                    Instruction::CPX => {
+                        let byte = addressing_result.to_byte(read_mem);
+                        self.cpx(byte.unwrap())
+                    },
+                    Instruction::CPY => {
+                        let byte = addressing_result.to_byte(read_mem);
+                        self.cpy(byte.unwrap())
+                    },
+                    Instruction::EOR => {
+                        let byte = addressing_result.to_byte(read_mem);
+                        self.eor(byte.unwrap())
+                    },
+                    Instruction::LDX => {
+                        let byte = addressing_result.to_byte(read_mem);
+                        self.ldx(byte.unwrap())
+                    },
+                    Instruction::LDY => {
+                        let byte = addressing_result.to_byte(read_mem);
+                        self.ldy(byte.unwrap())
+                    },
+                    Instruction::SBC => {
+                        let byte = addressing_result.to_byte(read_mem);
+                        self.sbc(byte.unwrap())
+                    },
+                    Instruction::ORA => {
+                        let byte = addressing_result.to_byte(read_mem);
+                        self.ora(byte.unwrap())
+                    },
+                    Instruction::JSR => {
+                        let addr = addressing_result.to_address();
+                        self.jsr(addr.unwrap())
+                    },
                     Instruction::STA => {
                         let v = self.sta();
                         self.write_result(addressing_result, v);
@@ -233,50 +308,62 @@ impl<Io: IoAccess> Cpu<Io> {
                         self.write_result(addressing_result, v);
                     }
                     Instruction::ASL => {
+                        let byte = addressing_result.to_byte(read_mem);
                         let v = self.asl(byte.unwrap());
                         self.write_result(addressing_result, v);
                     },
                     Instruction::ROR => {
+                        let byte = addressing_result.to_byte(read_mem);
                         let v = self.ror(byte.unwrap());
                         self.write_result(addressing_result, v);
                     },
                     Instruction::ROL => {
+                        let byte = addressing_result.to_byte(read_mem);
                         let v = self.rol(byte.unwrap());
                         self.write_result(addressing_result, v);
                     },
                     Instruction::LSR => {
+                        let byte = addressing_result.to_byte(read_mem);
                         let v = self.lsr(byte.unwrap());
                         self.write_result(addressing_result, v);
                     },
                     Instruction::INC => {
+                        let byte = addressing_result.to_byte(read_mem);
                         let v = self.inc(byte.unwrap());
                         self.write_result(addressing_result, v);
                     },
                     Instruction::DEC => {
+                        let byte = addressing_result.to_byte(read_mem);
                         let v = self.dec(byte.unwrap());
                         self.write_result(addressing_result, v);
                     },
                     Instruction::DCP => {
+                        let byte = addressing_result.to_byte(read_mem);
                         let v = self.dcp(byte.unwrap());
                         self.write_result(addressing_result, v);
                     },
                     Instruction::ISB => {
+                        let byte = addressing_result.to_byte(read_mem);
                         let m = self.isb(byte.unwrap());
                         self.write_result(addressing_result, m);
                     },
                     Instruction::SLO => {
+                        let byte = addressing_result.to_byte(read_mem);
                         let m = self.slo(byte.unwrap());
                         self.write_result(addressing_result, m);
                     },
                     Instruction::RLA => {
+                        let byte = addressing_result.to_byte(read_mem);
                         let m = self.rla(byte.unwrap());
                         self.write_result(addressing_result, m);
                     },
                     Instruction::SRE => {
+                        let byte = addressing_result.to_byte(read_mem);
                         let m = self.sre(byte.unwrap());
                         self.write_result(addressing_result, m);
                     },
                     Instruction::RRA => {
+                        let byte = addressing_result.to_byte(read_mem);
                         let m = self.rra(byte.unwrap());
                         self.write_result(addressing_result, m);
                     }
