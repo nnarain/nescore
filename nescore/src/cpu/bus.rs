@@ -8,7 +8,10 @@
 use crate::common::{IoAccess, IoAccessRef};
 use crate::mapper::Mapper;
 
+const INTERNAL_RAM_SIZE: usize = 0x800;
+
 pub struct CpuIoBus {
+    ram: [u8; INTERNAL_RAM_SIZE], // CPU RAM
     ppu: IoAccessRef,
     mapper: Mapper,
 }
@@ -20,6 +23,7 @@ fn mirror_address(addr: u16, base: u16, count: u16) -> u16 {
 impl CpuIoBus {
     pub fn new(ppu_io: IoAccessRef, mapper: Mapper) -> Self {
         CpuIoBus {
+            ram: [0x00; INTERNAL_RAM_SIZE],
             ppu: ppu_io,
             mapper: mapper,
         }
@@ -29,26 +33,28 @@ impl CpuIoBus {
 impl IoAccess for CpuIoBus {
     fn read_byte(&self, addr: u16) -> u8 {
         match addr {
+            0x0000..=0x1FFF => self.ram[mirror_address(addr, 0x0000, INTERNAL_RAM_SIZE as u16) as usize],
             0x2000..=0x3FFF => self.ppu.borrow().read_byte(mirror_address(addr, 0x2000, 8)),
-            0x4000..=0x401F => {
-                // APU and IO
-                0
-            },
+            0x4000..=0x401F => { 0 },
             0x4020..=0xFFFF => self.mapper.borrow().read(addr),
-            _ => {
-                panic!("Invalid address range")
-            }
         }
     }
 
     fn write_byte(&mut self, addr: u16, data: u8) {
         match addr {
+            0x0000..=0x1FFF => self.ram[mirror_address(addr, 0x0000, INTERNAL_RAM_SIZE as u16) as usize] = data,
             0x2000..=0x3FFF => {
                 // First 8 bytes are mirrored up to $3FFF
                 self.ppu.borrow_mut().write_byte(mirror_address(addr, 0x2000, 8), data);
             },
             0x4014 => {
-                self.ppu.borrow_mut().write_byte(addr, data);
+                let base = (data as u16) << 8;
+                for i in 0..256 {
+                    // FIXME: This is kinda a hack to get the DMA transfer going. I think some refactoring the overall architecture
+                    // is necessary
+                    let cpu_byte = self.read_byte(base + i);
+                    self.write_byte(0xFF | i, cpu_byte);
+                }
             },
             _ => {}
         }
@@ -58,10 +64,21 @@ impl IoAccess for CpuIoBus {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mapper::{MapperControl};
+    use crate::mapper::MapperControl;
 
     use std::rc::Rc;
     use std::cell::RefCell;
+
+    #[test]
+    fn mirror_ram() {
+        let ppu = Rc::new(RefCell::new(FakePpu::new()));
+        let mapper = Rc::new(RefCell::new(FakeMapper::new()));
+
+        let mut bus = CpuIoBus::new(ppu, mapper);
+
+        bus.write_byte(0x0000, 0xDE);
+        assert_eq!(bus.read_byte(0x0800), 0xDE);
+    }
 
     #[test]
     fn mirroring_function() {

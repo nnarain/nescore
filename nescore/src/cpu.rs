@@ -45,8 +45,6 @@ pub struct Cpu<Io: IoAccess> {
     sp: u16,                      // Stack Pointer
     p: u8,                        // Flag register
 
-    ram: [u8; INTERNAL_RAM_SIZE], // CPU RAM; TODO: Move to bus
-
     bus: Option<Io>,
     state: State,                 // Internal CPU cycle state
 
@@ -65,8 +63,6 @@ impl<Io: IoAccess> Default for Cpu<Io> {
             pc: 0,
             sp: 0x00FD,
             p: 0x24,
-
-            ram: [0; INTERNAL_RAM_SIZE],
 
             bus: None,
             state: State::Reset,
@@ -105,11 +101,12 @@ impl<Io: IoAccess> Cpu<Io> {
     }
 
     pub fn read_ram(&self, addr: u16) -> u8 {
-        self.ram[(addr as usize % INTERNAL_RAM_SIZE)]
+        self.read_u8(addr)
     }
 
     pub fn write_ram(&mut self, addr: u16, value: u8) {
-        self.ram[(addr as usize % INTERNAL_RAM_SIZE)] = value;
+        // self.ram[(addr as usize % INTERNAL_RAM_SIZE)] = value;
+        self.write_u8(addr, value);
     }
 
     /// Execute the current cycle given the internal state
@@ -1341,22 +1338,18 @@ impl<Io: IoAccess> Cpu<Io> {
         (hi << 8) | lo
     }
 
-    // TODO: Is there a way to make this not `mut`?
-    fn read_u8(&mut self, addr: u16) -> u8 {
-        if (addr as usize) < 0x2000 {
-            self.read_ram(addr)
+    fn read_u8(&self, addr: u16) -> u8 {
+        if let Some(ref bus) = self.bus {
+            bus.read_byte(addr)
         }
         else {
-            self.bus.as_ref().map(|bus|bus.read_byte(addr)).unwrap()
+            panic!("Attempt to read while bus is not loaded");
         }
     }
 
     fn write_u8(&mut self, addr: u16, value: u8) {
-        if (addr as usize) < 0x2000 {
-            self.write_ram(addr, value);
-        }
-        else {
-            self.bus.as_mut().map(|bus|bus.write_byte(addr, value));
+        if let Some(ref mut bus) = self.bus {
+            bus.write_byte(addr, value);
         }
     }
 
@@ -1404,10 +1397,10 @@ mod tests {
 
     #[test]
     fn pc_after_reset() {
-        let mut cpu = Cpu::default();
+        let mut cpu = init_cpu(vec![]);
         cpu.pc = 0x0001;
 
-        simple_test_base(&mut cpu, vec![], 0);
+        simple_test_base(&mut cpu, 0);
 
         assert_eq!(cpu.pc, 0x4020);
     }
@@ -1445,95 +1438,95 @@ mod tests {
 
     #[test]
     fn lda_zeropage() {
-        let mut cpu = Cpu::default();
-        cpu.ram[0x02] = 0xDE;
-
         let prg = vec![
             0xA5, 0x02, // LDA ($02)
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        cpu.write_u8(0x02, 0xDE);
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.a, 0xDE);
     }
 
     #[test]
     fn lda_zeropage_x() {
-        let mut cpu = Cpu::default();
-        cpu.ram[0x03] = 0xDE;
-        cpu.x = 0x0001;
-
         let prg = vec![
             0xB5, 0x02, // LDA $02, X
         ];
 
-        simple_test_base(&mut cpu, prg, 4);
+        let mut cpu = init_cpu(prg);
+        cpu.write_u8(0x03, 0xDE);
+        cpu.x = 0x0001;
+
+        simple_test_base(&mut cpu, 4);
 
         assert_eq!(cpu.a, 0xDE);
     }
 
     #[test]
     fn lda_absolute_x() {
-        let mut cpu = Cpu::default();
-        cpu.x = 0x0001;
-
         let prg = vec![
             0xBD, 0x23, 0x40, // LDA $0003, X
             0x00, 0xDE,       // Data: $DE
         ];
 
-        simple_test_base(&mut cpu, prg, 5);
+        let mut cpu = init_cpu(prg);
+        cpu.x = 0x0001;
+
+        simple_test_base(&mut cpu, 5);
 
         assert_eq!(cpu.a, 0xDE);
     }
 
     #[test]
     fn lda_absolute_y() {
-        let mut cpu = Cpu::default();
-        cpu.y = 0x0001;
-
         let prg = vec![
             0xB9, 0x23, 0x40, // LDA $4023, Y
             0x00, 0xDE,       // Data: $DE
         ];
 
-        simple_test_base(&mut cpu, prg, 5);
+        let mut cpu = init_cpu(prg);
+        cpu.y = 0x0001;
+
+        simple_test_base(&mut cpu, 5);
 
         assert_eq!(cpu.a, 0xDE);
     }
 
     #[test]
     fn lda_indexed_indirect() {
-        let mut cpu = Cpu::default();
-        cpu.ram[0x03] = 0x05;
-        cpu.ram[0x04] = 0x00;
-        cpu.ram[0x05] = 0xDE;
-
-        cpu.x = 0x0001;
-
         let prg = vec![
             0xA1, 0x02, // LDA ($0002, X)
         ];
 
-        simple_test_base(&mut cpu, prg, 6);
+        let mut cpu = init_cpu(prg);
+        cpu.write_u8(0x03, 0x05);
+        cpu.write_u8(0x04, 0x00);
+        cpu.write_u8(0x05, 0xDE);
+
+        cpu.x = 0x0001;
+
+        simple_test_base(&mut cpu, 6);
 
         assert_eq!(cpu.a, 0xDE);
     }
 
     #[test]
     fn lda_indirect_indexed() {
-        let mut cpu = Cpu::default();
-        cpu.ram[0x02] = 0x05;
-        cpu.ram[0x03] = 0x00;
-        cpu.ram[0x06] = 0xDE;
-
-        cpu.y = 0x0001;
-
         let prg = vec![
             0xB1, 0x02, // LDA ($0002), Y
         ];
 
-        simple_test_base(&mut cpu, prg, 6);
+        let mut cpu = init_cpu(prg);
+        cpu.write_u8(0x02, 0x05);
+        cpu.write_u8(0x03, 0x00);
+        cpu.write_u8(0x06, 0xDE);
+
+        cpu.y = 0x0001;
+
+        simple_test_base(&mut cpu, 6);
 
         assert_eq!(cpu.a, 0xDE);
     }
@@ -1564,14 +1557,14 @@ mod tests {
 
     #[test]
     fn lax() {
-        let mut cpu = Cpu::default();
-        cpu.ram[0x02] = 0xDE;
-
         let prg = vec![
             0xA7, 0x02, // LAX $02
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        cpu.write_u8(0x02, 0xDE);
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.a, 0xDE);
         assert_eq!(cpu.x, 0xDE);
@@ -1579,31 +1572,31 @@ mod tests {
 
     #[test]
     fn sax() {
-        let mut cpu = Cpu::default();
-        cpu.a = 0xFF;
-        cpu.x = 0x00;
-
         let prg = vec![
             0x87, 0x02, // SAX $02
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0xFF;
+        cpu.x = 0x00;
 
-        assert_eq!(cpu.ram[0x02], 0x00);
+        simple_test_base(&mut cpu, 3);
+
+        assert_eq!(cpu.read_u8(0x02), 0x00);
     }
 
     #[test]
     fn dcp() {
-        let mut cpu = Cpu::default();
-        cpu.ram[0x02] = 0x01;
-
         let prg = vec![
             0xC7, 0x02, // DCP $02
         ];
 
-        simple_test_base(&mut cpu, prg, 5);
+        let mut cpu = init_cpu(prg);
+        cpu.write_u8(0x02, 0x01);
 
-        assert_eq!(cpu.ram[0x02], 0x00);
+        simple_test_base(&mut cpu, 5);
+
+        assert_eq!(cpu.read_u8(0x02), 0x00);
     }
 
     #[test]
@@ -1631,15 +1624,15 @@ mod tests {
 
     #[test]
     fn jmp_indirect_page_cross() {
-        let mut cpu = Cpu::default();
-        cpu.ram[0x0FF] = 0xAD;
-        cpu.ram[0x00] = 0xDE;
-
         let prg = vec![
-            0x6C, 0xFF, 0x00, // LDA JMP ($00FF)
+            0x6C, 0xFF, 0x00, // JMP ($00FF)
         ];
 
-        simple_test_base(&mut cpu, prg, 5);
+        let mut cpu = init_cpu(prg);
+        cpu.write_u8(0x0FF, 0xAD);
+        cpu.write_u8(0x00, 0xDE);
+
+        simple_test_base(&mut cpu, 5);
         
         assert_eq!(cpu.pc, 0xDEAD);
     }
@@ -1658,14 +1651,14 @@ mod tests {
 
     #[test]
     fn adc_immediate_carry() {
-        let mut cpu = Cpu::default();
-        cpu.a = 0xFF;
-
         let prg = vec![
             0x69, 0x01, // ADC $01
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0xFF;
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.a, 0x00);
         assert_eq!(mask_is_set!(cpu.p, Flags::Carry as u8), true);
@@ -1673,15 +1666,15 @@ mod tests {
 
     #[test]
     fn adc_immediate_with_carry_set() {
-        let mut cpu = Cpu::default();
-
         let prg = vec![
             0x69, 0xFF, // ADC $FF; a=$0  -> a=$FF
             0x69, 0x01, // ADC $01; a=$FF -> a=00, c=1
             0x69, 0x00, // ADC $00; a=$00 -> a=$01, c=0
         ];
 
-        simple_test_base(&mut cpu, prg, 6);
+        let mut cpu = init_cpu(prg);
+
+        simple_test_base(&mut cpu, 6);
 
         assert_eq!(cpu.a, 0x01);
         assert_eq!(mask_is_clear!(cpu.p, Flags::Carry as u8), true);
@@ -1689,14 +1682,14 @@ mod tests {
 
     #[test]
     fn adc_overflow_1() {
-        let mut cpu = Cpu::default();
-        cpu.a = 0x01;
-
         let prg = vec![
             0x69, 0x01, // ADC $01
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0x01;
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.a, 0x02);
         assert_eq!(cpu.get_flag_bit(Flags::Overflow), false);
@@ -1704,14 +1697,14 @@ mod tests {
 
     #[test]
     fn adc_overflow_2() {
-        let mut cpu = Cpu::default();
-        cpu.a = 0x01;
-
         let prg = vec![
             0x69, 0xFF, // ADC $FF
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0x01;
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.a, 0x00);
         assert_eq!(cpu.get_flag_bit(Flags::Overflow), false);
@@ -1719,14 +1712,14 @@ mod tests {
 
     #[test]
     fn adc_overflow_3() {
-        let mut cpu = Cpu::default();
-        cpu.a = 0x7F;
-
         let prg = vec![
             0x69, 0x01, // ADC $01
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0x7F;
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.a, 0x80);
         assert_eq!(cpu.get_flag_bit(Flags::Overflow), true);
@@ -1734,14 +1727,14 @@ mod tests {
 
     #[test]
     fn adc_overflow_4() {
-        let mut cpu = Cpu::default();
-        cpu.a = 0x80;
-
         let prg = vec![
             0x69, 0xFF, // ADC $FF
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0x80;
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.a, 0x7F);
         assert_eq!(cpu.get_flag_bit(Flags::Overflow), true);
@@ -1749,14 +1742,14 @@ mod tests {
 
     #[test]
     fn and_immediate() {
-        let mut cpu = Cpu::default();
-        cpu.a = 0xFF;
-
         let prg = vec![
             0x29, 0xF0, // AND $F0
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0xFF;
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.a, 0xF0);
         assert_eq!(mask_is_set!(cpu.p, Flags::Negative as u8), true);
@@ -1764,14 +1757,14 @@ mod tests {
 
     #[test]
     fn and_immediate_zero_set() {
-        let mut cpu = Cpu::default();
-        cpu.a = 0xFF;
-
         let prg = vec![
             0x29, 0x00, // AND $F0
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0xFF;
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.a, 0x00);
         assert_eq!(mask_is_set!(cpu.p, Flags::Negative as u8), false);
@@ -1793,14 +1786,14 @@ mod tests {
 
     #[test]
     fn asl_accumulator() {
-        let mut cpu = Cpu::default();
-        cpu.a = 0x01;
-
         let prg = vec![
             0x0A, // ASL
         ];
 
-        simple_test_base(&mut cpu, prg, 2);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0x01;
+
+        simple_test_base(&mut cpu, 2);
 
         assert_eq!(cpu.a, 0x02);
         assert_eq!(cpu.get_flag_bit(Flags::Carry), false);
@@ -1810,14 +1803,14 @@ mod tests {
 
     #[test]
     fn asl_accumulator_is_zero() {
-        let mut cpu = Cpu::default();
-        cpu.a = 0x80;
-
         let prg = vec![
             0x0A, // ASL
         ];
 
-        simple_test_base(&mut cpu, prg, 2);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0x80;
+
+        simple_test_base(&mut cpu, 2);
 
         assert_eq!(cpu.a, 0x00);
         assert_eq!(cpu.get_flag_bit(Flags::Carry), true);
@@ -1827,14 +1820,14 @@ mod tests {
 
     #[test]
     fn asl_accumulator_carry_and_negative_set() {
-        let mut cpu = Cpu::default();
-        cpu.a = 0xC0;
-
         let prg = vec![
             0x0A, // ASL
         ];
 
-        simple_test_base(&mut cpu, prg, 2);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0xC0;
+
+        simple_test_base(&mut cpu, 2);
 
         assert_eq!(cpu.a, 0x80);
         assert_eq!(cpu.get_flag_bit(Flags::Carry), true);
@@ -1844,309 +1837,303 @@ mod tests {
 
     #[test]
     fn sta_zeropage() {
-        let mut cpu = Cpu::default();
-        cpu.a = 0xDE;
-
         let prg = vec![
             0x85, 0x05, // STA $05
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0xDE;
 
-        assert_eq!(cpu.ram[0x05], 0xDE);
+        simple_test_base(&mut cpu, 3);
+
+        assert_eq!(cpu.read_u8(0x05), 0xDE);
     }
 
     #[test]
     fn bcc_carry_not_set() {
-        let mut cpu = Cpu::default();
-        mask_clear!(cpu.p, Flags::Carry as u8);
-
         let prg = vec![
             0x90, 0x02, // BCC $02
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        mask_clear!(cpu.p, Flags::Carry as u8);
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.pc, 0x4024);
     }
 
     #[test]
     fn bcc_carry_set() {
-        let mut cpu = Cpu::default();
-        mask_set!(cpu.p, Flags::Carry as u8);
-
         let prg = vec![
             0x90, 0x02, // BCC $02
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        mask_set!(cpu.p, Flags::Carry as u8);
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.pc, 0x4022);
     }
 
     #[test]
     fn bcs_carry_not_set() {
-        let mut cpu = Cpu::default();
-        mask_clear!(cpu.p, Flags::Carry as u8);
-
         let prg = vec![
             0xB0, 0x02, // BSC $02
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        mask_clear!(cpu.p, Flags::Carry as u8);
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.pc, 0x4022);
     }
 
     #[test]
     fn bcs_carry_set() {
-        let mut cpu = Cpu::default();
-        mask_set!(cpu.p, Flags::Carry as u8);
-
         let prg = vec![
             0xB0, 0x02, // BSC $02
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        mask_set!(cpu.p, Flags::Carry as u8);
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.pc, 0x4024);
     }
 
     #[test]
     fn beq_zero_not_set() {
-        let mut cpu = Cpu::default();
-        mask_clear!(cpu.p, Flags::Zero as u8);
-
         let prg = vec![
             0xF0, 0x02, // BEQ $02
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        mask_clear!(cpu.p, Flags::Zero as u8);
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.pc, 0x4022);
     }
 
     #[test]
     fn beq_zero_set() {
-        let mut cpu = Cpu::default();
-        mask_set!(cpu.p, Flags::Zero as u8);
-
         let prg = vec![
             0xF0, 0x02, // BEQ $02
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        mask_set!(cpu.p, Flags::Zero as u8);
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.pc, 0x4024);
     }
 
     #[test]
     fn bne_zero_not_set() {
-        let mut cpu = Cpu::default();
-        mask_clear!(cpu.p, Flags::Zero as u8);
-
         let prg = vec![
             0xD0, 0x02, // BNE $02
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        mask_clear!(cpu.p, Flags::Zero as u8);
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.pc, 0x4024);
     }
 
     #[test]
     fn bne_zero_not_set_negative_offset() {
-        let mut cpu = Cpu::default();
-        mask_clear!(cpu.p, Flags::Zero as u8);
-
         let prg = vec![
             0xD0, 0xFE, // BNE $FE
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        mask_clear!(cpu.p, Flags::Zero as u8);
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.pc, 0x4020);
     }
 
     #[test]
     fn bne_zero_set() {
-        let mut cpu = Cpu::default();
-        mask_set!(cpu.p, Flags::Zero as u8);
-
         let prg = vec![
             0xD0, 0x02, // BNE $02
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        mask_set!(cpu.p, Flags::Zero as u8);
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.pc, 0x4022);
     }
 
     #[test]
     fn bmi_negative_not_set() {
-        let mut cpu = Cpu::default();
-        mask_clear!(cpu.p, Flags::Negative as u8);
-
         let prg = vec![
             0x30, 0x02, // BMI $02
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        mask_clear!(cpu.p, Flags::Negative as u8);
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.pc, 0x4022);
     }
 
     #[test]
     fn bmi_negative_set() {
-        let mut cpu = Cpu::default();
-        mask_set!(cpu.p, Flags::Negative as u8);
-
         let prg = vec![
             0x30, 0x02, // BMI $02
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        mask_set!(cpu.p, Flags::Negative as u8);
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.pc, 0x4024);
     }
 
     #[test]
     fn bpl_negative_not_set() {
-        let mut cpu = Cpu::default();
-        mask_clear!(cpu.p, Flags::Negative as u8);
-
         let prg = vec![
             0x10, 0x02, // BPL $02
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        mask_clear!(cpu.p, Flags::Negative as u8);
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.pc, 0x4024);
     }
 
     #[test]
     fn bpl_negative_set() {
-        let mut cpu = Cpu::default();
-        mask_set!(cpu.p, Flags::Negative as u8);
-
         let prg = vec![
             0x10, 0x02, // BPL $02
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        mask_set!(cpu.p, Flags::Negative as u8);
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.pc, 0x4022);
     }
 
     #[test]
     fn bvc_overflow_not_set() {
-        let mut cpu = Cpu::default();
-        mask_clear!(cpu.p, Flags::Overflow as u8);
-
         let prg = vec![
             0x50, 0x02, // BVC $02
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        mask_clear!(cpu.p, Flags::Overflow as u8);
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.pc, 0x4024);
     }
 
     #[test]
     fn bvc_overflow_set() {
-        let mut cpu = Cpu::default();
-        mask_set!(cpu.p, Flags::Overflow as u8);
-
         let prg = vec![
             0x50, 0x02, // BVC $02
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        mask_set!(cpu.p, Flags::Overflow as u8);
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.pc, 0x4022);
     }
 
     #[test]
     fn bvs_overflow_not_set() {
-        let mut cpu = Cpu::default();
-        mask_clear!(cpu.p, Flags::Overflow as u8);
-
         let prg = vec![
             0x70, 0x02, // BVS $02
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        mask_clear!(cpu.p, Flags::Overflow as u8);
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.pc, 0x4022);
     }
 
     #[test]
     fn bvs_overflow_set() {
-        let mut cpu = Cpu::default();
-        mask_set!(cpu.p, Flags::Overflow as u8);
-
         let prg = vec![
             0x70, 0x02, // BVS $02
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        mask_set!(cpu.p, Flags::Overflow as u8);
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.pc, 0x4024);
     }
 
     #[test]
     fn bit_check_mask() {
-        let mut cpu = Cpu::default();
-        cpu.a = 0x01;
-        cpu.ram[0x02] = 0x01;
-
         let prg = vec![
             0x24, 0x02, // BIT $02
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0x01;
+        cpu.write_u8(0x02, 0x01);
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.get_flag_bit(Flags::Zero), false);
     }
 
     #[test]
     fn bit_check_mask_not_set() {
-        let mut cpu = Cpu::default();
-        cpu.a = 0x01;
-        cpu.ram[0x02] = 0x00;
-
         let prg = vec![
             0x24, 0x02, // BIT $02
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0x01;
+        cpu.write_u8(0x02, 0x00);
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.get_flag_bit(Flags::Zero), true);
     }
 
     #[test]
     fn bit_check_mask_absolute() {
-        let mut cpu = Cpu::default();
-        cpu.a = 0x01;
-        cpu.ram[0x02] = 0x01;
-
         let prg = vec![
             0x2C, 0x02, 0x00, // BIT $02
         ];
 
-        simple_test_base(&mut cpu, prg, 4);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0x01;
+        cpu.write_u8(0x02, 0x01);
+
+        simple_test_base(&mut cpu, 4);
 
         assert_eq!(cpu.get_flag_bit(Flags::Zero), false);
     }
 
     #[test]
     fn clear_flags_instructions() {
-        let mut cpu = Cpu::default();
-        mask_set!(cpu.p, Flags::Carry as u8);
-        mask_set!(cpu.p, Flags::Decimal as u8);
-        mask_set!(cpu.p, Flags::InterruptDisable as u8);
-        mask_set!(cpu.p, Flags::Overflow as u8);
-
         let prg = vec![
             0x18, // CLC
             0xD8, // CLD
@@ -2154,7 +2141,13 @@ mod tests {
             0xB8, // CLV
         ];
 
-        simple_test_base(&mut cpu, prg, 8);
+        let mut cpu = init_cpu(prg);
+        mask_set!(cpu.p, Flags::Carry as u8);
+        mask_set!(cpu.p, Flags::Decimal as u8);
+        mask_set!(cpu.p, Flags::InterruptDisable as u8);
+        mask_set!(cpu.p, Flags::Overflow as u8);
+
+        simple_test_base(&mut cpu, 8);
 
         assert_eq!(cpu.get_flag_bit(Flags::Carry), false);
         assert_eq!(cpu.get_flag_bit(Flags::Decimal), false);
@@ -2164,19 +2157,19 @@ mod tests {
 
     #[test]
     fn set_flags_instructions() {
-        let mut cpu = Cpu::default();
-        mask_clear!(cpu.p, Flags::Carry as u8);
-        mask_clear!(cpu.p, Flags::Decimal as u8);
-        mask_clear!(cpu.p, Flags::InterruptDisable as u8);
-        mask_clear!(cpu.p, Flags::Overflow as u8);
-
         let prg = vec![
             0x38, // SEC
             0xF8, // SED
             0x78, // SEI
         ];
 
-        simple_test_base(&mut cpu, prg, 6);
+        let mut cpu = init_cpu(prg);
+        mask_clear!(cpu.p, Flags::Carry as u8);
+        mask_clear!(cpu.p, Flags::Decimal as u8);
+        mask_clear!(cpu.p, Flags::InterruptDisable as u8);
+        mask_clear!(cpu.p, Flags::Overflow as u8);
+
+        simple_test_base(&mut cpu, 6);
 
         assert_eq!(cpu.get_flag_bit(Flags::Carry), true);
         assert_eq!(cpu.get_flag_bit(Flags::Decimal), true);
@@ -2185,57 +2178,57 @@ mod tests {
 
     #[test]
     fn cmp_zero_set() {
-        let mut cpu = Cpu::default();
-        cpu.a = 0x02;
-
         let prg = vec![
             0xC9, 0x02, // CMP $02
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0x02;
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.get_flag_bit(Flags::Zero), true);
     }
 
     #[test]
     fn cmp_negative_set() {
-        let mut cpu = Cpu::default();
-        cpu.a = 0x00;
-
         let prg = vec![
             0xC9, 0x01, // CMP $02
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0x00;
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.get_flag_bit(Flags::Negative), true);
     }
 
     #[test]
     fn dec_mem() {
-        let mut cpu = Cpu::default();
-        cpu.ram[0x02] = 0x01;
-
         let prg = vec![
             0xC6, 0x02, // DEC $02
         ];
 
-        simple_test_base(&mut cpu, prg, 5);
+        let mut cpu = init_cpu(prg);
+        cpu.write_u8(0x02, 0x01);
+
+        simple_test_base(&mut cpu, 5);
 
         assert_eq!(cpu.get_flag_bit(Flags::Zero), true);
-        assert_eq!(cpu.ram[0x02], 0x00);
+        assert_eq!(cpu.read_u8(0x02), 0x00);
     }
 
     #[test]
     fn dex() {
-        let mut cpu = Cpu::default();
-        cpu.x = 0x01;
-
         let prg = vec![
             0xCA, // DEX
         ];
 
-        simple_test_base(&mut cpu, prg, 2);
+        let mut cpu = init_cpu(prg);
+        cpu.x = 0x01;
+
+        simple_test_base(&mut cpu, 2);
 
         assert_eq!(cpu.x, 0x00);
         assert_eq!(cpu.get_flag_bit(Flags::Zero), true);
@@ -2243,14 +2236,14 @@ mod tests {
 
     #[test]
     fn dey() {
-        let mut cpu = Cpu::default();
-        cpu.y = 0x01;
-
         let prg = vec![
             0x88, // DEY
         ];
 
-        simple_test_base(&mut cpu, prg, 2);
+        let mut cpu = init_cpu(prg);
+        cpu.y = 0x01;
+
+        simple_test_base(&mut cpu, 2);
 
         assert_eq!(cpu.y, 0x00);
         assert_eq!(cpu.get_flag_bit(Flags::Zero), true);
@@ -2258,29 +2251,29 @@ mod tests {
 
     #[test]
     fn inc_mem() {
-        let mut cpu = Cpu::default();
-        cpu.ram[0x02] = 0xFF;
-
         let prg = vec![
             0xE6, 0x02, // INC $02
         ];
 
-        simple_test_base(&mut cpu, prg, 5);
+        let mut cpu = init_cpu(prg);
+        cpu.write_u8(0x02, 0xFF);
+
+        simple_test_base(&mut cpu, 5);
 
         assert_eq!(cpu.get_flag_bit(Flags::Zero), true);
-        assert_eq!(cpu.ram[0x02], 0x00);
+        assert_eq!(cpu.read_u8(0x02), 0x00);
     }
 
     #[test]
     fn inx() {
-        let mut cpu = Cpu::default();
-        cpu.x = 0xFF;
-
         let prg = vec![
             0xE8, // INX
         ];
 
-        simple_test_base(&mut cpu, prg, 2);
+        let mut cpu = init_cpu(prg);
+        cpu.x = 0xFF;
+
+        simple_test_base(&mut cpu, 2);
 
         assert_eq!(cpu.x, 0x00);
         assert_eq!(cpu.get_flag_bit(Flags::Zero), true);
@@ -2288,14 +2281,14 @@ mod tests {
 
     #[test]
     fn iny() {
-        let mut cpu = Cpu::default();
-        cpu.y = 0xFF;
-
         let prg = vec![
             0xC8, // INY
         ];
 
-        simple_test_base(&mut cpu, prg, 2);
+        let mut cpu = init_cpu(prg);
+        cpu.y = 0xFF;
+
+        simple_test_base(&mut cpu, 2);
 
         assert_eq!(cpu.y, 0x00);
         assert_eq!(cpu.get_flag_bit(Flags::Zero), true);
@@ -2303,14 +2296,14 @@ mod tests {
 
     #[test]
     fn eor() {
-        let mut cpu = Cpu::default();
-        cpu.a = 0xFF;
-
         let prg = vec![
             0x49, 0xFF, // EOR $FF
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0xFF;
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.a, 0x00);
         assert_eq!(cpu.get_flag_bit(Flags::Zero), true);
@@ -2329,14 +2322,14 @@ mod tests {
 
     #[test]
     fn ldx_absolute() {
-        let mut cpu = Cpu::default();
-        cpu.ram[0x07FF] = 0xA5;
-
         let prg = vec![
             0xAE, 0xFF, 0x07, // LDX $07FF
         ];
 
-        simple_test_base(&mut cpu, prg, 4);
+        let mut cpu = init_cpu(prg);
+        cpu.write_u8(0x07FF, 0xA5);
+
+        simple_test_base(&mut cpu, 4);
 
         assert_eq!(cpu.x, 0xA5);
     }
@@ -2354,31 +2347,31 @@ mod tests {
 
     #[test]
     fn pha() {
-        let mut cpu = Cpu::default();
-        cpu.a = 0xFF;
-        cpu.sp = 0x0A;
-
         let prg = vec![
             0x48, // PHA
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0xFF;
+        cpu.sp = 0x0A;
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.sp, 0x09);
-        assert_eq!(cpu.ram[0x10A], 0xFF);
+        assert_eq!(cpu.read_u8(0x10A), 0xFF);
     }
 
     #[test]
     fn pla() {
-        let mut cpu = Cpu::default();
-        cpu.ram[0x10A] = 0xFF;
-        cpu.sp = 0x09;
-
         let prg = vec![
             0x68,       // PLA
         ];
 
-        simple_test_base(&mut cpu, prg, 4);
+        let mut cpu = init_cpu(prg);
+        cpu.write_u8(0x10A, 0xFF);
+        cpu.sp = 0x09;
+
+        simple_test_base(&mut cpu, 4);
 
         assert_eq!(cpu.a, 0xFF);
         assert_eq!(cpu.sp, 0x0A);
@@ -2387,31 +2380,31 @@ mod tests {
 
     #[test]
     fn php() {
-        let mut cpu = Cpu::default();
-        cpu.p = 0xFF;
-        cpu.sp = 0x0A;
-
         let prg = vec![
             0x08, // PHP
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        cpu.p = 0xFF;
+        cpu.sp = 0x0A;
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.sp, 0x09);
-        assert_eq!(cpu.ram[0x10A], 0xFF);
+        assert_eq!(cpu.read_u8(0x10A), 0xFF);
     }
 
     #[test]
     fn plp() {
-        let mut cpu = Cpu::default();
-        cpu.ram[0x10A] = 0xFF;
-        cpu.sp = 0x09;
-
         let prg = vec![
             0x28, // PLP
         ];
 
-        simple_test_base(&mut cpu, prg, 4);
+        let mut cpu = init_cpu(prg);
+        cpu.write_u8(0x10A, 0xFF);
+        cpu.sp = 0x09;
+
+        simple_test_base(&mut cpu, 4);
 
         assert_eq!(cpu.p, 0xFF & 0xEF);
         assert_eq!(cpu.sp, 0x0A);
@@ -2419,14 +2412,14 @@ mod tests {
 
     #[test]
     fn lsr_zero_set() {
-        let mut cpu = Cpu::default();
-        cpu.a = 0x01;
-
         let prg = vec![
             0x4A, // LSR A
         ];
 
-        simple_test_base(&mut cpu, prg, 2);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0x01;
+
+        simple_test_base(&mut cpu, 2);
 
         assert_eq!(cpu.a, 0x00);
         assert_eq!(cpu.get_flag_bit(Flags::Zero), true);
@@ -2435,29 +2428,29 @@ mod tests {
 
     #[test]
     fn ora() {
-        let mut cpu = Cpu::default();
-        cpu.a = 0xF0;
-
         let prg = vec![
             0x09, 0x0F, // ORA $0F
         ];
 
-        simple_test_base(&mut cpu, prg, 2);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0xF0;
+
+        simple_test_base(&mut cpu, 2);
 
         assert_eq!(cpu.a, 0xFF);
     }
 
     #[test]
     fn ror_carry() {
-        let mut cpu = Cpu::default();
-        mask_set!(cpu.p, Flags::Carry as u8);
-        cpu.a = 0x01;
-
         let prg = vec![
             0x6A, // ROR A
         ];
 
-        simple_test_base(&mut cpu, prg, 2);
+        let mut cpu = init_cpu(prg);
+        mask_set!(cpu.p, Flags::Carry as u8);
+        cpu.a = 0x01;
+
+        simple_test_base(&mut cpu, 2);
 
         assert_eq!(cpu.a, 0x80);
         assert_eq!(cpu.get_flag_bit(Flags::Carry), true);
@@ -2466,15 +2459,15 @@ mod tests {
 
     #[test]
     fn rol_carry() {
-        let mut cpu = Cpu::default();
-        mask_set!(cpu.p, Flags::Carry as u8);
-        cpu.a = 0x81;
-
         let prg = vec![
             0x2A, // ROL A
         ];
 
-        simple_test_base(&mut cpu, prg, 2);
+        let mut cpu = init_cpu(prg);
+        mask_set!(cpu.p, Flags::Carry as u8);
+        cpu.a = 0x81;
+
+        simple_test_base(&mut cpu, 2);
 
         assert_eq!(cpu.a, 0x03);
         assert_eq!(cpu.get_flag_bit(Flags::Carry), true);
@@ -2482,17 +2475,17 @@ mod tests {
 
     #[test]
     fn rti() {
-        let mut cpu = Cpu::default();
-        cpu.ram[0x10A] = 0xDE;
-        cpu.ram[0x109] = 0xAD;
-        cpu.ram[0x108] = 0xA5;
-        cpu.sp = 0x0007;
-
         let prg = vec![
             0x40, // RTI
         ];
 
-        simple_test_base(&mut cpu, prg, 6);
+        let mut cpu = init_cpu(prg);
+        cpu.write_u8(0x10A, 0xDE);
+        cpu.write_u8(0x109, 0xAD);
+        cpu.write_u8(0x108, 0xA5);
+        cpu.sp = 0x0007;
+
+        simple_test_base(&mut cpu, 6);
 
         assert_eq!(cpu.p, 0xA5);
         assert_eq!(cpu.sp, 0x0A);
@@ -2501,45 +2494,45 @@ mod tests {
 
     #[test]
     fn jsr() {
-        let mut cpu = Cpu::default();
-        cpu.sp = 0x000A;
-
         let prg = vec![
             0x20, 0xAD, 0xDE, // JSR $DEAD
         ];
 
-        simple_test_base(&mut cpu, prg, 6);
+        let mut cpu = init_cpu(prg);
+        cpu.sp = 0x000A;
+
+        simple_test_base(&mut cpu, 6);
 
         assert_eq!(cpu.pc, 0xDEAD);
-        assert_eq!(cpu.ram[0x010A], 0x40);
-        assert_eq!(cpu.ram[0x0109], 0x22);
+        assert_eq!(cpu.read_u8(0x010A), 0x40);
+        assert_eq!(cpu.read_u8(0x0109), 0x22);
     }
 
     #[test]
     fn sbc() {
-        let mut cpu = Cpu::default();
-        cpu.a = 0x01;
-
         let prg = vec![
             0xE9, 0x01, // SBC $01
         ];
 
-        simple_test_base(&mut cpu, prg, 2);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0x01;
+
+        simple_test_base(&mut cpu, 2);
 
         assert_eq!(cpu.a, 0xFF);
     }
 
     #[test]
     fn sbc2() {
-        let mut cpu = Cpu::default();
-        cpu.a = 0x40;
-        mask_set!(cpu.p, Flags::Carry as u8);
-
         let prg = vec![
             0xE9, 0x40, // SBC $40
         ];
 
-        simple_test_base(&mut cpu, prg, 2);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0x40;
+        mask_set!(cpu.p, Flags::Carry as u8);
+
+        simple_test_base(&mut cpu, 2);
 
         assert_eq!(cpu.a, 0x00);
         assert_eq!(mask_is_set!(cpu.p, Flags::Carry as u8), true);
@@ -2550,14 +2543,14 @@ mod tests {
 
     #[test]
     fn sbc_overflow_1() {
-        let mut cpu = Cpu::default();
-        cpu.a = 0x00;
-
         let prg = vec![
             0xE9, 0x01, // SBC $01
         ];
 
-        simple_test_base(&mut cpu, prg, 2);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0x00;
+
+        simple_test_base(&mut cpu, 2);
 
         assert_eq!(cpu.a, 0xFE);
         assert_eq!(mask_is_set!(cpu.p, Flags::Overflow as u8), false);
@@ -2565,14 +2558,14 @@ mod tests {
 
     #[test]
     fn sbc_overflow_2() {
-        let mut cpu = Cpu::default();
-        cpu.a = 0x80;
-
         let prg = vec![
             0xE9, 0x01, // SBC $01
         ];
 
-        simple_test_base(&mut cpu, prg, 2);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0x80;
+
+        simple_test_base(&mut cpu, 2);
 
         assert_eq!(cpu.a, 0x7E);
         assert_eq!(mask_is_set!(cpu.p, Flags::Overflow as u8), true);
@@ -2580,32 +2573,33 @@ mod tests {
 
     #[test]
     fn isb() {
-        let mut cpu = Cpu::default();
-        cpu.a = 0x01;
-        cpu.ram[0x02] = 0x00;
-
         let prg = vec![
             0xE7, 0x02, // ISB $02
         ];
 
-        simple_test_base(&mut cpu, prg, 5);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0x01;
+        cpu.write_u8(0x02, 0x00);
+
+        simple_test_base(&mut cpu, 5);
 
         assert_eq!(cpu.a, 0xFF);
-        assert_eq!(cpu.ram[0x02], 0x01);
+        assert_eq!(cpu.read_u8(0x02), 0x01);
     }
 
     #[test]
     fn rts() {
-        let mut cpu = Cpu::default();
-        cpu.ram[0x10A] = 0xDE;
-        cpu.ram[0x109] = 0xAC;
-        cpu.sp = 0x0008;
-
         let prg = vec![
             0x60, // RTS
         ];
+        
+        let mut cpu = init_cpu(prg);
+        cpu.write_u8(0x10A, 0xDE);
+        cpu.write_u8(0x109, 0xAC);
+        cpu.sp = 0x0008;
 
-        simple_test_base(&mut cpu, prg, 6);
+
+        simple_test_base(&mut cpu, 6);
 
         assert_eq!(cpu.sp, 0x0A);
         assert_eq!(cpu.pc, 0xDEAD);
@@ -2613,28 +2607,28 @@ mod tests {
 
     #[test]
     fn stx() {
-        let mut cpu = Cpu::default();
-        cpu.x = 0xA5;
-
         let prg = vec![
             0x86, 0x02, // STX $02
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        cpu.x = 0xA5;
 
-        assert_eq!(cpu.ram[0x02], 0xA5);
+        simple_test_base(&mut cpu, 3);
+
+        assert_eq!(cpu.read_u8(0x02), 0xA5);
     }
 
     #[test]
     fn tax() {
-        let mut cpu = Cpu::default();
-        cpu.a = 0xA5;
-
         let prg = vec![
             0xAA, // TAX
         ];
 
-        simple_test_base(&mut cpu, prg, 2);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0xA5;
+
+        simple_test_base(&mut cpu, 2);
 
         assert_eq!(cpu.x, 0xA5);
     }
@@ -2642,14 +2636,14 @@ mod tests {
     
     #[test]
     fn tay() {
-        let mut cpu = Cpu::default();
-        cpu.a = 0xA5;
-
         let prg = vec![
             0xA8, // TAY
         ];
 
-        simple_test_base(&mut cpu, prg, 2);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0xA5;
+
+        simple_test_base(&mut cpu, 2);
 
         assert_eq!(cpu.y, 0xA5);
     }
@@ -2657,72 +2651,72 @@ mod tests {
     
     #[test]
     fn tsx() {
-        let mut cpu = Cpu::default();
-        cpu.sp = 0xA5;
-
         let prg = vec![
             0xBA, // TSX
         ];
 
-        simple_test_base(&mut cpu, prg, 2);
+        let mut cpu = init_cpu(prg);
+        cpu.sp = 0xA5;
+
+        simple_test_base(&mut cpu, 2);
 
         assert_eq!(cpu.x, 0xA5);
     }
 
     #[test]
     fn txa() {
-        let mut cpu = Cpu::default();
-        cpu.x = 0xA5;
-
         let prg = vec![
             0x8A, // TXA
         ];
 
-        simple_test_base(&mut cpu, prg, 2);
+        let mut cpu = init_cpu(prg);
+        cpu.x = 0xA5;
+
+        simple_test_base(&mut cpu, 2);
 
         assert_eq!(cpu.a, 0xA5);
     }
 
     #[test]
     fn txs() {
-        let mut cpu = Cpu::default();
-        cpu.x = 0xA5;
-
         let prg = vec![
             0x9A, // TXS
         ];
 
-        simple_test_base(&mut cpu, prg, 2);
+        let mut cpu = init_cpu(prg);
+        cpu.x = 0xA5;
+
+        simple_test_base(&mut cpu, 2);
 
         assert_eq!(cpu.sp, 0xA5);
     }
 
     #[test]
     fn tya() {
-        let mut cpu = Cpu::default();
-        cpu.y = 0xA5;
-
         let prg = vec![
             0x98, // TYA
         ];
 
-        simple_test_base(&mut cpu, prg, 2);
+        let mut cpu = init_cpu(prg);
+        cpu.y = 0xA5;
+
+        simple_test_base(&mut cpu, 2);
 
         assert_eq!(cpu.a, 0xA5);
     }
 
     #[test]
     fn sty() {
-        let mut cpu = Cpu::default();
-        cpu.y = 0xA5;
-
         let prg = vec![
             0x84, 0x02, // STY $02
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        cpu.y = 0xA5;
 
-        assert_eq!(cpu.ram[0x02], 0xA5);
+        simple_test_base(&mut cpu, 3);
+
+        assert_eq!(cpu.read_u8(0x02), 0xA5);
     }
 
     #[test]
@@ -2744,13 +2738,6 @@ mod tests {
     #[test]
     fn enter_interrupt() {
         // TODO: Interrupt test
-        // let bus = FakeBus::default();
-        // let mut cpu: Cpu<FakeBus> = Cpu::default();
-        // cpu.load_bus(bus);
-
-        // cpu.raise_interrupt();
-
-        // assert_eq!(cpu.pc, 0x4020);
     }
 
     ///-----------------------------------------------------------------------------------------------------------------
@@ -2760,63 +2747,67 @@ mod tests {
         use super::*;
 
         pub struct FakeBus {
-            prg_rom: Vec<u8>, // ROM
-            rom_offest: usize,
+            memmap: Vec<u8>, // ROM
         }
 
         impl Default for FakeBus {
             fn default() -> Self {
                 FakeBus {
-                    prg_rom: vec![],
-                    rom_offest: 0,
+                    memmap: vec![],
                 }
             }
         }
 
         impl FakeBus {
             pub fn from(prg_rom: Vec<u8>) -> Self {
+                let mut rom = vec![0x00; 0x10000];
+                // insert prg memory
+                for (i, byte) in prg_rom.iter().enumerate() {
+                    rom[0x4020 + i] = *byte;
+                }
+
+                // insert reset vector
+                rom[0xFFFC] = 0x20;
+                rom[0xFFFD] = 0x40;
+
+                // insert NMI interrupt vector
+                rom[0xFFFA] = 0x20;
+                rom[0xFFFB] = 0x40;
+
                 FakeBus {
-                    prg_rom: prg_rom,
-                    rom_offest: 0x4020,
+                    memmap: rom,
                 }
             }
         }
 
         impl IoAccess for FakeBus {
             fn read_byte(&self, addr: u16) -> u8 {
-                match addr {
-                    0xFFFC | 0xFFFA => 0x20,
-                    0xFFFD | 0xFFFB => 0x40,
-                    _ => {
-                        if addr >= 0x4020 {
-                            self.prg_rom[((addr as usize) - self.rom_offest) % self.prg_rom.len()]
-                        }
-                        else {
-                            0
-                        }
-                    }
-                }
+                self.memmap[addr as usize]
             }
 
-            fn write_byte(&mut self, _addr: u16, _data: u8) {
-
+            fn write_byte(&mut self, addr: u16, data: u8) {
+                self.memmap[addr as usize] = data;
             }
         }
 
         pub fn simple_test<'a>(prg: Vec<u8>, ticks: usize) -> Cpu<FakeBus> {
-            let mut cpu = Cpu::default();
+            let mut cpu = init_cpu(prg);
             cpu.p = 0x00;
 
-            simple_test_base(&mut cpu, prg, ticks);
+            simple_test_base(&mut cpu, ticks);
 
             cpu
         }
 
-        pub fn simple_test_base(cpu: &mut Cpu<FakeBus>, prg: Vec<u8>, ticks: usize) {
-            let bus = FakeBus::from(prg);
-            cpu.load_bus(bus);
-
+        pub fn simple_test_base(cpu: &mut Cpu<FakeBus>, ticks: usize) {
             run_cpu(cpu, ticks);
+        }
+
+        pub fn init_cpu(prg: Vec<u8>) -> Cpu<FakeBus> {
+            let bus = FakeBus::from(prg);
+            let mut cpu: Cpu<FakeBus> = Cpu::default();
+            cpu.load_bus(bus);
+            cpu
         }
 
         pub fn run_cpu(cpu: &mut Cpu<FakeBus>, ticks: usize) {

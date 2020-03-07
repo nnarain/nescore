@@ -287,6 +287,14 @@ impl<Io: IoAccess> Ppu<Io> {
         }
     }
 
+    pub fn read_oam(&self, addr: u8) -> u8 {
+        self.oam[addr as usize]
+    }
+
+    pub fn write_oam(&mut self, addr: u8, value: u8) {
+        self.oam[addr as usize] = value;
+    }
+
     pub fn load_bus(&mut self, bus: Io) {
         self.bus = Some(bus);
     }
@@ -370,7 +378,13 @@ impl<Io: IoAccess> IoAccess for Ppu<Io> {
 
                 *self.addr.borrow_mut() += self.ctrl.vram_increment();
             }
-            _ => {}
+            _ => {
+                // FIXME: OAM DMA
+                if mask_is_set!(addr, 0xFF00) {
+                    let oam_addr = (addr | 0xFF) as u8;
+                    self.write_oam(oam_addr, value);
+                }
+            }
         }
 
         self.status.lsb = value;
