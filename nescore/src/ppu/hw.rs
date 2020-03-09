@@ -85,7 +85,7 @@ pub struct SpriteRegister {
     is_active: bool,
 
     palette: u8,
-    front_priority: bool,
+    priority: bool,
 
     plane0: u8,
     plane1: u8,
@@ -117,7 +117,7 @@ impl SpriteRegister {
         self.is_active = false;
 
         self.palette = palette;
-        self.front_priority = front_priority;
+        self.priority = front_priority;
     }
 
     pub fn get_value(&self) -> (u8, u8, bool) {
@@ -125,7 +125,7 @@ impl SpriteRegister {
         let lo = bit_as_value!(self.plane0, 0) as u8;
         let hi = bit_as_value!(self.plane1, 0) as u8;
 
-        ((hi << 1) | lo, self.palette, self.front_priority)
+        ((hi << 1) | lo, self.palette, self.priority)
     }
 
     pub fn active(&self) -> bool {

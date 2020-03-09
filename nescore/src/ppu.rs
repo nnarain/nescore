@@ -330,13 +330,7 @@ impl<Io: IoAccess> Ppu<Io> {
 
         // Choose which pattern and palette to use
         // Select the sprite data is the sprite pixel is opaque and has front priority OR the background is transparent
-        let (pattern, palette, palette_group) = if (sp_pattern != 0 && sp_priority) || bg_pattern == 0 {
-            (sp_pattern, sp_palette, 0x10)
-        }
-        else {
-            (bg_pattern, bg_palette, 0x00)
-        };
-
+        let (pattern, palette, palette_group) = helpers::pixel_mux((bg_pattern, bg_palette), (sp_pattern, sp_palette), sp_priority);
         // Determine palette offset: http://wiki.nesdev.com/w/index.php/PPU_palettes
         let palette_offset = palette_group | (palette << 2) | pattern;
 
@@ -550,6 +544,29 @@ mod helpers {
             ((c >> 16) & 0xFF) as u8
         )
     }
+
+    // Determine the pixel priority given the background and sprite data
+    pub fn pixel_mux(bg_pattern: (u8, u8), sp_pattern: (u8, u8), sp_priority: bool) -> (u8, u8, u8) {
+        if bg_pattern.0 == 0 && sp_pattern.0 == 0 {
+            (0x00, 0x00, 0x00)
+        }
+        else if bg_pattern.0 == 0 && sp_pattern.0 > 0 {
+            (sp_pattern.0, sp_pattern.1, 0x10)
+        }
+        else if bg_pattern.0 > 0 && sp_pattern.0 == 0 {
+            (bg_pattern.0, bg_pattern.1, 0x00)
+        }
+        else if bg_pattern.0 > 0 && sp_pattern.0 > 0 && !sp_priority {
+            (sp_pattern.0, sp_pattern.1, 0x10)
+        }
+        else if bg_pattern.0 > 0 && sp_pattern.0 > 0 && sp_priority {
+            (bg_pattern.0, bg_pattern.1, 0x00)
+        }
+        else {
+            // Should not get here
+            (0, 0, 0)
+        }
+    }
 }
 
 //----------------------------------------------------------------------------------------------------------------------
@@ -559,6 +576,29 @@ mod helpers {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mux() {
+        let bg = (0, 0);
+        let sp = (0, 0);
+        assert_eq!(helpers::pixel_mux(bg, sp, false), (0, 0, 0));
+
+        let bg = (0, 0);
+        let sp = (1, 2);
+        assert_eq!(helpers::pixel_mux(bg, sp, false), (1, 2, 0x10));
+
+        let bg = (1, 3);
+        let sp = (0, 2);
+        assert_eq!(helpers::pixel_mux(bg, sp, false), (1, 3, 0x00));
+
+        let bg = (1, 3);
+        let sp = (1, 2);
+        assert_eq!(helpers::pixel_mux(bg, sp, false), (1, 2, 0x10));
+
+        let bg = (1, 3);
+        let sp = (1, 2);
+        assert_eq!(helpers::pixel_mux(bg, sp, true), (1, 3, 0x00));
+    }
 
     #[test]
     fn visible_pixel_output() {
