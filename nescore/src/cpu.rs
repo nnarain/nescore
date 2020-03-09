@@ -15,12 +15,6 @@ use state::*;
 
 use std::num::Wrapping;
 
-macro_rules! exec {
-    () => {
-        println!("test");
-    };
-}
-
 /// CPU Flags
 enum Flags {
     Carry            = 1 << 0,
@@ -32,7 +26,6 @@ enum Flags {
     Negative         = 1 << 7,
 }
 
-const INTERNAL_RAM_SIZE: usize = 0x800;
 const STACK_PAGE_OFFSET: u16 = 0x100;
 
 

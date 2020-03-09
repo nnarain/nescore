@@ -7,9 +7,11 @@
 pub mod bus;
 mod regs;
 mod hw;
+mod sprite;
 
 use regs::*;
 use hw::*;
+use sprite::Sprite;
 use crate::common::{IoAccess, Clockable, Register};
 
 use std::cell::RefCell;
@@ -58,20 +60,23 @@ impl Scanline {
 
 /// NES Picture Processing Unit
 pub struct Ppu<Io: IoAccess> {
-    oam: [u8; 256],
+    oam: [u8; 256],            // Object Attribute Memory (Sprites)
+    sprite_cache: [Option<Sprite>; 8],   // Up to 8 sprites per scanline
 
-    ctrl: PpuCtrl,          // PPUCTRL   - Control Register
-    status: PpuStatus,      // PPUSTATUS - Status Register
-    mask: PpuMask,          // PPUMASK   - Mask Register (Render controls)
-    addr: RefCell<PpuAddr>, // PPUADDR   - VRAM Address
-    scroll: PpuScroll,      // PPUSCROLL - Scroll register
-    oam_addr: RefCell<u16>, // OAMADDR   - OAM Address
+    ctrl: PpuCtrl,             // PPUCTRL   - Control Register
+    status: PpuStatus,         // PPUSTATUS - Status Register
+    mask: PpuMask,             // PPUMASK   - Mask Register (Render controls)
+    addr: RefCell<PpuAddr>,    // PPUADDR   - VRAM Address
+    scroll: PpuScroll,         // PPUSCROLL - Scroll register
+    oam_addr: RefCell<u16>,    // OAMADDR   - OAM Address
 
+    // Render pipeline hardware
     tile_reg: TileRegister,    // PPU tile shift registers
-    pal_reg: PaletteRegister, // PPU palette shift registers
+    pal_reg: PaletteRegister,  // PPU palette shift registers
+    sprite_regs: [SpriteRegister; 8],
 
-    cycle: usize,           // Cycle count per scanline
-    scanline: usize,        // Current scanline
+    cycle: usize,              // Cycle count per scanline
+    scanline: usize,           // Current scanline
 
     bus: Option<Io>,
 }
@@ -80,6 +85,7 @@ impl<Io: IoAccess> Default for Ppu<Io> {
     fn default() -> Self {
         Ppu{
             oam: [0; 256],
+            sprite_cache: [None; 8],
 
             ctrl: PpuCtrl::default(),
             status: PpuStatus::default(),
@@ -90,6 +96,7 @@ impl<Io: IoAccess> Default for Ppu<Io> {
 
             tile_reg: TileRegister::default(),
             pal_reg: PaletteRegister::default(),
+            sprite_regs: [SpriteRegister::default(); 8],
 
             cycle: 0,
             scanline: NUM_SCANLINES - 1, // Initialize to the Pre-render scanline
@@ -110,6 +117,10 @@ impl<Io: IoAccess> Ppu<Io> {
             },
             Scanline::Visible => {
                 self.process_scanline(self.cycle);
+
+                if self.cycle <= 255 {
+                    self.tick_sprite_registers();
+                }
             },
             Scanline::PostRender => {
                 // PPU is idle
@@ -123,7 +134,6 @@ impl<Io: IoAccess> Ppu<Io> {
             }
         }
 
-        // TODO: Every cycles produces a pixel
         if scanline == Scanline::Visible && self.cycle <= 255 {
             Some(self.generate_pixel())
         }
@@ -143,20 +153,30 @@ impl<Io: IoAccess> Ppu<Io> {
                 // In addition to all that, the sprite evaluation happens independently
                 if cycle % 8 == 0 {
                     let dot = (cycle - 1) as u8;
-                    self.load_shift_registers(dot, 2, self.scanline as u8);
+                    self.load_shift_registers(dot, 2, self.scanline as u16);
                 }
             },
             257..=320 => {
                 // Cycles 257 - 320: Get tile data for sprites on next scanline
-                // accesses: 2 garbage nametable bytes, pattern table low, pattern table high
+                // Sprite eval is complete by cycle 257
+                if cycle == 257 {
+                    let scanline = ((self.scanline + 1) % NUM_SCANLINES) as u16;
+                    self.evaluate_sprites(scanline);
+                }
             },
             321..=336 => {
                 // Cycles 321-336: Fetch first two tiles of the next scanline
                 // accesses: 2 nametable bytes, attribute, pattern table low, pattern table high
+                let scanline = (self.scanline + 1) % NUM_SCANLINES;
+
                 if cycle % 8 == 0 {
                     let dot = (cycle - 321) as u8;
-                    let scanline = (self.scanline + 1) % NUM_SCANLINES;
-                    self.load_shift_registers(dot, 0, scanline as u8);
+                    self.load_shift_registers(dot, 0, scanline as u16);
+                }
+
+                // Sprite data loading has completed by cycle 321
+                if cycle == 321 {
+                    self.load_sprite_data(scanline as u16);
                 }
             },
             337..=340 => {
@@ -173,7 +193,7 @@ impl<Io: IoAccess> Ppu<Io> {
         }
     }
 
-    fn load_shift_registers(&mut self, dot: u8, tile_x_offset: u8, scanline: u8) {
+    fn load_shift_registers(&mut self, dot: u8, tile_x_offset: u8, scanline: u16) {
         // Get pixel scroll offset
         let scroll = self.scroll.offset();
         let (base_x, base_y) = (scroll.0 as usize + dot as usize, scroll.1 as usize + scanline as usize);
@@ -195,6 +215,68 @@ impl<Io: IoAccess> Ppu<Io> {
         // Load shift registers
         self.tile_reg.load(pattern);
         self.pal_reg.latch(attribute);
+    }
+
+    fn evaluate_sprites(&mut self, scanline: u16) {
+        // Scan primary OAM for sprites that are on the specified scanline
+        let mut found_sprites = 0;
+
+        // Clear sprite cache
+        self.sprite_cache = [None; 8];
+
+        for n in 0..64 {
+            if found_sprites < 8 {
+                let offset = n * 4;
+                let sprite_data = &self.oam[offset..offset+4];
+                let sprite = Sprite::from(sprite_data);
+
+                let max_y = (sprite.y as u16) + (self.ctrl.sprite_height() as u16);
+
+                if sprite.y > 0 && scanline >= sprite.y as u16 && scanline <= max_y {
+                    // Found a valid sprite
+                    // Move to the sprite cache
+                    self.sprite_cache[found_sprites] = Some(sprite);
+                    found_sprites += 1;
+                }
+            }
+            else {
+                break;
+            }
+        }
+    }
+
+    fn load_sprite_data(&mut self, scanline: u16) {
+        for (i, sprite) in self.sprite_cache.iter().enumerate() {
+            if let Some(ref sprite) = sprite {
+                let sprite_height = self.ctrl.sprite_height();
+
+                let base = if sprite_height == 16 {
+                    0x0000
+                }
+                else {
+                    self.ctrl.sprite_pattern_table()
+                };
+
+                // Determine fine y for vertical flipping
+                let fine_y = if !sprite.flip_v() {
+                    (scanline - (sprite.y as u16)) as u8
+                }
+                else {
+                    (sprite_height - 1) - (scanline - (sprite.y as u16)) as u8
+                };
+                let pattern = self.read_pattern(base, sprite.tile, fine_y);
+
+                // Reverse bit pattern if the sprite is horizontally flipped
+                let pattern = if sprite.flip_h() {
+                    (reverse_bits!(pattern.0), reverse_bits!(pattern.1))
+                }
+                else {
+                    pattern
+                };
+
+                self.sprite_regs[i].load(sprite.x, pattern, sprite.palette(), sprite.priority());
+            }
+        }
     }
 
     fn read_nametable(&self, idx: usize) -> u8 {
@@ -225,6 +307,7 @@ impl<Io: IoAccess> Ppu<Io> {
     }
 
     fn read_pattern(&self, base: u16, tile_no: u8, fine_y: u8) -> (u8, u8) {
+        // TODO: Sprite size 16?
         let tile_no = tile_no as u16;
         // 16 bytes per tile
         let tile_offset = (tile_no * 16) + fine_y as u16;
@@ -240,12 +323,22 @@ impl<Io: IoAccess> Ppu<Io> {
         let fine_x = (self.scroll.x % 8) as u8;
 
         // Fetch pattern and attributes from shifters
-        let pattern = self.tile_reg.get_value(fine_x);
-        let attribute = self.pal_reg.get_value(fine_x);
+        let bg_pattern = self.tile_reg.get_value(fine_x);
+        let bg_palette = self.pal_reg.get_value(fine_x);
+
+        let (sp_pattern, sp_palette, sp_priority) = self.get_sprite_pixel_data();
+
+        // Choose which pattern and palette to use
+        // Select the sprite data is the sprite pixel is opaque and has front priority OR the background is transparent
+        let (pattern, palette, palette_group) = if (sp_pattern != 0 && sp_priority) || bg_pattern == 0 {
+            (sp_pattern, sp_palette, 0x10)
+        }
+        else {
+            (bg_pattern, bg_palette, 0x00)
+        };
 
         // Determine palette offset: http://wiki.nesdev.com/w/index.php/PPU_palettes
-        // TODO: Background vs sprite palette selection
-        let palette_offset = 0x00 | (attribute << 2) | pattern;
+        let palette_offset = palette_group | (palette << 2) | pattern;
 
         // Fetch color from palette
         let color = self.read_vram(0x3F00 + palette_offset as u16) as usize;
@@ -253,9 +346,33 @@ impl<Io: IoAccess> Ppu<Io> {
         helpers::color_to_pixel(COLOR_INDEX_TO_RGB[color])
     }
 
+    fn get_sprite_pixel_data(&self) -> (u8, u8, bool) {
+        let mut pixel_data = (0, 0, false);
+
+        // Find the first opaque pixel for the active sprites
+        for sprite_reg in self.sprite_regs.iter() {
+            if sprite_reg.active() {
+                let sprite_data = sprite_reg.get_value();
+                // Check if not opaque
+                if sprite_data.0 != 0 {
+                    pixel_data = sprite_data;
+                    break;
+                }
+            }
+        }
+
+        pixel_data
+    }
+
     fn tick_shifters(&mut self) {
         self.tile_reg.tick();
         self.pal_reg.tick();
+    }
+
+    fn tick_sprite_registers(&mut self) {
+        for sprite_reg in self.sprite_regs.iter_mut() {
+            sprite_reg.tick();
+        }
     }
 
     /// Check if the PPU is in vertical blanking mode
@@ -319,8 +436,9 @@ impl<Io: IoAccess> IoAccess for Ppu<Io> {
             },
             0x2004 => {
                 let data = self.oam[*self.oam_addr.borrow() as usize];
-                // FIXME
-                // *self.oam_addr.borrow_mut() = self.oam_addr.borrow().wrapping_add(1);
+                // Increment OAM pointer
+                let new_oam_addr = self.oam_addr.borrow().wrapping_add(1);
+                *self.oam_addr.borrow_mut() = new_oam_addr;
 
                 data
             },
@@ -356,12 +474,13 @@ impl<Io: IoAccess> IoAccess for Ppu<Io> {
             // OAM ADDR
             0x2003 => {
                 *self.oam_addr.borrow_mut() = value as u16;
-                // FIXME
-                // *self.oam_addr.borrow_mut() = self.oam_addr.borrow().wrapping_add(1);
             },
             // OAM DATA
             0x2004 => {
                 self.oam[*self.oam_addr.borrow() as usize] = value;
+                // Increment OAM pointer
+                let new_oam_addr = self.oam_addr.borrow().wrapping_add(1);
+                *self.oam_addr.borrow_mut() = new_oam_addr;
             },
             // PPU Scroll
             0x2005 => {
@@ -381,7 +500,7 @@ impl<Io: IoAccess> IoAccess for Ppu<Io> {
             _ => {
                 // FIXME: OAM DMA
                 if mask_is_set!(addr, 0xFF00) {
-                    let oam_addr = (addr | 0xFF) as u8;
+                    let oam_addr = (addr & 0xFF) as u8;
                     self.write_oam(oam_addr, value);
                 }
             }
@@ -468,6 +587,84 @@ mod tests {
     }
 
     #[test]
+    fn render_one_sprite_pixel() {
+        let mut ppu = init_ppu();
+
+        // -- Setup OAM
+        // Y position
+        ppu.write_byte(0x2003, 0x00);
+        ppu.write_byte(0x2004, 0x01);
+        // Tile number
+        ppu.write_byte(0x2003, 0x01);
+        ppu.write_byte(0x2004, 0x01);
+        // Attribute - Front Priority
+        ppu.write_byte(0x2003, 0x02);
+        ppu.write_byte(0x2004, 0x20);
+
+        // Write pattern into pattern table
+        ppu.write_vram(0x0010, 0x80);
+        ppu.write_vram(0x0018, 0x00);
+
+        // Set first color in Sprite Palette 1
+        ppu.write_vram(0x3F11, 0x01);
+
+        // Run the PPU for the pre-render scanline
+        for _ in 0..CYCLES_PER_SCANLINE {
+            let pixel = ppu.tick();
+            assert!(pixel.is_none());
+        }
+
+        // Sprites cannot be displayed on the first scanline
+        // Run for one more scanline
+        for _ in 0..CYCLES_PER_SCANLINE {
+            ppu.tick();
+        }
+
+        let pixel = ppu.tick();
+
+        // The color of the pixel should be the index one of the color table
+        let color = pixel.unwrap();
+        assert_eq!(color, helpers::color_to_pixel(COLOR_INDEX_TO_RGB[0x01]), "Color was: RGB{:?}", color);
+    }
+
+    #[test]
+    fn render_one_sprite_pixel_dma() {
+        let mut ppu = init_ppu();
+
+        // -- Setup OAM
+        let oam_data: [u8; 4] = [0x01, 0x01, 0x20, 0x00];
+        for (i, oam_byte) in oam_data.iter().enumerate() {
+            let addr = (0xFF00 | i) as u16;
+            ppu.write_byte(addr, *oam_byte);
+        }
+
+        // Write pattern into pattern table
+        ppu.write_vram(0x0010, 0x80);
+        ppu.write_vram(0x0018, 0x00);
+
+        // Set first color in Sprite Palette 1
+        ppu.write_vram(0x3F11, 0x01);
+
+        // Run the PPU for the pre-render scanline
+        for _ in 0..CYCLES_PER_SCANLINE {
+            let pixel = ppu.tick();
+            assert!(pixel.is_none());
+        }
+
+        // Sprites cannot be displayed on the first scanline
+        // Run for one more scanline
+        for _ in 0..CYCLES_PER_SCANLINE {
+            ppu.tick();
+        }
+
+        let pixel = ppu.tick();
+
+        // The color of the pixel should be the index one of the color table
+        let color = pixel.unwrap();
+        assert_eq!(color, helpers::color_to_pixel(COLOR_INDEX_TO_RGB[0x01]), "Color was: RGB{:?}", color);
+    }
+
+    #[test]
     fn render_one_pixel() {
         let mut ppu = init_ppu();
 
@@ -499,6 +696,18 @@ mod tests {
         // The color of the pixel should be the index one of the color table
         let color = pixel.unwrap();
         assert_eq!(color, helpers::color_to_pixel(COLOR_INDEX_TO_RGB[0x01]), "Color was: RGB{:?}", color);
+    }
+
+    #[test]
+    fn oam_write() {
+        let mut ppu = init_ppu();
+
+        // Setup OAM
+        ppu.write_byte(0x2003, 0x00);
+        ppu.write_byte(0x2003, 0x01);
+        ppu.write_byte(0x2004, 0x01);
+
+        assert_eq!(ppu.read_oam(0x01), 0x01);
     }
 
     #[test]

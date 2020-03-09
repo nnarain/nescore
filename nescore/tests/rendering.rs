@@ -2,21 +2,6 @@ use nescore::{Nes, Cartridge};
 
 #[test]
 fn render_one_pixel() {
-        // Clear scroll
-        // ppu.write_byte(0x2005, 0);
-        // ppu.write_byte(0x2005, 0);
-
-        // // Write pattern into pattern table
-        // ppu.write_vram(0x0010, 0x01);
-        // ppu.write_vram(0x0018, 0x00);
-
-        // // Write into nametable
-        // ppu.write_vram(0x2000, 0x01);
-        // // Write attribute - Top Left - Background Palette 1
-        // ppu.write_vram(0x23C0, 0x01);
-        // // Set first color in Background Palette 1
-        // ppu.write_vram(0x3F05, 0x01);
-
     let prg = vec![
                           // -- Set PPU ADDR to nametable address $2000
         0xA9, 0x20,       // LDA $20

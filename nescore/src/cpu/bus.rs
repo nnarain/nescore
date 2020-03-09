@@ -53,7 +53,7 @@ impl IoAccess for CpuIoBus {
                     // FIXME: This is kinda a hack to get the DMA transfer going. I think some refactoring the overall architecture
                     // is necessary
                     let cpu_byte = self.read_byte(base + i);
-                    self.write_byte(0xFF | i, cpu_byte);
+                    self.ppu.borrow_mut().write_byte(0xFF00 | i, cpu_byte);
                 }
             },
             _ => {}

@@ -62,7 +62,7 @@ impl IoAccess for PpuIoBus {
             },
             0x3F00..=0x3FFF => self.palette_ram[(addr - 0x3F00) as usize] = value,
 
-            _ => panic!("Invalid write {:04X}={:02X}", addr, value),
+            _ => panic!("Invalid write ${:04X}={:02X}", addr, value),
         }
     }
 

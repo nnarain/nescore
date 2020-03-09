@@ -9,23 +9,15 @@ use crate::common::Clockable;
 
 // http://wiki.nesdev.com/w/index.php/PPU_rendering
 
-pub trait Shifter {
-    fn get_value(&self, sel: u8) -> u8;
+pub trait Shifter<T=u8> {
+    fn get_value(&self, sel: u8) -> T;
 }
 
 /// Represent the two 16 bit registers used to process tile data
+#[derive(Default)]
 pub struct TileRegister {
     plane0: u16,
     plane1: u16,
-}
-
-impl Default for TileRegister {
-    fn default() -> Self {
-        TileRegister {
-            plane0: 0x0000,
-            plane1: 0x0000,
-        }
-    }
 }
 
 impl Clockable for TileRegister {
@@ -55,22 +47,12 @@ impl TileRegister {
 }
 
 /// Representation of the two 8 bit shift registers used to hold pallette data for the ppu
+#[derive(Default)]
 pub struct PaletteRegister {
     r0: u8,
     r1: u8,
 
     latch: u8,
-}
-
-impl Default for PaletteRegister {
-    fn default() -> Self {
-        PaletteRegister {
-            r0: 0x00,
-            r1: 0x00,
-
-            latch: 0x00,
-        }
-    }
 }
 
 impl Clockable for PaletteRegister {
@@ -96,9 +78,82 @@ impl PaletteRegister {
     }
 }
 
+/// Sprite shift registers
+#[derive(Default, Clone, Copy)]
+pub struct SpriteRegister {
+    x_counter: u8,
+    is_active: bool,
+
+    palette: u8,
+    front_priority: bool,
+
+    plane0: u8,
+    plane1: u8,
+}
+
+impl Clockable for SpriteRegister {
+    fn tick(&mut self) {
+        if self.x_counter > 0 {
+            // Clock down the x position counter
+            self.x_counter -= 1;
+        }
+        else {
+            if self.is_active {
+                // Shift pattern data
+                self.plane0 >>= 1;
+                self.plane1 >>= 1;
+            }
+        }
+
+        self.is_active = self.x_counter == 0;
+    }
+}
+
+impl SpriteRegister {
+    pub fn load(&mut self, x_pos: u8, pattern: (u8, u8), palette: u8, front_priority: bool) {
+        self.x_counter = x_pos;
+        self.plane0 = reverse_bits!(pattern.0);
+        self.plane1 = reverse_bits!(pattern.1);
+        self.is_active = false;
+
+        self.palette = palette;
+        self.front_priority = front_priority;
+    }
+
+    pub fn get_value(&self) -> (u8, u8, bool) {
+        // Get the value of the two registers combined
+        let lo = bit_as_value!(self.plane0, 0) as u8;
+        let hi = bit_as_value!(self.plane1, 0) as u8;
+
+        ((hi << 1) | lo, self.palette, self.front_priority)
+    }
+
+    pub fn active(&self) -> bool {
+        self.is_active
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sprite_register_load_and_shift() {
+        let mut sprite_reg = SpriteRegister::default();
+
+        // Load x position 10 and the pattern data
+        sprite_reg.load(10, (0x80, 0x00), 0, false);
+
+        for _ in 0..10 {
+            sprite_reg.tick();
+        }
+
+        assert!(sprite_reg.active());
+        assert_eq!(sprite_reg.get_value(), (1, 0, false));
+
+        sprite_reg.tick();
+        assert_eq!(sprite_reg.get_value(), (0, 0, false));
+    }
 
     #[test]
     fn tile_register_load_and_shift() {

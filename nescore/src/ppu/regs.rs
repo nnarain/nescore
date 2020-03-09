@@ -44,6 +44,10 @@ impl PpuCtrl {
     pub fn sprite_pattern_table(&self) -> u16 {
         self.sprite_pattern_table as u16 * 0x1000
     }
+
+    pub fn sprite_height(&self) -> u8 {
+        (self.sprite_size as u8 * 8) + 8
+    }
  }
 
 impl Register<u8> for PpuCtrl {
@@ -197,6 +201,17 @@ mod tests {
 
         let value = ctrl.value();
         assert_eq!(value, 0xFF);
+    }
+
+    #[test]
+    fn sprite_height() {
+        let mut ctrl = PpuCtrl::default();
+
+        ctrl.load(0x00);
+        assert_eq!(ctrl.sprite_height(), 8);
+
+        ctrl.load(0x20);
+        assert_eq!(ctrl.sprite_height(), 16);
     }
 
     #[test]
