@@ -641,6 +641,13 @@ mod tests {
     fn render_one_sprite_pixel() {
         let mut ppu = init_ppu();
 
+        // Enable sprites
+        let mut mask = PpuMask::default();
+        mask.sprites_enabled = true;
+        mask.background_enabled = true;
+
+        ppu.write_byte(0x2001, mask.value());
+
         // -- Setup OAM
         // Y position
         ppu.write_byte(0x2003, 0x00);
@@ -681,6 +688,13 @@ mod tests {
     #[test]
     fn render_one_sprite_pixel_dma() {
         let mut ppu = init_ppu();
+
+        // Enable sprites
+        let mut mask = PpuMask::default();
+        mask.sprites_enabled = true;
+        mask.background_enabled = true;
+
+        ppu.write_byte(0x2001, mask.value());
 
         // -- Setup OAM
         let oam_data: [u8; 4] = [0x01, 0x01, 0x20, 0x00];

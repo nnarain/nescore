@@ -42,7 +42,7 @@ fn render_one_pixel() {
     let framebuffer = nes.emulate_frame();
     let rgb = (framebuffer[0], framebuffer[1], framebuffer[2]);
 
-    assert_eq!(rgb, (0xFC, 0, 0));
+    assert_eq!(rgb, (0x00, 0x2D, 0x69));
 }
 
 fn  init_cart(mut prg_rom: Vec<u8>) -> Cartridge {
