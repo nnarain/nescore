@@ -25,15 +25,20 @@ pub const DISPLAY_WIDTH: usize = 256;
 pub const DISPLAY_HEIGHT: usize = 240;
 pub const CYCLES_PER_FRAME: usize = NUM_SCANLINES * CYCLES_PER_SCANLINE;
 
+
+// Palette from http://wiki.nesdev.com/w/index.php/PPU_palettes
 const COLOR_INDEX_TO_RGB: [u32; 64] = [
-    0x7C7C7C, 0x0000FC, 0x0000BC, 0x4428BC, 0x940084, 0xA80020, 0xA81000, 0x881400,
-    0x503000, 0x007800, 0x006800, 0x005800, 0x004058, 0x000000, 0x000000, 0x000000,
-    0xBCBCBC, 0x0078F8, 0x0058F8, 0x6844FC, 0xD800CC, 0xE40058, 0xF83800, 0xE45C10,
-    0xAC7C00, 0x00B800, 0x00A800, 0x00A844, 0x008888, 0x000000, 0x000000, 0x000000,
-    0xF8F8F8, 0x3CBCFC, 0x6888FC, 0x9878F8, 0xF878F8, 0xF85898, 0xF87858, 0xFCA044,
-    0xF8B800, 0xB8F818, 0x58D854, 0x58F898, 0x00E8D8, 0x787878, 0x000000, 0x000000,
-    0xFCFCFC, 0xA4E4FC, 0xB8B8F8, 0xD8B8F8, 0xF8B8F8, 0xF8A4C0, 0xF0D0B0, 0xFCE0A8,
-    0xF8D878, 0xD8F878, 0xB8F8B8, 0xB8F8D8, 0x00FCFC, 0xF8D8F8, 0x000000, 0x000000
+    0x656565, 0x002D69, 0x131F7F, 0x3C137C, 0x600B62, 0x730A37, 0x710F07, 0x5A1A00,
+    0x342800, 0x0B3400, 0x003C00, 0x003D10, 0x003840, 0x000000, 0x000000, 0x000000,
+
+    0xAEAEAE, 0x0F63B3, 0x4051D0, 0x7841CC, 0xA736A9, 0xC03470, 0xBD3C30, 0x9F4A00,
+    0x6D5C00, 0x366D00, 0x077704, 0x00793D, 0x00727D, 0x000000, 0x000000, 0x000000,
+
+    0xFEFEFF, 0x5DB3FF, 0x8FA1FF, 0xC890FF, 0xF785FA, 0xFF83C0, 0xFF8B7F, 0xEF9A49,
+    0xBDAC2C, 0x85BC2F, 0x55C753, 0x3CC98C, 0x3EC2CD, 0x4E4E4E, 0x000000, 0x000000,
+
+    0xFEFEFF, 0xBCDFFF, 0xD1D8FF, 0xE8D1FF, 0xFBCDFD, 0xFFCCE5, 0xFFCFCA, 0xF8D5B4,
+    0xF8D5B4, 0x85BC2F, 0xB9E8B8, 0xAEE8D0, 0xAFE5EA, 0xB6B6B6, 0x000000, 0x000000
 ];
 
 
@@ -318,28 +323,6 @@ impl<Io: IoAccess> Ppu<Io> {
         (lo, hi)
     }
 
-    fn generate_pixel(&self) -> Pixel {
-        // Use fine X to select the pixel to render
-        let fine_x = (self.scroll.x % 8) as u8;
-
-        // Fetch pattern and attributes from shifters
-        let bg_pattern = self.tile_reg.get_value(fine_x);
-        let bg_palette = self.pal_reg.get_value(fine_x);
-
-        let (sp_pattern, sp_palette, sp_priority) = self.get_sprite_pixel_data();
-
-        // Choose which pattern and palette to use
-        // Select the sprite data is the sprite pixel is opaque and has front priority OR the background is transparent
-        let (pattern, palette, palette_group) = helpers::pixel_mux((bg_pattern, bg_palette), (sp_pattern, sp_palette), sp_priority);
-        // Determine palette offset: http://wiki.nesdev.com/w/index.php/PPU_palettes
-        let palette_offset = palette_group | (palette << 2) | pattern;
-
-        // Fetch color from palette
-        let color = self.read_vram(0x3F00 + palette_offset as u16) as usize;
-
-        helpers::color_to_pixel(COLOR_INDEX_TO_RGB[color])
-    }
-
     fn get_sprite_pixel_data(&self) -> (u8, u8, bool) {
         let mut pixel_data = (0, 0, false);
 
@@ -356,6 +339,34 @@ impl<Io: IoAccess> Ppu<Io> {
         }
 
         pixel_data
+    }
+
+    fn generate_pixel(&self) -> Pixel {
+        // Use fine X to select the pixel to render
+        let fine_x = (self.scroll.x % 8) as u8;
+
+        // Fetch pattern and attributes from shifters
+        let bg_pattern = self.tile_reg.get_value(fine_x);
+        let bg_palette = self.pal_reg.get_value(fine_x);
+
+        let (sp_pattern, sp_palette, sp_priority) = if self.mask.sprites_enabled {
+            self.get_sprite_pixel_data()
+        }
+        else {
+            (0, 0, false)
+        };
+
+        // Choose which pattern and palette to use
+        // Select the sprite data is the sprite pixel is opaque and has front priority OR the background is transparent
+        let (pattern, palette, palette_group) = helpers::pixel_mux((bg_pattern, bg_palette), (sp_pattern, sp_palette), sp_priority);
+        // Determine palette offset: http://wiki.nesdev.com/w/index.php/PPU_palettes
+        let palette_offset = palette_group | (palette << 2) | pattern;
+
+        // Fetch color from palette
+        let color = self.read_vram(0x3F00 + palette_offset as u16) as usize;
+
+        // TODO: Color emphasis
+        helpers::color_to_pixel(COLOR_INDEX_TO_RGB[color])
     }
 
     fn tick_shifters(&mut self) {
@@ -539,9 +550,9 @@ mod helpers {
 
     pub fn color_to_pixel(c: u32) -> Pixel {
         (
-            (c & 0xFF) as u8,
+            ((c >> 16) & 0xFF) as u8,
             ((c >> 8) & 0xFF) as u8,
-            ((c >> 16) & 0xFF) as u8
+            (c & 0xFF) as u8,
         )
     }
 
