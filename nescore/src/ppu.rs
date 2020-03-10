@@ -235,7 +235,7 @@ impl<Io: IoAccess> Ppu<Io> {
                 let sprite_data = &self.oam[offset..offset+4];
                 let sprite = Sprite::from(sprite_data);
 
-                let max_y = (sprite.y as u16) + (self.ctrl.sprite_height() as u16);
+                let max_y = (sprite.y as u16) + (self.ctrl.sprite_height() as u16) - 1 ;
 
                 if sprite.y > 0 && scanline >= sprite.y as u16 && scanline <= max_y {
                     // Found a valid sprite
