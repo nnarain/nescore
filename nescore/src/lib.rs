@@ -72,6 +72,9 @@ impl Nes {
                 let pixels = self.tick_master_clock();
                 for p in &pixels {
                     if let Some((r, g, b)) = p {
+                        if *g == 45 {
+                            // println!("idx: {}, pixel: {}", idx, idx / 3);
+                        }
                         framebuffer[idx] = *r;
                         framebuffer[idx + 1] = *g;
                         framebuffer[idx + 2] = *b;

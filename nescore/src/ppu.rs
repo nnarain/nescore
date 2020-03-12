@@ -193,7 +193,7 @@ impl<Io: IoAccess> Ppu<Io> {
 
         // Tick shift register
         match cycle {
-            2..=257 | 322..=335 => self.tick_shifters(),
+            1..=256 | 322..=335 => self.tick_shifters(),
             _ => {}
         }
     }
@@ -213,6 +213,7 @@ impl<Io: IoAccess> Ppu<Io> {
 
         // Read pattern from pattern table memory
         let fine_y = (base_y % 8) as u8;
+
         let pattern = self.read_pattern(self.ctrl.background_pattern_table(), tile_no, fine_y);
         // Fetch tile attributes
         let attribute = self.read_attribute(coarse.1 as usize, coarse.0 as usize);
@@ -366,6 +367,7 @@ impl<Io: IoAccess> Ppu<Io> {
         let color = self.read_vram(0x3F00 + palette_offset as u16) as usize;
 
         // TODO: Color emphasis
+        // TODO: Grey Scale
         helpers::color_to_pixel(COLOR_INDEX_TO_RGB[color])
     }
 
@@ -615,27 +617,60 @@ mod tests {
     fn visible_pixel_output() {
         let mut ppu = init_ppu();
 
-        // Run the pre-render scanline
-        for _ in 0..CYCLES_PER_SCANLINE {
-            let pixel = ppu.tick();
-            assert!(pixel.is_none());
-        }
-
         let mut pixel_counter = 0;
 
-        // Run for visible scanlines
-        for _ in 0..240 {
-            for _ in 0..CYCLES_PER_SCANLINE {
-                let pixel = ppu.tick();
-
-                if pixel.is_some() {
-                    pixel_counter += 1;
-                }
+        for _ in 0..CYCLES_PER_FRAME {
+            if ppu.tick().is_some() {
+                pixel_counter += 1;
             }
         }
 
         assert_eq!(pixel_counter, DISPLAY_WIDTH * DISPLAY_HEIGHT);
     }
+
+    // #[test]
+    // fn corner() {
+    //     // Place a pixel at the bottom right corner of the visible area
+    //     let mut ppu = init_ppu();
+
+    //     // Clear scroll
+    //     ppu.write_byte(0x2005, 0);
+    //     ppu.write_byte(0x2005, 0);
+
+    //     // Write pattern into pattern table
+    //     ppu.write_vram(0x0017, 0x01);
+    //     ppu.write_vram(0x001F, 0x00);
+
+    //     // Write into nametable
+    //     ppu.write_vram(0x23BF, 0x01);
+    //     // Write attribute - Top Left - Background Palette 1
+    //     ppu.write_vram(0x23C0, 0x01);
+    //     // Set first color in Background Palette 1
+    //     ppu.write_vram(0x3F05, 0x01);
+
+    //     // Pre-render
+    //     for _ in 0..CYCLES_PER_SCANLINE {
+    //         let pixel = ppu.tick();
+    //         assert!(pixel.is_none());
+    //     }
+
+    //     // All scanlines minus 1
+    //     for _ in 0..(239 * CYCLES_PER_SCANLINE) {
+    //         ppu.tick();
+    //     }
+
+    //     // Last scanline expect last pixel
+    //     for _ in 0..255 {
+    //         ppu.tick();
+    //     }
+
+    //     // Get the last pixel
+    //     let pixel = ppu.tick();
+
+    //     // The color of the pixel should be the index one of the color table
+    //     let color = pixel.unwrap();
+    //     assert_eq!(color, helpers::color_to_pixel(COLOR_INDEX_TO_RGB[0x01]), "Color was: RGB{:?}", color);
+    // }
 
     #[test]
     fn render_one_sprite_pixel() {
