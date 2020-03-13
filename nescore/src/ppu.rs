@@ -157,8 +157,10 @@ impl<Io: IoAccess> Ppu<Io> {
                 // 4 memory accesses each taking 2 cycles
                 // In addition to all that, the sprite evaluation happens independently
                 if cycle % 8 == 0 {
-                    let dot = (cycle - 1) as u8;
-                    self.load_shift_registers(dot, 2, self.scanline as u16);
+                    if cycle <= 240 {
+                        let dot = (cycle - 1) as u8;
+                        self.load_shift_registers(dot, 2, self.scanline as u16);
+                    }
                 }
             },
             257..=320 => {
@@ -213,6 +215,10 @@ impl<Io: IoAccess> Ppu<Io> {
 
         // Read pattern from pattern table memory
         let fine_y = (base_y % 8) as u8;
+
+        // if tile_no == 1 {
+        //     println!("NT: ({}, {}) {:?}, {:04X}", dot, fine_y, coarse, tile_idx);
+        // }
 
         let pattern = self.read_pattern(self.ctrl.background_pattern_table(), tile_no, fine_y);
         // Fetch tile attributes
@@ -628,6 +634,7 @@ mod tests {
         assert_eq!(pixel_counter, DISPLAY_WIDTH * DISPLAY_HEIGHT);
     }
 
+    // TODO: Would like to get this test working..
     // #[test]
     // fn corner() {
     //     // Place a pixel at the bottom right corner of the visible area

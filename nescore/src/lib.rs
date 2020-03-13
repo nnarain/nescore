@@ -68,19 +68,19 @@ impl Nes {
         let mut idx = 0usize;
 
         if self.mapper.is_some() {
-            for _ in 0..CPU_CYCLES_PER_FRAME {
-                let pixels = self.tick_master_clock();
-                for p in &pixels {
-                    if let Some((r, g, b)) = p {
-                        if *g == 45 {
-                            // println!("idx: {}, pixel: {}", idx, idx / 3);
-                        }
-                        framebuffer[idx] = *r;
-                        framebuffer[idx + 1] = *g;
-                        framebuffer[idx + 2] = *b;
-                        idx += 3;
-                    }
+            let mut count = 0;
+            for _ in 0..ppu::CYCLES_PER_FRAME {
+                // Clock the PPU and clock the CPU every 3 cycles
+                let pixel = self.clock_components(count % 3 == 0);
+                if let Some((r, g, b)) = pixel {
+                    // Insert RGB data into the frame buffer
+                    framebuffer[idx] = r;
+                    framebuffer[idx + 1] = g;
+                    framebuffer[idx + 2] = b;
+                    idx += 3;
                 }
+
+                count += 1;
             }
         }
 
@@ -90,24 +90,23 @@ impl Nes {
     /// Run until the CPU's PC is at address **addr**
     pub fn run_until(&mut self, addr: u16) {
         // TODO: Time limit
+        // TODO: Consistent clocking of components
         if self.mapper.is_some() {
             while self.cpu.borrow().get_pc() != addr {
-                self.tick_master_clock();
+                self.clock_components(true);
             }
         }
     }
 
     /// Clock the NES components
-    fn tick_master_clock(&mut self) -> [Option<ppu::Pixel>; 3] {
-        let mut pixels = [None; 3];
+    fn clock_components(&mut self, clock_cpu: bool) -> Option<ppu::Pixel> {
+        let pixel = self.ppu.borrow_mut().tick();
 
-        self.cpu.borrow_mut().tick();
+        if clock_cpu {
+            self.cpu.borrow_mut().tick();
+        }
 
-        pixels[0] = self.ppu.borrow_mut().tick();
-        pixels[1] = self.ppu.borrow_mut().tick();
-        pixels[2] = self.ppu.borrow_mut().tick();
-
-        pixels
+        pixel
     }
 
     /// Check if the CPU is in an infinite loop state
