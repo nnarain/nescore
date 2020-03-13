@@ -102,12 +102,6 @@ pub struct PpuMask {
     pub emphasize_blue: bool,       // Emphasize Blue
 }
 
-impl PpuMask {
-    pub fn rendering(&self) -> bool {
-        self.background_enabled && self.sprites_enabled
-    }
-}
-
 impl Register<u8> for PpuMask {
     fn load(&mut self, value: u8) {
         self.greyscale = bit_is_set!(value, 0);

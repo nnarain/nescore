@@ -97,11 +97,6 @@ impl<Io: IoAccess> Cpu<Io> {
         self.read_u8(addr)
     }
 
-    pub fn write_ram(&mut self, addr: u16, value: u8) {
-        // self.ram[(addr as usize % INTERNAL_RAM_SIZE)] = value;
-        self.write_u8(addr, value);
-    }
-
     /// Execute the current cycle given the internal state
     fn run_cycle(&mut self, state: State) -> State {
         match state {

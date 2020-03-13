@@ -27,8 +27,6 @@ use std::cell::RefCell;
 
 /// Size of the display frame buffer: display size * RGB (3 bytes)
 const FRAME_BUFFER_SIZE: usize = DISPLAY_WIDTH * DISPLAY_HEIGHT * 3;
-/// PPU clocks 3 times faster than the CPU
-const CPU_CYCLES_PER_FRAME: usize = ppu::CYCLES_PER_FRAME / 3;
 
 /// Representation of the NES system
 #[derive(Default)]

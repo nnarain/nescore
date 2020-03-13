@@ -9,9 +9,9 @@ use std::cell::RefCell;
 
 /// Access a memory mapped component
 pub trait IoAccess {
-    #[allow(dead_code)]
+    #[allow(unused)]
     fn read_byte(&self, addr: u16) -> u8 { 0 }
-    #[allow(dead_code)]
+    #[allow(unused)]
     fn write_byte(&mut self, addr: u16, data: u8) {}
     fn raise_interrupt(&mut self){}
 }

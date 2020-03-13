@@ -388,11 +388,6 @@ impl<Io: IoAccess> Ppu<Io> {
         }
     }
 
-    /// Check if the PPU is in vertical blanking mode
-    pub fn is_vblank(&self) -> bool {
-        self.status.vblank
-    }
-
     /// Raise NMI interrupt
     fn raise_interrupt(&mut self) {
         if let Some(ref mut bus) = self.bus {
@@ -415,10 +410,6 @@ impl<Io: IoAccess> Ppu<Io> {
         if let Some(ref mut bus) = self.bus {
             bus.write_byte(addr, value);
         }
-    }
-
-    pub fn read_oam(&self, addr: u8) -> u8 {
-        self.oam[addr as usize]
     }
 
     pub fn write_oam(&mut self, addr: u8, value: u8) {
@@ -814,7 +805,7 @@ mod tests {
         ppu.write_byte(0x2003, 0x01);
         ppu.write_byte(0x2004, 0x01);
 
-        assert_eq!(ppu.read_oam(0x01), 0x01);
+        assert_eq!(ppu.oam[0x01], 0x01);
     }
 
     #[test]
@@ -900,7 +891,7 @@ mod tests {
             ppu.tick();
         }
 
-        assert_eq!(ppu.is_vblank(), true);
+        assert_eq!(ppu.status.vblank, true);
     }
 
     #[test]
