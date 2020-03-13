@@ -12,8 +12,8 @@ use std::io::prelude::*;
 use std::fs::File;
 
 const KILO_BYTES: usize = 1024;
-pub const PRG_ROM_BANK_SIZE: usize = (16 * KILO_BYTES);
-pub const CHR_ROM_BANK_SIZE: usize = (8 * KILO_BYTES);
+pub const PRG_ROM_BANK_SIZE: usize = 16 * KILO_BYTES;
+pub const CHR_ROM_BANK_SIZE: usize = 8 * KILO_BYTES;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Format {
@@ -85,12 +85,8 @@ impl CartridgeInfo {
 
 impl fmt::Display for CartridgeInfo {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mirroring = if self.mirror_v {
-            String::from("Vertical")
-        }
-        else {
-            String::from("Horizontal")
-        };
+        let mirroring = if self.mirror_v { String::from("Vertical") } else { String::from("Horizontal") };
+        let tv_system = if self.tv_system_pal { String::from("PAL") } else { String::from("NTSC") };
 
         write!(f,
         "
@@ -102,9 +98,10 @@ impl fmt::Display for CartridgeInfo {
         Trainer:             {}
         Battery Backed SRAM: {}
         Mirroring:           {}
+        TV System:           {}
         ", 
         self.format, self.prg_rom_banks, self.chr_rom_banks, get_mapper_name(self.mapper),
-        self.four_screen_mode, self.trainer, self.battback_sram, mirroring)
+        self.four_screen_mode, self.trainer, self.battback_sram, mirroring, tv_system)
     }
 }
 

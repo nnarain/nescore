@@ -7,28 +7,35 @@
 
 
 use super::MapperControl;
-use crate::cart::{Cartridge};
+use crate::cart::{Cartridge, PRG_ROM_BANK_SIZE};
 
 use super::mem::Memory;
 
+const PRG_ROM_SIZE: usize = 0x2000;
+const CHR_ROM_SIZE: usize = 0x2000;
+
+/// NROM Mapper
+/// https://wiki.nesdev.com/w/index.php/NROM
 pub struct Nrom {
     prg_rom: Memory,
     prg_ram: [u8; 0x2000],
-    //chr_rom: [u8; 0x2000],
+    chr_rom: [u8; CHR_ROM_SIZE],
     mirror_rom: bool,
 }
 
 impl Nrom {
     pub fn from(cart: Cartridge) -> Self {
-        let (info, prg_rom, _) = cart.to_parts();
+        let (info, prg_rom, chr_rom) = cart.to_parts();
 
-        // let mut chr_rom_arr = [0x0u8; 0x2000];
-        // chr_rom_arr.copy_from_slice(chr_rom.as_slice());
+        let mut chr_rom_arr = [0x0u8; CHR_ROM_SIZE];
+        for (i, byte) in chr_rom.iter().enumerate() {
+            chr_rom_arr[i] = *byte;
+        }
 
         Nrom {
-            prg_rom: Memory::new(prg_rom, info.prg_rom_banks),
-            prg_ram: [0; 0x2000],
-            //chr_rom: chr_rom_arr,
+            prg_rom: Memory::new(prg_rom, PRG_ROM_BANK_SIZE),
+            prg_ram: [0; PRG_ROM_SIZE],
+            chr_rom: chr_rom_arr,
             mirror_rom: info.prg_rom_banks == 1,
         }
     }
@@ -61,6 +68,14 @@ impl MapperControl for Nrom {
             }
         }
     }
+
+    fn read_chr(&self, addr: u16) -> u8 {
+        self.chr_rom[addr as usize]
+    }
+
+    #[allow(unused)]
+    fn write_chr(&mut self, addr: u16, value: u8) {
+    }
 }
 
 #[cfg(test)]
@@ -84,6 +99,28 @@ mod tests {
         let nrom = Nrom::from(cart);
 
         assert_eq!(nrom.read(0x8000), 0xDE);
+        assert_eq!(nrom.read(0xBFFF), 0xAD);
+    }
+
+    #[test]
+    fn read_last_bank() {
+        let header = init_header(2, 1);
+        let mut prg_rom = [0x00; kb!(32)];
+        let chr_rom = [0x00; kb!(8)];
+
+        // Set IRQ Vector
+        prg_rom[0x7FFE] = 0x01;
+        prg_rom[0x7FFF] = 0x60;
+
+        let rom = [&header[..], &prg_rom[..], &chr_rom[..]].concat();
+
+        let nrom = Cartridge::from(rom).map(|cart| Nrom::from(cart)).unwrap();
+
+        let irq_lo = nrom.read(0xFFFE) as u16;
+        let irq_hi = nrom.read(0xFFFF) as u16;
+        let irq = irq_hi << 8 | irq_lo;
+
+        assert_eq!(irq, 0x6001);
     }
 
     #[test]
@@ -99,10 +136,29 @@ mod tests {
         let rom = [&header[..], &prg_rom[..], &chr_rom[..]].concat();
 
         let cart = Cartridge::from(rom).unwrap();
-
         let nrom = Nrom::from(cart);
 
         assert_eq!(nrom.read(0xC000), 0xDE);
+        assert_eq!(nrom.read(0xFFFF), 0xAD);
+    }
+
+    #[test]
+    fn read_chr() {
+        let header = init_header(1, 1);
+        let prg_rom = [0u8; kb!(16)];
+        let mut chr_rom = [0u8; kb!(8)];
+
+        // Put markers in the PRG and CHR ROM data to identify the blocks after loading the cartridge
+        chr_rom[0x00] = 0xDE;
+        chr_rom[chr_rom.len()-1] = 0xAD;
+
+        let rom = [&header[..], &prg_rom[..], &chr_rom[..]].concat();
+
+        let cart = Cartridge::from(rom).unwrap();
+        let nrom = Nrom::from(cart);
+
+        assert_eq!(nrom.read_chr(0x0000), 0xDE);
+        assert_eq!(nrom.read_chr(0x1FFF), 0xAD);
     }
 
     fn init_header(num_prg_banks: u8, num_chr_banks: u8) -> [u8; 16] {

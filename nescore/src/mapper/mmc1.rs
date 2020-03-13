@@ -197,6 +197,14 @@ impl MapperControl for Mmc1 {
             }
         }
     }
+
+    fn read_chr(&self, _addr: u16) -> u8 {
+        0
+    }
+
+    fn write_chr(&mut self, _addr: u16, _value: u8) {
+
+    }
 }
 
 #[cfg(test)]

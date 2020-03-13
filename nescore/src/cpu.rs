@@ -7,17 +7,15 @@
 pub mod bus;
 pub mod format;
 pub mod memorymap;
-
 mod state;
 
-use crate::io::IoAccess;
-use crate::clk::Clockable;
+// use bus::CpuIoBus;
+use crate::common::{IoAccess, Clockable};
+use state::*;
 
 use std::num::Wrapping;
 
-use state::*;
-
-// Flags
+/// CPU Flags
 enum Flags {
     Carry            = 1 << 0,
     Zero             = 1 << 1,
@@ -28,12 +26,11 @@ enum Flags {
     Negative         = 1 << 7,
 }
 
-const INTERNAL_RAM_SIZE: usize = 0x800;
 const STACK_PAGE_OFFSET: u16 = 0x100;
 
 
 /// NES Central Processing Unit
-pub struct Cpu {
+pub struct Cpu<Io: IoAccess> {
     a: u8,                        // General Purpose Accumulator
     x: u8,                        // Index register X
     y: u8,                        // Index register Y
@@ -41,16 +38,17 @@ pub struct Cpu {
     sp: u16,                      // Stack Pointer
     p: u8,                        // Flag register
 
-    ram: [u8; INTERNAL_RAM_SIZE], // CPU RAM
-
+    bus: Option<Io>,
     state: State,                 // Internal CPU cycle state
+
+    interrupted: bool,            // Flag indicating the CPU was interrupt
 
     debug: bool,                  // Debug mode
     is_holding: bool,             // CPU is in an infinite loop state
 }
 
-impl Cpu {
-    pub fn new() -> Self {
+impl<Io: IoAccess> Default for Cpu<Io> {
+    fn default() -> Self {
         Cpu {
             a: 0,
             x: 0,
@@ -59,13 +57,20 @@ impl Cpu {
             sp: 0x00FD,
             p: 0x24,
 
-            ram: [0; INTERNAL_RAM_SIZE],
-
+            bus: None,
             state: State::Reset,
+
+            interrupted: false,
 
             debug: false,
             is_holding: false,
         }
+    }
+}
+
+impl<Io: IoAccess> Cpu<Io> {
+    pub fn load_bus(&mut self, bus: Io) {
+        self.bus = Some(bus);
     }
 
     /// Set the CPU's program counter
@@ -89,24 +94,26 @@ impl Cpu {
     }
 
     pub fn read_ram(&self, addr: u16) -> u8 {
-        self.ram[(addr as usize % INTERNAL_RAM_SIZE)]
-    }
-
-    pub fn write_ram(&mut self, addr: u16, value: u8) {
-        self.ram[(addr as usize % INTERNAL_RAM_SIZE)] = value;
+        self.read_u8(addr)
     }
 
     /// Execute the current cycle given the internal state
-    fn run_cycle(&mut self, io: &mut dyn IoAccess, state: State) -> State {
+    fn run_cycle(&mut self, state: State) -> State {
         match state {
             State::Reset => {
                 // Read the PC address from the RESET vector
-                self.pc = self.read_u16(io, memorymap::RESET_VECTOR);
+                self.pc = self.read_u16(memorymap::RESET_VECTOR);
                 State::Fetch
             },
             State::Fetch => {
-                let opcode = self.fetch(io);
-                self.get_execute_state(io, opcode)
+                if self.interrupted {
+                    self.interrupt();
+                    State::Fetch
+                }
+                else {
+                    let opcode = self.fetch();
+                    self.get_execute_state(opcode)
+                }
             },
             State::Execute(ref instr, ref mode, ref opcode_data, ref cycle) => {
 
@@ -135,21 +142,21 @@ impl Cpu {
                     AddressingMode::Absolute        => self.absolute(operand_data),
                     AddressingMode::AbsoluteX       => self.absolute_x(operand_data),
                     AddressingMode::AbsoluteY       => self.absolute_y(operand_data),
-                    AddressingMode::IndexedIndirect => self.indexed_indirect(io, operand_data),
-                    AddressingMode::IndirectIndexed => self.indirect_indexed(io, operand_data),
-                    AddressingMode::Indirect        => self.indirect(io, operand_data),
+                    AddressingMode::IndexedIndirect => self.indexed_indirect(operand_data),
+                    AddressingMode::IndirectIndexed => self.indirect_indexed(operand_data),
+                    AddressingMode::Indirect        => self.indirect(operand_data),
                     AddressingMode::Relative        => self.relative(operand_data),
                     AddressingMode::Accumulator     => self.accumulator(),
                     AddressingMode::Implied         => AddressingModeResult::Implied,
                 };
 
                 let read_mem = |addr: u16| -> u8 {
-                    self.read_u8(io, addr)
+                    self.read_u8(addr)
                 };
 
-                let byte = addressing_result.to_byte(read_mem);
-                let addr = addressing_result.to_address();
-                let offset = addressing_result.to_offset();
+                // let byte = addressing_result.to_byte(read_mem);
+                // let addr = addressing_result.to_address();
+                // let offset = addressing_result.to_offset();
 
                 match instr {
                     Instruction::NOP => {},
@@ -161,12 +168,12 @@ impl Cpu {
                     Instruction::DEY => self.dey(),
                     Instruction::INX => self.inx(),
                     Instruction::INY => self.iny(),
-                    Instruction::PHA => self.pha(io),
-                    Instruction::PHP => self.php(io),
-                    Instruction::PLA => self.pla(io),
-                    Instruction::PLP => self.plp(io),
-                    Instruction::RTI => self.rti(io),
-                    Instruction::RTS => self.rts(io),
+                    Instruction::PHA => self.pha(),
+                    Instruction::PHP => self.php(),
+                    Instruction::PLA => self.pla(),
+                    Instruction::PLP => self.plp(),
+                    Instruction::RTI => self.rti(),
+                    Instruction::RTS => self.rts(),
                     Instruction::SEC => self.sec(),
                     Instruction::SED => self.sed(),
                     Instruction::SEI => self.sei(),
@@ -176,93 +183,174 @@ impl Cpu {
                     Instruction::TXA => self.txa(),
                     Instruction::TXS => self.txs(),
                     Instruction::TYA => self.tya(),
-                    Instruction::BRK => self.brk(io),
-                    Instruction::LDA => self.lda(byte.unwrap()),
-                    Instruction::LAX => self.lax(byte.unwrap()),
-                    Instruction::JMP => self.jmp(addr.unwrap()),
-                    Instruction::ADC => self.adc(byte.unwrap()),
-                    Instruction::AND => self.and(byte.unwrap()),
-                    Instruction::BCC => self.bcc(offset.unwrap()),
-                    Instruction::BCS => self.bcs(offset.unwrap()),
-                    Instruction::BEQ => self.beq(offset.unwrap()),
-                    Instruction::BNE => self.bne(offset.unwrap()),
-                    Instruction::BMI => self.bmi(offset.unwrap()),
-                    Instruction::BPL => self.bpl(offset.unwrap()),
-                    Instruction::BVC => self.bvc(offset.unwrap()),
-                    Instruction::BVS => self.bvs(offset.unwrap()),
-                    Instruction::BIT => self.bit(byte.unwrap()),
-                    Instruction::CMP => self.cmp(byte.unwrap()),
-                    Instruction::CPX => self.cpx(byte.unwrap()),
-                    Instruction::CPY => self.cpy(byte.unwrap()),
-                    Instruction::EOR => self.eor(byte.unwrap()),
-                    Instruction::LDX => self.ldx(byte.unwrap()),
-                    Instruction::LDY => self.ldy(byte.unwrap()),
-                    Instruction::SBC => self.sbc(byte.unwrap()),
-                    Instruction::ORA => self.ora(byte.unwrap()),
-                    Instruction::JSR => self.jsr(io, addr.unwrap()),
+                    Instruction::BRK => self.brk(),
+                    Instruction::LDA => {
+                        let byte = addressing_result.to_byte(read_mem);
+                        self.lda(byte.unwrap())
+                    },
+                    Instruction::LAX => {
+                        let byte = addressing_result.to_byte(read_mem);
+                        self.lax(byte.unwrap())
+                    },
+                    Instruction::JMP => {
+                        let addr = addressing_result.to_address();
+                        self.jmp(addr.unwrap())
+                    },
+                    Instruction::ADC => {
+                        let byte = addressing_result.to_byte(read_mem);
+                        self.adc(byte.unwrap())
+                    },
+                    Instruction::AND => {
+                        let byte = addressing_result.to_byte(read_mem);
+                        self.and(byte.unwrap())
+                    },
+                    Instruction::BCC => {
+                        let offset = addressing_result.to_offset();
+                        self.bcc(offset.unwrap())
+                    },
+                    Instruction::BCS => {
+                        let offset = addressing_result.to_offset();
+                        self.bcs(offset.unwrap())
+                    },
+                    Instruction::BEQ => {
+                        let offset = addressing_result.to_offset();
+                        self.beq(offset.unwrap())
+                    },
+                    Instruction::BNE => {
+                        let offset = addressing_result.to_offset();
+                        self.bne(offset.unwrap())
+                    },
+                    Instruction::BMI => {
+                        let offset = addressing_result.to_offset();
+                        self.bmi(offset.unwrap())
+                    },
+                    Instruction::BPL => {
+                        let offset = addressing_result.to_offset();
+                        self.bpl(offset.unwrap())
+                    },
+                    Instruction::BVC => {
+                        let offset = addressing_result.to_offset();
+                        self.bvc(offset.unwrap())
+                    },
+                    Instruction::BVS => {
+                        let offset = addressing_result.to_offset();
+                        self.bvs(offset.unwrap())
+                    },
+                    Instruction::BIT => {
+                        let byte = addressing_result.to_byte(read_mem);
+                        self.bit(byte.unwrap())
+                    },
+                    Instruction::CMP => {
+                        let byte = addressing_result.to_byte(read_mem);
+                        self.cmp(byte.unwrap())
+                    },
+                    Instruction::CPX => {
+                        let byte = addressing_result.to_byte(read_mem);
+                        self.cpx(byte.unwrap())
+                    },
+                    Instruction::CPY => {
+                        let byte = addressing_result.to_byte(read_mem);
+                        self.cpy(byte.unwrap())
+                    },
+                    Instruction::EOR => {
+                        let byte = addressing_result.to_byte(read_mem);
+                        self.eor(byte.unwrap())
+                    },
+                    Instruction::LDX => {
+                        let byte = addressing_result.to_byte(read_mem);
+                        self.ldx(byte.unwrap())
+                    },
+                    Instruction::LDY => {
+                        let byte = addressing_result.to_byte(read_mem);
+                        self.ldy(byte.unwrap())
+                    },
+                    Instruction::SBC => {
+                        let byte = addressing_result.to_byte(read_mem);
+                        self.sbc(byte.unwrap())
+                    },
+                    Instruction::ORA => {
+                        let byte = addressing_result.to_byte(read_mem);
+                        self.ora(byte.unwrap())
+                    },
+                    Instruction::JSR => {
+                        let addr = addressing_result.to_address();
+                        self.jsr(addr.unwrap())
+                    },
                     Instruction::STA => {
                         let v = self.sta();
-                        self.write_result(io, addressing_result, v);
+                        self.write_result(addressing_result, v);
                     },
                     Instruction::STX => {
                         let v = self.stx();
-                        self.write_result(io, addressing_result, v);
+                        self.write_result(addressing_result, v);
                     },
                     Instruction::STY => {
                         let v = self.sty();
-                        self.write_result(io, addressing_result, v);
+                        self.write_result(addressing_result, v);
                     },
                     Instruction::SAX => {
                         let v = self.sax();
-                        self.write_result(io, addressing_result, v);
+                        self.write_result(addressing_result, v);
                     }
                     Instruction::ASL => {
+                        let byte = addressing_result.to_byte(read_mem);
                         let v = self.asl(byte.unwrap());
-                        self.write_result(io, addressing_result, v);
+                        self.write_result(addressing_result, v);
                     },
                     Instruction::ROR => {
+                        let byte = addressing_result.to_byte(read_mem);
                         let v = self.ror(byte.unwrap());
-                        self.write_result(io, addressing_result, v);
+                        self.write_result(addressing_result, v);
                     },
                     Instruction::ROL => {
+                        let byte = addressing_result.to_byte(read_mem);
                         let v = self.rol(byte.unwrap());
-                        self.write_result(io, addressing_result, v);
+                        self.write_result(addressing_result, v);
                     },
                     Instruction::LSR => {
+                        let byte = addressing_result.to_byte(read_mem);
                         let v = self.lsr(byte.unwrap());
-                        self.write_result(io, addressing_result, v);
+                        self.write_result(addressing_result, v);
                     },
                     Instruction::INC => {
+                        let byte = addressing_result.to_byte(read_mem);
                         let v = self.inc(byte.unwrap());
-                        self.write_result(io, addressing_result, v);
+                        self.write_result(addressing_result, v);
                     },
                     Instruction::DEC => {
+                        let byte = addressing_result.to_byte(read_mem);
                         let v = self.dec(byte.unwrap());
-                        self.write_result(io, addressing_result, v);
+                        self.write_result(addressing_result, v);
                     },
                     Instruction::DCP => {
+                        let byte = addressing_result.to_byte(read_mem);
                         let v = self.dcp(byte.unwrap());
-                        self.write_result(io, addressing_result, v);
+                        self.write_result(addressing_result, v);
                     },
                     Instruction::ISB => {
+                        let byte = addressing_result.to_byte(read_mem);
                         let m = self.isb(byte.unwrap());
-                        self.write_result(io, addressing_result, m);
+                        self.write_result(addressing_result, m);
                     },
                     Instruction::SLO => {
+                        let byte = addressing_result.to_byte(read_mem);
                         let m = self.slo(byte.unwrap());
-                        self.write_result(io, addressing_result, m);
+                        self.write_result(addressing_result, m);
                     },
                     Instruction::RLA => {
+                        let byte = addressing_result.to_byte(read_mem);
                         let m = self.rla(byte.unwrap());
-                        self.write_result(io, addressing_result, m);
+                        self.write_result(addressing_result, m);
                     },
                     Instruction::SRE => {
+                        let byte = addressing_result.to_byte(read_mem);
                         let m = self.sre(byte.unwrap());
-                        self.write_result(io, addressing_result, m);
+                        self.write_result(addressing_result, m);
                     },
                     Instruction::RRA => {
+                        let byte = addressing_result.to_byte(read_mem);
                         let m = self.rra(byte.unwrap());
-                        self.write_result(io, addressing_result, m);
+                        self.write_result(addressing_result, m);
                     }
                 }
 
@@ -276,7 +364,7 @@ impl Cpu {
     //------------------------------------------------------------------------------------------------------------------
 
     /// Convert opcode into instruction and addressing mode and return an execute state
-    fn get_execute_state(&mut self, io: &mut dyn IoAccess, opcode: u8) -> State {
+    fn get_execute_state(&mut self, opcode: u8) -> State {
         let (instr, mode) = match opcode {
             // NOP
             0xEA | 0x1A | 0x3A | 0x5A | 0x7A | 0xDA | 0xFA => (Instruction::NOP, AddressingMode::Implied),
@@ -556,17 +644,17 @@ impl Cpu {
             }
         };
 
-        let operand_data = self.fetch_operand_data(io, mode.operand_len());
+        let operand_data = self.fetch_operand_data(mode.operand_len());
         let opcode_data: [u8; 3] = [opcode, operand_data[0], operand_data[1]];
 
         State::Execute(instr, mode, opcode_data, 0)
     }
 
-    fn fetch_operand_data(&mut self, io: &mut dyn IoAccess, num_bytes: usize) -> [u8; 2] {
+    fn fetch_operand_data(&mut self, num_bytes: usize) -> [u8; 2] {
         let mut operand_data = [0u8; 2];
 
         for i in 0..num_bytes {
-            operand_data[i] = self.read_next_u8(io);
+            operand_data[i] = self.read_next_u8();
         }
 
         operand_data
@@ -761,23 +849,23 @@ impl Cpu {
         self.set_negative_flag(self.y);
     }
 
-    fn pha(&mut self, io: &mut dyn IoAccess) {
-        self.push(io, self.a);
+    fn pha(&mut self) {
+        self.push(self.a);
     }
 
-    fn php(&mut self, io: &mut dyn IoAccess) {
+    fn php(&mut self) {
         // The value of $30 is OR'ed in the status register for the 'B' flag values
         // http://wiki.nesdev.com/w/index.php/Status_flags#The_B_flag
-        self.push(io, self.p | 0x30);
+        self.push(self.p | 0x30);
     }
 
-    fn pla(&mut self, io: &mut dyn IoAccess) {
-        self.a = self.pull(io);
+    fn pla(&mut self) {
+        self.a = self.pull();
         self.update_flags(self.a);
     }
 
-    fn plp(&mut self, io: &mut dyn IoAccess) {
-        self.p = (self.pull(io) | 0x20) & 0xEF;
+    fn plp(&mut self) {
+        self.p = (self.pull() | 0x20) & 0xEF;
     }
 
     fn lsr(&mut self, m: u8) -> u8 {
@@ -853,12 +941,12 @@ impl Cpu {
         m
     }
 
-    fn rti(&mut self, io: &mut dyn IoAccess) {
-        self.p = self.pull(io);
-        self.pc = self.pull16(io);
+    fn rti(&mut self) {
+        self.p = self.pull();
+        self.pc = self.pull16();
     }
 
-    fn jsr(&mut self, io: &mut dyn IoAccess, addr: u16) {
+    fn jsr(&mut self, addr: u16) {
         //     JSR
         //     #  address R/W description
         //    --- ------- --- -------------------------------------------------
@@ -869,11 +957,11 @@ impl Cpu {
         //     5  $0100,S  W  push PCL on stack, decrement S
         //     6    PC     R  copy low address byte to PCL, fetch high address
         //                    byte to PCH
-        self.push16(io, self.pc-1);
+        self.push16(self.pc-1);
         self.pc = addr;
     }
 
-    fn rts(&mut self, io: &mut dyn IoAccess) {
+    fn rts(&mut self) {
         //  RTS
         //  #  address R/W description
         // --- ------- --- -----------------------------------------------
@@ -883,7 +971,7 @@ impl Cpu {
         //  4  $0100,S  R  pull PCL from stack, increment S
         //  5  $0100,S  R  pull PCH from stack
         //  6    PC     R  increment PC
-        self.pc = self.pull16(io);
+        self.pc = self.pull16();
         self.pc = (Wrapping(self.pc) + Wrapping(1)).0;
     }
 
@@ -976,13 +1064,13 @@ impl Cpu {
         self.set_zero_flag(self.a);
     }
 
-    fn brk(&mut self, io: &mut dyn IoAccess) {
-        self.push16(io, self.pc);
+    fn brk(&mut self) {
+        self.push16(self.pc);
 
         self.set_flag_bit(Flags::Break, true);
-        self.push(io, self.p);
+        self.push(self.p);
 
-        self.pc = self.read_u16(io, memorymap::IRQ_VECTOR);
+        self.pc = self.read_u16(memorymap::IRQ_VECTOR);
     }
 
     //------------------------------------------------------------------------------------------------------------------
@@ -1042,19 +1130,19 @@ impl Cpu {
     }
 
     /// Indexed Indirect Addressing
-    fn indexed_indirect(&mut self, io: &mut dyn IoAccess, data: &[u8]) -> AddressingModeResult {
+    fn indexed_indirect(&mut self, data: &[u8]) -> AddressingModeResult {
         let ptr = ((data[0] as u16) + (self.x as u16)) & 0xFF;
 
-        let addr = self.indirect_read(io, ptr);
+        let addr = self.indirect_read(ptr);
 
         AddressingModeResult::Address(addr)
     }
 
     /// Indirect Indexed Addressing
-    fn indirect_indexed(&mut self, io: &mut dyn IoAccess, data: &[u8]) -> AddressingModeResult {
+    fn indirect_indexed(&mut self, data: &[u8]) -> AddressingModeResult {
         let ptr = data[0] as u16;
 
-        let addr = self.indirect_read(io, ptr);
+        let addr = self.indirect_read(ptr);
         let addr = (Wrapping(addr) + Wrapping(self.y as u16)).0;
 
         AddressingModeResult::Address(addr)
@@ -1062,24 +1150,23 @@ impl Cpu {
 
     /// Indirect
     /// Only applicable to JMP instruction
-    fn indirect(&mut self, io: &mut dyn IoAccess, data: &[u8]) -> AddressingModeResult {
-        
+    fn indirect(&mut self, data: &[u8]) -> AddressingModeResult {
         let ptr = ((data[1] as u16) << 8) | data[0] as u16;
 
-        let addr = self.indirect_read(io, ptr);
+        let addr = self.indirect_read(ptr);
 
         AddressingModeResult::Address(addr)
     }
 
-    fn indirect_read(&self, io: &mut dyn IoAccess, ptr: u16) -> u16 {
+    fn indirect_read(&mut self, ptr: u16) -> u16 {
         // Note: The PCH will always be fetched from the same page
         // as PCL, i.e. page boundary crossing is not handled.
         let page = ptr & 0xFF00;
         let addr_lo = ptr;
         let addr_hi = page | ((ptr + 0x01) & 0x00FF);
 
-        let lo = self.read_u8(io, addr_lo) as u16;
-        let hi = self.read_u8(io, addr_hi) as u16;
+        let lo = self.read_u8(addr_lo) as u16;
+        let hi = self.read_u8(addr_hi) as u16;
 
         (hi << 8) | lo
     }
@@ -1173,31 +1260,31 @@ impl Cpu {
     }
 
     /// Push a value onto the stack
-    fn push(&mut self, io: &mut dyn IoAccess, data: u8) {
+    fn push(&mut self, data: u8) {
         // The stack is always stored in page 1
-        self.write_u8(io, self.sp + STACK_PAGE_OFFSET, data);
+        self.write_u8(self.sp + STACK_PAGE_OFFSET, data);
         self.sp = (Wrapping(self.sp) - Wrapping(1u16)).0;
     }
 
     /// Pull a value off the stack
-    fn pull(&mut self, io: &mut dyn IoAccess) -> u8 {
-        self.sp = (Wrapping(self.sp) + Wrapping(1u16)).0;
-        let data = self.read_u8(io, self.sp + STACK_PAGE_OFFSET);
+    fn pull(&mut self) -> u8 {
+        self.sp = self.sp.wrapping_add(1);
+        let data = self.read_u8(self.sp + STACK_PAGE_OFFSET);
 
         data
     }
 
-    fn push16(&mut self, io: &mut dyn IoAccess, data: u16) {
+    fn push16(&mut self, data: u16) {
         let hi = high_byte!(data) as u8;
         let lo = low_byte!(data) as u8;
 
-        self.push(io, hi);
-        self.push(io, lo);
+        self.push(hi);
+        self.push(lo);
     }
 
-    fn pull16(&mut self, io: &mut dyn IoAccess) -> u16 {
-        let lo = self.pull(io) as u16;
-        let hi = self.pull(io) as u16;
+    fn pull16(&mut self) -> u16 {
+        let lo = self.pull() as u16;
+        let hi = self.pull() as u16;
 
         (hi << 8) | lo
     }
@@ -1207,11 +1294,11 @@ impl Cpu {
     //------------------------------------------------------------------------------------------------------------------
 
     /// Fetch the next opcode and increment the program counter
-    fn fetch(&mut self, io: &mut dyn IoAccess) -> u8 {
-        self.read_next_u8(io)
+    fn fetch(&mut self) -> u8 {
+        self.read_next_u8()
     }
 
-    fn write_result(&mut self, io: &mut dyn IoAccess, addressing_result: AddressingModeResult, value: u8) {
+    fn write_result(&mut self, addressing_result: AddressingModeResult, value: u8) {
         let mode = match self.state {
             State::Execute(_, mode, _, _) => mode,
             _ => panic!("Must be in execution state!"),
@@ -1221,51 +1308,67 @@ impl Cpu {
             self.a = value;
         }
         else {
-            self.write_u8(io, addressing_result.to_address().unwrap(), value);
+            self.write_u8(addressing_result.to_address().unwrap(), value);
         }
     }
 
-    fn read_next_u8(&mut self, io: &mut dyn IoAccess) -> u8 {
-        let byte = self.read_u8(io, self.pc);
-        self.pc = (Wrapping(self.pc) + Wrapping(1)).0;
+    fn read_next_u8(&mut self) -> u8 {
+        let byte = self.read_u8(self.pc);
+        self.pc = self.pc.wrapping_add(1);
 
         byte
     }
 
-    fn read_u16(&self, io: &mut dyn IoAccess, addr: u16) -> u16 {
-        let lo = self.read_u8(io, addr) as u16;
-        let hi = self.read_u8(io, addr + 1) as u16;
+    fn read_u16(&mut self, addr: u16) -> u16 {
+        let lo = self.read_u8(addr) as u16;
+        let hi = self.read_u8(addr + 1) as u16;
 
         (hi << 8) | lo
     }
 
-    fn read_u8(&self, io: &mut dyn IoAccess, addr: u16) -> u8 {
-        if (addr as usize) < 0x2000 {
-            self.read_ram(addr)
+    fn read_u8(&self, addr: u16) -> u8 {
+        if let Some(ref bus) = self.bus {
+            bus.read_byte(addr)
         }
         else {
-            io.read_byte(addr)
+            panic!("Attempt to read while bus is not loaded");
         }
     }
 
-    fn write_u8(&mut self, io: &mut dyn IoAccess, addr: u16, value: u8) {
-        if (addr as usize) < 0x2000 {
-            self.write_ram(addr, value);
+    fn write_u8(&mut self, addr: u16, value: u8) {
+        if let Some(ref mut bus) = self.bus {
+            bus.write_byte(addr, value);
         }
-        else {
-            io.write_byte(addr, value);
+    }
+
+    fn interrupt(&mut self) {
+        self.interrupted = false;
+
+        self.push16(self.pc);
+        self.push(self.p);
+
+        self.pc = self.read_u16(memorymap::NMI_VECTOR);
+
+        if self.debug {
+            println!("NMI raised in CPU: {:04X}", self.pc);
         }
     }
 }
 
-impl Clockable for Cpu {
+impl<Io: IoAccess> IoAccess for Cpu<Io> {
+    fn raise_interrupt(&mut self) {
+        self.interrupted = true;
+    }
+}
+
+impl<Io: IoAccess> Clockable for Cpu<Io> {
     /// Execute one CPU cycle
-    fn tick(&mut self, io: &mut dyn IoAccess) {
+    fn tick(&mut self) {
         // Get the currnet PC
         let prev_pc = self.pc;
         // Implement one cycle of the CPU using a state machince
         // Execute the cycle based on the current CPU state and return the next CPU state
-        self.state = self.run_cycle(io, self.state);
+        self.state = self.run_cycle(self.state);
         // Is the PC pointing at the same location?
         self.is_holding = prev_pc == self.pc;
     }
@@ -1282,10 +1385,10 @@ mod tests {
 
     #[test]
     fn pc_after_reset() {
-        let mut cpu = Cpu::new();
+        let mut cpu = init_cpu(vec![]);
         cpu.pc = 0x0001;
 
-        simple_test_base(&mut cpu, vec![], 0);
+        simple_test_base(&mut cpu, 0);
 
         assert_eq!(cpu.pc, 0x4020);
     }
@@ -1323,95 +1426,95 @@ mod tests {
 
     #[test]
     fn lda_zeropage() {
-        let mut cpu = Cpu::new();
-        cpu.ram[0x02] = 0xDE;
-
         let prg = vec![
             0xA5, 0x02, // LDA ($02)
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        cpu.write_u8(0x02, 0xDE);
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.a, 0xDE);
     }
 
     #[test]
     fn lda_zeropage_x() {
-        let mut cpu = Cpu::new();
-        cpu.ram[0x03] = 0xDE;
-        cpu.x = 0x0001;
-
         let prg = vec![
             0xB5, 0x02, // LDA $02, X
         ];
 
-        simple_test_base(&mut cpu, prg, 4);
+        let mut cpu = init_cpu(prg);
+        cpu.write_u8(0x03, 0xDE);
+        cpu.x = 0x0001;
+
+        simple_test_base(&mut cpu, 4);
 
         assert_eq!(cpu.a, 0xDE);
     }
 
     #[test]
     fn lda_absolute_x() {
-        let mut cpu = Cpu::new();
-        cpu.x = 0x0001;
-
         let prg = vec![
             0xBD, 0x23, 0x40, // LDA $0003, X
             0x00, 0xDE,       // Data: $DE
         ];
 
-        simple_test_base(&mut cpu, prg, 5);
+        let mut cpu = init_cpu(prg);
+        cpu.x = 0x0001;
+
+        simple_test_base(&mut cpu, 5);
 
         assert_eq!(cpu.a, 0xDE);
     }
 
     #[test]
     fn lda_absolute_y() {
-        let mut cpu = Cpu::new();
-        cpu.y = 0x0001;
-
         let prg = vec![
             0xB9, 0x23, 0x40, // LDA $4023, Y
             0x00, 0xDE,       // Data: $DE
         ];
 
-        simple_test_base(&mut cpu, prg, 5);
+        let mut cpu = init_cpu(prg);
+        cpu.y = 0x0001;
+
+        simple_test_base(&mut cpu, 5);
 
         assert_eq!(cpu.a, 0xDE);
     }
 
     #[test]
     fn lda_indexed_indirect() {
-        let mut cpu = Cpu::new();
-        cpu.ram[0x03] = 0x05;
-        cpu.ram[0x04] = 0x00;
-        cpu.ram[0x05] = 0xDE;
-
-        cpu.x = 0x0001;
-
         let prg = vec![
             0xA1, 0x02, // LDA ($0002, X)
         ];
 
-        simple_test_base(&mut cpu, prg, 6);
+        let mut cpu = init_cpu(prg);
+        cpu.write_u8(0x03, 0x05);
+        cpu.write_u8(0x04, 0x00);
+        cpu.write_u8(0x05, 0xDE);
+
+        cpu.x = 0x0001;
+
+        simple_test_base(&mut cpu, 6);
 
         assert_eq!(cpu.a, 0xDE);
     }
 
     #[test]
     fn lda_indirect_indexed() {
-        let mut cpu = Cpu::new();
-        cpu.ram[0x02] = 0x05;
-        cpu.ram[0x03] = 0x00;
-        cpu.ram[0x06] = 0xDE;
-
-        cpu.y = 0x0001;
-
         let prg = vec![
             0xB1, 0x02, // LDA ($0002), Y
         ];
 
-        simple_test_base(&mut cpu, prg, 6);
+        let mut cpu = init_cpu(prg);
+        cpu.write_u8(0x02, 0x05);
+        cpu.write_u8(0x03, 0x00);
+        cpu.write_u8(0x06, 0xDE);
+
+        cpu.y = 0x0001;
+
+        simple_test_base(&mut cpu, 6);
 
         assert_eq!(cpu.a, 0xDE);
     }
@@ -1442,14 +1545,14 @@ mod tests {
 
     #[test]
     fn lax() {
-        let mut cpu = Cpu::new();
-        cpu.ram[0x02] = 0xDE;
-
         let prg = vec![
             0xA7, 0x02, // LAX $02
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        cpu.write_u8(0x02, 0xDE);
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.a, 0xDE);
         assert_eq!(cpu.x, 0xDE);
@@ -1457,31 +1560,31 @@ mod tests {
 
     #[test]
     fn sax() {
-        let mut cpu = Cpu::new();
-        cpu.a = 0xFF;
-        cpu.x = 0x00;
-
         let prg = vec![
             0x87, 0x02, // SAX $02
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0xFF;
+        cpu.x = 0x00;
 
-        assert_eq!(cpu.ram[0x02], 0x00);
+        simple_test_base(&mut cpu, 3);
+
+        assert_eq!(cpu.read_u8(0x02), 0x00);
     }
 
     #[test]
     fn dcp() {
-        let mut cpu = Cpu::new();
-        cpu.ram[0x02] = 0x01;
-
         let prg = vec![
             0xC7, 0x02, // DCP $02
         ];
 
-        simple_test_base(&mut cpu, prg, 5);
+        let mut cpu = init_cpu(prg);
+        cpu.write_u8(0x02, 0x01);
 
-        assert_eq!(cpu.ram[0x02], 0x00);
+        simple_test_base(&mut cpu, 5);
+
+        assert_eq!(cpu.read_u8(0x02), 0x00);
     }
 
     #[test]
@@ -1509,15 +1612,15 @@ mod tests {
 
     #[test]
     fn jmp_indirect_page_cross() {
-        let mut cpu = Cpu::new();
-        cpu.ram[0x0FF] = 0xAD;
-        cpu.ram[0x00] = 0xDE;
-
         let prg = vec![
-            0x6C, 0xFF, 0x00, // LDA JMP ($00FF)
+            0x6C, 0xFF, 0x00, // JMP ($00FF)
         ];
 
-        simple_test_base(&mut cpu, prg, 5);
+        let mut cpu = init_cpu(prg);
+        cpu.write_u8(0x0FF, 0xAD);
+        cpu.write_u8(0x00, 0xDE);
+
+        simple_test_base(&mut cpu, 5);
         
         assert_eq!(cpu.pc, 0xDEAD);
     }
@@ -1536,14 +1639,14 @@ mod tests {
 
     #[test]
     fn adc_immediate_carry() {
-        let mut cpu = Cpu::new();
-        cpu.a = 0xFF;
-
         let prg = vec![
             0x69, 0x01, // ADC $01
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0xFF;
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.a, 0x00);
         assert_eq!(mask_is_set!(cpu.p, Flags::Carry as u8), true);
@@ -1551,15 +1654,15 @@ mod tests {
 
     #[test]
     fn adc_immediate_with_carry_set() {
-        let mut cpu = Cpu::new();
-
         let prg = vec![
             0x69, 0xFF, // ADC $FF; a=$0  -> a=$FF
             0x69, 0x01, // ADC $01; a=$FF -> a=00, c=1
             0x69, 0x00, // ADC $00; a=$00 -> a=$01, c=0
         ];
 
-        simple_test_base(&mut cpu, prg, 6);
+        let mut cpu = init_cpu(prg);
+
+        simple_test_base(&mut cpu, 6);
 
         assert_eq!(cpu.a, 0x01);
         assert_eq!(mask_is_clear!(cpu.p, Flags::Carry as u8), true);
@@ -1567,14 +1670,14 @@ mod tests {
 
     #[test]
     fn adc_overflow_1() {
-        let mut cpu = Cpu::new();
-        cpu.a = 0x01;
-
         let prg = vec![
             0x69, 0x01, // ADC $01
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0x01;
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.a, 0x02);
         assert_eq!(cpu.get_flag_bit(Flags::Overflow), false);
@@ -1582,14 +1685,14 @@ mod tests {
 
     #[test]
     fn adc_overflow_2() {
-        let mut cpu = Cpu::new();
-        cpu.a = 0x01;
-
         let prg = vec![
             0x69, 0xFF, // ADC $FF
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0x01;
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.a, 0x00);
         assert_eq!(cpu.get_flag_bit(Flags::Overflow), false);
@@ -1597,14 +1700,14 @@ mod tests {
 
     #[test]
     fn adc_overflow_3() {
-        let mut cpu = Cpu::new();
-        cpu.a = 0x7F;
-
         let prg = vec![
             0x69, 0x01, // ADC $01
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0x7F;
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.a, 0x80);
         assert_eq!(cpu.get_flag_bit(Flags::Overflow), true);
@@ -1612,14 +1715,14 @@ mod tests {
 
     #[test]
     fn adc_overflow_4() {
-        let mut cpu = Cpu::new();
-        cpu.a = 0x80;
-
         let prg = vec![
             0x69, 0xFF, // ADC $FF
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0x80;
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.a, 0x7F);
         assert_eq!(cpu.get_flag_bit(Flags::Overflow), true);
@@ -1627,14 +1730,14 @@ mod tests {
 
     #[test]
     fn and_immediate() {
-        let mut cpu = Cpu::new();
-        cpu.a = 0xFF;
-
         let prg = vec![
             0x29, 0xF0, // AND $F0
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0xFF;
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.a, 0xF0);
         assert_eq!(mask_is_set!(cpu.p, Flags::Negative as u8), true);
@@ -1642,14 +1745,14 @@ mod tests {
 
     #[test]
     fn and_immediate_zero_set() {
-        let mut cpu = Cpu::new();
-        cpu.a = 0xFF;
-
         let prg = vec![
             0x29, 0x00, // AND $F0
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0xFF;
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.a, 0x00);
         assert_eq!(mask_is_set!(cpu.p, Flags::Negative as u8), false);
@@ -1671,14 +1774,14 @@ mod tests {
 
     #[test]
     fn asl_accumulator() {
-        let mut cpu = Cpu::new();
-        cpu.a = 0x01;
-
         let prg = vec![
             0x0A, // ASL
         ];
 
-        simple_test_base(&mut cpu, prg, 2);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0x01;
+
+        simple_test_base(&mut cpu, 2);
 
         assert_eq!(cpu.a, 0x02);
         assert_eq!(cpu.get_flag_bit(Flags::Carry), false);
@@ -1688,14 +1791,14 @@ mod tests {
 
     #[test]
     fn asl_accumulator_is_zero() {
-        let mut cpu = Cpu::new();
-        cpu.a = 0x80;
-
         let prg = vec![
             0x0A, // ASL
         ];
 
-        simple_test_base(&mut cpu, prg, 2);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0x80;
+
+        simple_test_base(&mut cpu, 2);
 
         assert_eq!(cpu.a, 0x00);
         assert_eq!(cpu.get_flag_bit(Flags::Carry), true);
@@ -1705,14 +1808,14 @@ mod tests {
 
     #[test]
     fn asl_accumulator_carry_and_negative_set() {
-        let mut cpu = Cpu::new();
-        cpu.a = 0xC0;
-
         let prg = vec![
             0x0A, // ASL
         ];
 
-        simple_test_base(&mut cpu, prg, 2);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0xC0;
+
+        simple_test_base(&mut cpu, 2);
 
         assert_eq!(cpu.a, 0x80);
         assert_eq!(cpu.get_flag_bit(Flags::Carry), true);
@@ -1722,309 +1825,303 @@ mod tests {
 
     #[test]
     fn sta_zeropage() {
-        let mut cpu = Cpu::new();
-        cpu.a = 0xDE;
-
         let prg = vec![
             0x85, 0x05, // STA $05
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0xDE;
 
-        assert_eq!(cpu.ram[0x05], 0xDE);
+        simple_test_base(&mut cpu, 3);
+
+        assert_eq!(cpu.read_u8(0x05), 0xDE);
     }
 
     #[test]
     fn bcc_carry_not_set() {
-        let mut cpu = Cpu::new();
-        mask_clear!(cpu.p, Flags::Carry as u8);
-
         let prg = vec![
             0x90, 0x02, // BCC $02
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        mask_clear!(cpu.p, Flags::Carry as u8);
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.pc, 0x4024);
     }
 
     #[test]
     fn bcc_carry_set() {
-        let mut cpu = Cpu::new();
-        mask_set!(cpu.p, Flags::Carry as u8);
-
         let prg = vec![
             0x90, 0x02, // BCC $02
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        mask_set!(cpu.p, Flags::Carry as u8);
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.pc, 0x4022);
     }
 
     #[test]
     fn bcs_carry_not_set() {
-        let mut cpu = Cpu::new();
-        mask_clear!(cpu.p, Flags::Carry as u8);
-
         let prg = vec![
             0xB0, 0x02, // BSC $02
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        mask_clear!(cpu.p, Flags::Carry as u8);
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.pc, 0x4022);
     }
 
     #[test]
     fn bcs_carry_set() {
-        let mut cpu = Cpu::new();
-        mask_set!(cpu.p, Flags::Carry as u8);
-
         let prg = vec![
             0xB0, 0x02, // BSC $02
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        mask_set!(cpu.p, Flags::Carry as u8);
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.pc, 0x4024);
     }
 
     #[test]
     fn beq_zero_not_set() {
-        let mut cpu = Cpu::new();
-        mask_clear!(cpu.p, Flags::Zero as u8);
-
         let prg = vec![
             0xF0, 0x02, // BEQ $02
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        mask_clear!(cpu.p, Flags::Zero as u8);
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.pc, 0x4022);
     }
 
     #[test]
     fn beq_zero_set() {
-        let mut cpu = Cpu::new();
-        mask_set!(cpu.p, Flags::Zero as u8);
-
         let prg = vec![
             0xF0, 0x02, // BEQ $02
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        mask_set!(cpu.p, Flags::Zero as u8);
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.pc, 0x4024);
     }
 
     #[test]
     fn bne_zero_not_set() {
-        let mut cpu = Cpu::new();
-        mask_clear!(cpu.p, Flags::Zero as u8);
-
         let prg = vec![
             0xD0, 0x02, // BNE $02
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        mask_clear!(cpu.p, Flags::Zero as u8);
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.pc, 0x4024);
     }
 
     #[test]
     fn bne_zero_not_set_negative_offset() {
-        let mut cpu = Cpu::new();
-        mask_clear!(cpu.p, Flags::Zero as u8);
-
         let prg = vec![
             0xD0, 0xFE, // BNE $FE
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        mask_clear!(cpu.p, Flags::Zero as u8);
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.pc, 0x4020);
     }
 
     #[test]
     fn bne_zero_set() {
-        let mut cpu = Cpu::new();
-        mask_set!(cpu.p, Flags::Zero as u8);
-
         let prg = vec![
             0xD0, 0x02, // BNE $02
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        mask_set!(cpu.p, Flags::Zero as u8);
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.pc, 0x4022);
     }
 
     #[test]
     fn bmi_negative_not_set() {
-        let mut cpu = Cpu::new();
-        mask_clear!(cpu.p, Flags::Negative as u8);
-
         let prg = vec![
             0x30, 0x02, // BMI $02
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        mask_clear!(cpu.p, Flags::Negative as u8);
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.pc, 0x4022);
     }
 
     #[test]
     fn bmi_negative_set() {
-        let mut cpu = Cpu::new();
-        mask_set!(cpu.p, Flags::Negative as u8);
-
         let prg = vec![
             0x30, 0x02, // BMI $02
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        mask_set!(cpu.p, Flags::Negative as u8);
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.pc, 0x4024);
     }
 
     #[test]
     fn bpl_negative_not_set() {
-        let mut cpu = Cpu::new();
-        mask_clear!(cpu.p, Flags::Negative as u8);
-
         let prg = vec![
             0x10, 0x02, // BPL $02
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        mask_clear!(cpu.p, Flags::Negative as u8);
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.pc, 0x4024);
     }
 
     #[test]
     fn bpl_negative_set() {
-        let mut cpu = Cpu::new();
-        mask_set!(cpu.p, Flags::Negative as u8);
-
         let prg = vec![
             0x10, 0x02, // BPL $02
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        mask_set!(cpu.p, Flags::Negative as u8);
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.pc, 0x4022);
     }
 
     #[test]
     fn bvc_overflow_not_set() {
-        let mut cpu = Cpu::new();
-        mask_clear!(cpu.p, Flags::Overflow as u8);
-
         let prg = vec![
             0x50, 0x02, // BVC $02
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        mask_clear!(cpu.p, Flags::Overflow as u8);
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.pc, 0x4024);
     }
 
     #[test]
     fn bvc_overflow_set() {
-        let mut cpu = Cpu::new();
-        mask_set!(cpu.p, Flags::Overflow as u8);
-
         let prg = vec![
             0x50, 0x02, // BVC $02
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        mask_set!(cpu.p, Flags::Overflow as u8);
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.pc, 0x4022);
     }
 
     #[test]
     fn bvs_overflow_not_set() {
-        let mut cpu = Cpu::new();
-        mask_clear!(cpu.p, Flags::Overflow as u8);
-
         let prg = vec![
             0x70, 0x02, // BVS $02
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        mask_clear!(cpu.p, Flags::Overflow as u8);
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.pc, 0x4022);
     }
 
     #[test]
     fn bvs_overflow_set() {
-        let mut cpu = Cpu::new();
-        mask_set!(cpu.p, Flags::Overflow as u8);
-
         let prg = vec![
             0x70, 0x02, // BVS $02
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        mask_set!(cpu.p, Flags::Overflow as u8);
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.pc, 0x4024);
     }
 
     #[test]
     fn bit_check_mask() {
-        let mut cpu = Cpu::new();
-        cpu.a = 0x01;
-        cpu.ram[0x02] = 0x01;
-
         let prg = vec![
             0x24, 0x02, // BIT $02
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0x01;
+        cpu.write_u8(0x02, 0x01);
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.get_flag_bit(Flags::Zero), false);
     }
 
     #[test]
     fn bit_check_mask_not_set() {
-        let mut cpu = Cpu::new();
-        cpu.a = 0x01;
-        cpu.ram[0x02] = 0x00;
-
         let prg = vec![
             0x24, 0x02, // BIT $02
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0x01;
+        cpu.write_u8(0x02, 0x00);
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.get_flag_bit(Flags::Zero), true);
     }
 
     #[test]
     fn bit_check_mask_absolute() {
-        let mut cpu = Cpu::new();
-        cpu.a = 0x01;
-        cpu.ram[0x02] = 0x01;
-
         let prg = vec![
             0x2C, 0x02, 0x00, // BIT $02
         ];
 
-        simple_test_base(&mut cpu, prg, 4);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0x01;
+        cpu.write_u8(0x02, 0x01);
+
+        simple_test_base(&mut cpu, 4);
 
         assert_eq!(cpu.get_flag_bit(Flags::Zero), false);
     }
 
     #[test]
     fn clear_flags_instructions() {
-        let mut cpu = Cpu::new();
-        mask_set!(cpu.p, Flags::Carry as u8);
-        mask_set!(cpu.p, Flags::Decimal as u8);
-        mask_set!(cpu.p, Flags::InterruptDisable as u8);
-        mask_set!(cpu.p, Flags::Overflow as u8);
-
         let prg = vec![
             0x18, // CLC
             0xD8, // CLD
@@ -2032,7 +2129,13 @@ mod tests {
             0xB8, // CLV
         ];
 
-        simple_test_base(&mut cpu, prg, 8);
+        let mut cpu = init_cpu(prg);
+        mask_set!(cpu.p, Flags::Carry as u8);
+        mask_set!(cpu.p, Flags::Decimal as u8);
+        mask_set!(cpu.p, Flags::InterruptDisable as u8);
+        mask_set!(cpu.p, Flags::Overflow as u8);
+
+        simple_test_base(&mut cpu, 8);
 
         assert_eq!(cpu.get_flag_bit(Flags::Carry), false);
         assert_eq!(cpu.get_flag_bit(Flags::Decimal), false);
@@ -2042,19 +2145,19 @@ mod tests {
 
     #[test]
     fn set_flags_instructions() {
-        let mut cpu = Cpu::new();
-        mask_clear!(cpu.p, Flags::Carry as u8);
-        mask_clear!(cpu.p, Flags::Decimal as u8);
-        mask_clear!(cpu.p, Flags::InterruptDisable as u8);
-        mask_clear!(cpu.p, Flags::Overflow as u8);
-
         let prg = vec![
             0x38, // SEC
             0xF8, // SED
             0x78, // SEI
         ];
 
-        simple_test_base(&mut cpu, prg, 6);
+        let mut cpu = init_cpu(prg);
+        mask_clear!(cpu.p, Flags::Carry as u8);
+        mask_clear!(cpu.p, Flags::Decimal as u8);
+        mask_clear!(cpu.p, Flags::InterruptDisable as u8);
+        mask_clear!(cpu.p, Flags::Overflow as u8);
+
+        simple_test_base(&mut cpu, 6);
 
         assert_eq!(cpu.get_flag_bit(Flags::Carry), true);
         assert_eq!(cpu.get_flag_bit(Flags::Decimal), true);
@@ -2063,57 +2166,57 @@ mod tests {
 
     #[test]
     fn cmp_zero_set() {
-        let mut cpu = Cpu::new();
-        cpu.a = 0x02;
-
         let prg = vec![
             0xC9, 0x02, // CMP $02
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0x02;
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.get_flag_bit(Flags::Zero), true);
     }
 
     #[test]
     fn cmp_negative_set() {
-        let mut cpu = Cpu::new();
-        cpu.a = 0x00;
-
         let prg = vec![
             0xC9, 0x01, // CMP $02
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0x00;
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.get_flag_bit(Flags::Negative), true);
     }
 
     #[test]
     fn dec_mem() {
-        let mut cpu = Cpu::new();
-        cpu.ram[0x02] = 0x01;
-
         let prg = vec![
             0xC6, 0x02, // DEC $02
         ];
 
-        simple_test_base(&mut cpu, prg, 5);
+        let mut cpu = init_cpu(prg);
+        cpu.write_u8(0x02, 0x01);
+
+        simple_test_base(&mut cpu, 5);
 
         assert_eq!(cpu.get_flag_bit(Flags::Zero), true);
-        assert_eq!(cpu.ram[0x02], 0x00);
+        assert_eq!(cpu.read_u8(0x02), 0x00);
     }
 
     #[test]
     fn dex() {
-        let mut cpu = Cpu::new();
-        cpu.x = 0x01;
-
         let prg = vec![
             0xCA, // DEX
         ];
 
-        simple_test_base(&mut cpu, prg, 2);
+        let mut cpu = init_cpu(prg);
+        cpu.x = 0x01;
+
+        simple_test_base(&mut cpu, 2);
 
         assert_eq!(cpu.x, 0x00);
         assert_eq!(cpu.get_flag_bit(Flags::Zero), true);
@@ -2121,14 +2224,14 @@ mod tests {
 
     #[test]
     fn dey() {
-        let mut cpu = Cpu::new();
-        cpu.y = 0x01;
-
         let prg = vec![
             0x88, // DEY
         ];
 
-        simple_test_base(&mut cpu, prg, 2);
+        let mut cpu = init_cpu(prg);
+        cpu.y = 0x01;
+
+        simple_test_base(&mut cpu, 2);
 
         assert_eq!(cpu.y, 0x00);
         assert_eq!(cpu.get_flag_bit(Flags::Zero), true);
@@ -2136,29 +2239,29 @@ mod tests {
 
     #[test]
     fn inc_mem() {
-        let mut cpu = Cpu::new();
-        cpu.ram[0x02] = 0xFF;
-
         let prg = vec![
             0xE6, 0x02, // INC $02
         ];
 
-        simple_test_base(&mut cpu, prg, 5);
+        let mut cpu = init_cpu(prg);
+        cpu.write_u8(0x02, 0xFF);
+
+        simple_test_base(&mut cpu, 5);
 
         assert_eq!(cpu.get_flag_bit(Flags::Zero), true);
-        assert_eq!(cpu.ram[0x02], 0x00);
+        assert_eq!(cpu.read_u8(0x02), 0x00);
     }
 
     #[test]
     fn inx() {
-        let mut cpu = Cpu::new();
-        cpu.x = 0xFF;
-
         let prg = vec![
             0xE8, // INX
         ];
 
-        simple_test_base(&mut cpu, prg, 2);
+        let mut cpu = init_cpu(prg);
+        cpu.x = 0xFF;
+
+        simple_test_base(&mut cpu, 2);
 
         assert_eq!(cpu.x, 0x00);
         assert_eq!(cpu.get_flag_bit(Flags::Zero), true);
@@ -2166,14 +2269,14 @@ mod tests {
 
     #[test]
     fn iny() {
-        let mut cpu = Cpu::new();
-        cpu.y = 0xFF;
-
         let prg = vec![
             0xC8, // INY
         ];
 
-        simple_test_base(&mut cpu, prg, 2);
+        let mut cpu = init_cpu(prg);
+        cpu.y = 0xFF;
+
+        simple_test_base(&mut cpu, 2);
 
         assert_eq!(cpu.y, 0x00);
         assert_eq!(cpu.get_flag_bit(Flags::Zero), true);
@@ -2181,14 +2284,14 @@ mod tests {
 
     #[test]
     fn eor() {
-        let mut cpu = Cpu::new();
-        cpu.a = 0xFF;
-
         let prg = vec![
             0x49, 0xFF, // EOR $FF
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0xFF;
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.a, 0x00);
         assert_eq!(cpu.get_flag_bit(Flags::Zero), true);
@@ -2207,14 +2310,14 @@ mod tests {
 
     #[test]
     fn ldx_absolute() {
-        let mut cpu = Cpu::new();
-        cpu.ram[0x07FF] = 0xA5;
-
         let prg = vec![
             0xAE, 0xFF, 0x07, // LDX $07FF
         ];
 
-        simple_test_base(&mut cpu, prg, 4);
+        let mut cpu = init_cpu(prg);
+        cpu.write_u8(0x07FF, 0xA5);
+
+        simple_test_base(&mut cpu, 4);
 
         assert_eq!(cpu.x, 0xA5);
     }
@@ -2232,31 +2335,31 @@ mod tests {
 
     #[test]
     fn pha() {
-        let mut cpu = Cpu::new();
-        cpu.a = 0xFF;
-        cpu.sp = 0x0A;
-
         let prg = vec![
             0x48, // PHA
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0xFF;
+        cpu.sp = 0x0A;
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.sp, 0x09);
-        assert_eq!(cpu.ram[0x10A], 0xFF);
+        assert_eq!(cpu.read_u8(0x10A), 0xFF);
     }
 
     #[test]
     fn pla() {
-        let mut cpu = Cpu::new();
-        cpu.ram[0x10A] = 0xFF;
-        cpu.sp = 0x09;
-
         let prg = vec![
             0x68,       // PLA
         ];
 
-        simple_test_base(&mut cpu, prg, 4);
+        let mut cpu = init_cpu(prg);
+        cpu.write_u8(0x10A, 0xFF);
+        cpu.sp = 0x09;
+
+        simple_test_base(&mut cpu, 4);
 
         assert_eq!(cpu.a, 0xFF);
         assert_eq!(cpu.sp, 0x0A);
@@ -2265,31 +2368,31 @@ mod tests {
 
     #[test]
     fn php() {
-        let mut cpu = Cpu::new();
-        cpu.p = 0xFF;
-        cpu.sp = 0x0A;
-
         let prg = vec![
             0x08, // PHP
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        cpu.p = 0xFF;
+        cpu.sp = 0x0A;
+
+        simple_test_base(&mut cpu, 3);
 
         assert_eq!(cpu.sp, 0x09);
-        assert_eq!(cpu.ram[0x10A], 0xFF);
+        assert_eq!(cpu.read_u8(0x10A), 0xFF);
     }
 
     #[test]
     fn plp() {
-        let mut cpu = Cpu::new();
-        cpu.ram[0x10A] = 0xFF;
-        cpu.sp = 0x09;
-
         let prg = vec![
             0x28, // PLP
         ];
 
-        simple_test_base(&mut cpu, prg, 4);
+        let mut cpu = init_cpu(prg);
+        cpu.write_u8(0x10A, 0xFF);
+        cpu.sp = 0x09;
+
+        simple_test_base(&mut cpu, 4);
 
         assert_eq!(cpu.p, 0xFF & 0xEF);
         assert_eq!(cpu.sp, 0x0A);
@@ -2297,14 +2400,14 @@ mod tests {
 
     #[test]
     fn lsr_zero_set() {
-        let mut cpu = Cpu::new();
-        cpu.a = 0x01;
-
         let prg = vec![
             0x4A, // LSR A
         ];
 
-        simple_test_base(&mut cpu, prg, 2);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0x01;
+
+        simple_test_base(&mut cpu, 2);
 
         assert_eq!(cpu.a, 0x00);
         assert_eq!(cpu.get_flag_bit(Flags::Zero), true);
@@ -2313,29 +2416,29 @@ mod tests {
 
     #[test]
     fn ora() {
-        let mut cpu = Cpu::new();
-        cpu.a = 0xF0;
-
         let prg = vec![
             0x09, 0x0F, // ORA $0F
         ];
 
-        simple_test_base(&mut cpu, prg, 2);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0xF0;
+
+        simple_test_base(&mut cpu, 2);
 
         assert_eq!(cpu.a, 0xFF);
     }
 
     #[test]
     fn ror_carry() {
-        let mut cpu = Cpu::new();
-        mask_set!(cpu.p, Flags::Carry as u8);
-        cpu.a = 0x01;
-
         let prg = vec![
             0x6A, // ROR A
         ];
 
-        simple_test_base(&mut cpu, prg, 2);
+        let mut cpu = init_cpu(prg);
+        mask_set!(cpu.p, Flags::Carry as u8);
+        cpu.a = 0x01;
+
+        simple_test_base(&mut cpu, 2);
 
         assert_eq!(cpu.a, 0x80);
         assert_eq!(cpu.get_flag_bit(Flags::Carry), true);
@@ -2344,15 +2447,15 @@ mod tests {
 
     #[test]
     fn rol_carry() {
-        let mut cpu = Cpu::new();
-        mask_set!(cpu.p, Flags::Carry as u8);
-        cpu.a = 0x81;
-
         let prg = vec![
             0x2A, // ROL A
         ];
 
-        simple_test_base(&mut cpu, prg, 2);
+        let mut cpu = init_cpu(prg);
+        mask_set!(cpu.p, Flags::Carry as u8);
+        cpu.a = 0x81;
+
+        simple_test_base(&mut cpu, 2);
 
         assert_eq!(cpu.a, 0x03);
         assert_eq!(cpu.get_flag_bit(Flags::Carry), true);
@@ -2360,17 +2463,17 @@ mod tests {
 
     #[test]
     fn rti() {
-        let mut cpu = Cpu::new();
-        cpu.ram[0x10A] = 0xDE;
-        cpu.ram[0x109] = 0xAD;
-        cpu.ram[0x108] = 0xA5;
-        cpu.sp = 0x0007;
-
         let prg = vec![
             0x40, // RTI
         ];
 
-        simple_test_base(&mut cpu, prg, 6);
+        let mut cpu = init_cpu(prg);
+        cpu.write_u8(0x10A, 0xDE);
+        cpu.write_u8(0x109, 0xAD);
+        cpu.write_u8(0x108, 0xA5);
+        cpu.sp = 0x0007;
+
+        simple_test_base(&mut cpu, 6);
 
         assert_eq!(cpu.p, 0xA5);
         assert_eq!(cpu.sp, 0x0A);
@@ -2379,45 +2482,45 @@ mod tests {
 
     #[test]
     fn jsr() {
-        let mut cpu = Cpu::new();
-        cpu.sp = 0x000A;
-
         let prg = vec![
             0x20, 0xAD, 0xDE, // JSR $DEAD
         ];
 
-        simple_test_base(&mut cpu, prg, 6);
+        let mut cpu = init_cpu(prg);
+        cpu.sp = 0x000A;
+
+        simple_test_base(&mut cpu, 6);
 
         assert_eq!(cpu.pc, 0xDEAD);
-        assert_eq!(cpu.ram[0x010A], 0x40);
-        assert_eq!(cpu.ram[0x0109], 0x22);
+        assert_eq!(cpu.read_u8(0x010A), 0x40);
+        assert_eq!(cpu.read_u8(0x0109), 0x22);
     }
 
     #[test]
     fn sbc() {
-        let mut cpu = Cpu::new();
-        cpu.a = 0x01;
-
         let prg = vec![
             0xE9, 0x01, // SBC $01
         ];
 
-        simple_test_base(&mut cpu, prg, 2);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0x01;
+
+        simple_test_base(&mut cpu, 2);
 
         assert_eq!(cpu.a, 0xFF);
     }
 
     #[test]
     fn sbc2() {
-        let mut cpu = Cpu::new();
-        cpu.a = 0x40;
-        mask_set!(cpu.p, Flags::Carry as u8);
-
         let prg = vec![
             0xE9, 0x40, // SBC $40
         ];
 
-        simple_test_base(&mut cpu, prg, 2);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0x40;
+        mask_set!(cpu.p, Flags::Carry as u8);
+
+        simple_test_base(&mut cpu, 2);
 
         assert_eq!(cpu.a, 0x00);
         assert_eq!(mask_is_set!(cpu.p, Flags::Carry as u8), true);
@@ -2428,14 +2531,14 @@ mod tests {
 
     #[test]
     fn sbc_overflow_1() {
-        let mut cpu = Cpu::new();
-        cpu.a = 0x00;
-
         let prg = vec![
             0xE9, 0x01, // SBC $01
         ];
 
-        simple_test_base(&mut cpu, prg, 2);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0x00;
+
+        simple_test_base(&mut cpu, 2);
 
         assert_eq!(cpu.a, 0xFE);
         assert_eq!(mask_is_set!(cpu.p, Flags::Overflow as u8), false);
@@ -2443,14 +2546,14 @@ mod tests {
 
     #[test]
     fn sbc_overflow_2() {
-        let mut cpu = Cpu::new();
-        cpu.a = 0x80;
-
         let prg = vec![
             0xE9, 0x01, // SBC $01
         ];
 
-        simple_test_base(&mut cpu, prg, 2);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0x80;
+
+        simple_test_base(&mut cpu, 2);
 
         assert_eq!(cpu.a, 0x7E);
         assert_eq!(mask_is_set!(cpu.p, Flags::Overflow as u8), true);
@@ -2458,32 +2561,33 @@ mod tests {
 
     #[test]
     fn isb() {
-        let mut cpu = Cpu::new();
-        cpu.a = 0x01;
-        cpu.ram[0x02] = 0x00;
-
         let prg = vec![
             0xE7, 0x02, // ISB $02
         ];
 
-        simple_test_base(&mut cpu, prg, 5);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0x01;
+        cpu.write_u8(0x02, 0x00);
+
+        simple_test_base(&mut cpu, 5);
 
         assert_eq!(cpu.a, 0xFF);
-        assert_eq!(cpu.ram[0x02], 0x01);
+        assert_eq!(cpu.read_u8(0x02), 0x01);
     }
 
     #[test]
     fn rts() {
-        let mut cpu = Cpu::new();
-        cpu.ram[0x10A] = 0xDE;
-        cpu.ram[0x109] = 0xAC;
-        cpu.sp = 0x0008;
-
         let prg = vec![
             0x60, // RTS
         ];
+        
+        let mut cpu = init_cpu(prg);
+        cpu.write_u8(0x10A, 0xDE);
+        cpu.write_u8(0x109, 0xAC);
+        cpu.sp = 0x0008;
 
-        simple_test_base(&mut cpu, prg, 6);
+
+        simple_test_base(&mut cpu, 6);
 
         assert_eq!(cpu.sp, 0x0A);
         assert_eq!(cpu.pc, 0xDEAD);
@@ -2491,28 +2595,28 @@ mod tests {
 
     #[test]
     fn stx() {
-        let mut cpu = Cpu::new();
-        cpu.x = 0xA5;
-
         let prg = vec![
             0x86, 0x02, // STX $02
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        cpu.x = 0xA5;
 
-        assert_eq!(cpu.ram[0x02], 0xA5);
+        simple_test_base(&mut cpu, 3);
+
+        assert_eq!(cpu.read_u8(0x02), 0xA5);
     }
 
     #[test]
     fn tax() {
-        let mut cpu = Cpu::new();
-        cpu.a = 0xA5;
-
         let prg = vec![
             0xAA, // TAX
         ];
 
-        simple_test_base(&mut cpu, prg, 2);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0xA5;
+
+        simple_test_base(&mut cpu, 2);
 
         assert_eq!(cpu.x, 0xA5);
     }
@@ -2520,14 +2624,14 @@ mod tests {
     
     #[test]
     fn tay() {
-        let mut cpu = Cpu::new();
-        cpu.a = 0xA5;
-
         let prg = vec![
             0xA8, // TAY
         ];
 
-        simple_test_base(&mut cpu, prg, 2);
+        let mut cpu = init_cpu(prg);
+        cpu.a = 0xA5;
+
+        simple_test_base(&mut cpu, 2);
 
         assert_eq!(cpu.y, 0xA5);
     }
@@ -2535,72 +2639,72 @@ mod tests {
     
     #[test]
     fn tsx() {
-        let mut cpu = Cpu::new();
-        cpu.sp = 0xA5;
-
         let prg = vec![
             0xBA, // TSX
         ];
 
-        simple_test_base(&mut cpu, prg, 2);
+        let mut cpu = init_cpu(prg);
+        cpu.sp = 0xA5;
+
+        simple_test_base(&mut cpu, 2);
 
         assert_eq!(cpu.x, 0xA5);
     }
 
     #[test]
     fn txa() {
-        let mut cpu = Cpu::new();
-        cpu.x = 0xA5;
-
         let prg = vec![
             0x8A, // TXA
         ];
 
-        simple_test_base(&mut cpu, prg, 2);
+        let mut cpu = init_cpu(prg);
+        cpu.x = 0xA5;
+
+        simple_test_base(&mut cpu, 2);
 
         assert_eq!(cpu.a, 0xA5);
     }
 
     #[test]
     fn txs() {
-        let mut cpu = Cpu::new();
-        cpu.x = 0xA5;
-
         let prg = vec![
             0x9A, // TXS
         ];
 
-        simple_test_base(&mut cpu, prg, 2);
+        let mut cpu = init_cpu(prg);
+        cpu.x = 0xA5;
+
+        simple_test_base(&mut cpu, 2);
 
         assert_eq!(cpu.sp, 0xA5);
     }
 
     #[test]
     fn tya() {
-        let mut cpu = Cpu::new();
-        cpu.y = 0xA5;
-
         let prg = vec![
             0x98, // TYA
         ];
 
-        simple_test_base(&mut cpu, prg, 2);
+        let mut cpu = init_cpu(prg);
+        cpu.y = 0xA5;
+
+        simple_test_base(&mut cpu, 2);
 
         assert_eq!(cpu.a, 0xA5);
     }
 
     #[test]
     fn sty() {
-        let mut cpu = Cpu::new();
-        cpu.y = 0xA5;
-
         let prg = vec![
             0x84, 0x02, // STY $02
         ];
 
-        simple_test_base(&mut cpu, prg, 3);
+        let mut cpu = init_cpu(prg);
+        cpu.y = 0xA5;
 
-        assert_eq!(cpu.ram[0x02], 0xA5);
+        simple_test_base(&mut cpu, 3);
+
+        assert_eq!(cpu.read_u8(0x02), 0xA5);
     }
 
     #[test]
@@ -2619,69 +2723,88 @@ mod tests {
         assert_eq!(cpu.is_holding(), true);
     }
 
+    #[test]
+    fn enter_interrupt() {
+        // TODO: Interrupt test
+    }
+
     ///-----------------------------------------------------------------------------------------------------------------
     /// Helper functions
     ///-----------------------------------------------------------------------------------------------------------------
     mod helper {
         use super::*;
 
-        pub struct CpuIoBus {
-            prg_rom: Vec<u8>, // ROM
-            rom_offest: usize,
+        pub struct FakeBus {
+            memmap: Vec<u8>, // ROM
         }
 
-        impl CpuIoBus {
+        impl Default for FakeBus {
+            fn default() -> Self {
+                FakeBus {
+                    memmap: vec![],
+                }
+            }
+        }
+
+        impl FakeBus {
             pub fn from(prg_rom: Vec<u8>) -> Self {
-                CpuIoBus {
-                    prg_rom: prg_rom,
-                    rom_offest: 0x4020,
+                let mut rom = vec![0x00; 0x10000];
+                // insert prg memory
+                for (i, byte) in prg_rom.iter().enumerate() {
+                    rom[0x4020 + i] = *byte;
+                }
+
+                // insert reset vector
+                rom[0xFFFC] = 0x20;
+                rom[0xFFFD] = 0x40;
+
+                // insert NMI interrupt vector
+                rom[0xFFFA] = 0x20;
+                rom[0xFFFB] = 0x40;
+
+                FakeBus {
+                    memmap: rom,
                 }
             }
         }
 
-        impl IoAccess for CpuIoBus {
+        impl IoAccess for FakeBus {
             fn read_byte(&self, addr: u16) -> u8 {
-                if addr == 0xFFFC {
-                    0x20
-                }
-                else if addr == 0xFFFD {
-                    0x40
-                }
-                else {
-                    if addr >= 0x4020 {
-                        self.prg_rom[((addr as usize) - self.rom_offest) % self.prg_rom.len()]
-                    }
-                    else {
-                        0
-                    }
-                }
+                self.memmap[addr as usize]
             }
 
-            fn write_byte(&mut self, _addr: u16, _data: u8) {
-
+            fn write_byte(&mut self, addr: u16, data: u8) {
+                self.memmap[addr as usize] = data;
             }
         }
 
-        pub fn simple_test(prg: Vec<u8>, ticks: usize) -> Cpu {
-            let mut cpu = Cpu::new();
+        pub fn simple_test<'a>(prg: Vec<u8>, ticks: usize) -> Cpu<FakeBus> {
+            let mut cpu = init_cpu(prg);
             cpu.p = 0x00;
-            simple_test_base(&mut cpu, prg, ticks);
+
+            simple_test_base(&mut cpu, ticks);
 
             cpu
         }
 
-        pub fn simple_test_base(cpu: &mut Cpu, prg: Vec<u8>, ticks: usize) {
-            let mut io = CpuIoBus::from(prg);
-            run_cpu(cpu, &mut io, ticks);
+        pub fn simple_test_base(cpu: &mut Cpu<FakeBus>, ticks: usize) {
+            run_cpu(cpu, ticks);
         }
 
-        pub fn run_cpu(cpu: &mut Cpu, io: &mut dyn IoAccess, ticks: usize) {
+        pub fn init_cpu(prg: Vec<u8>) -> Cpu<FakeBus> {
+            let bus = FakeBus::from(prg);
+            let mut cpu: Cpu<FakeBus> = Cpu::default();
+            cpu.load_bus(bus);
+            cpu
+        }
+
+        pub fn run_cpu(cpu: &mut Cpu<FakeBus>, ticks: usize) {
             // Tick CPU once to exit Reset state
-            cpu.tick(io);
+            cpu.tick();
 
             // Tick CPU the expect number of times
             for _ in 0..ticks {
-                cpu.tick(io);
+                cpu.tick();
             }
         }
     }

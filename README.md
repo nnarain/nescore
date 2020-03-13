@@ -30,6 +30,23 @@ nesinfo
 Display cartridge information contained in the `.nes` rom file.
 
 ```
-nesinfo -f <file path>
+nesinfo -f <ROM>
 ```
 
+nesui
+-----
+
+Debugging UI for `nescore`
+
+```
+nesui -f <ROM>
+```
+
+nesimg
+------
+
+Dump CHR ROM data as a monochrome image.
+
+```
+nesimg -f <ROM>
+```

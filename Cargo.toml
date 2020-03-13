@@ -1,5 +1,7 @@
 [workspace]
 members = [
     "nescore",
-    "nesinfo"
+    "nesinfo",
+    "nesui",
+    "nesimg"
 ]
