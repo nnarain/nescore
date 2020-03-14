@@ -1,18 +1,27 @@
 //
-// Dump CHR data from NES ROM
+// img.rs
 //
 // @author Natesh Narain <nnaraindev@gmail.com>
-// @date Mar 01 2020
+// @date Mar 13 2020
 //
-use clap::clap_app;
+use clap::Clap;
+
 use image::{RgbImage, Rgb};
 use nescore::Cartridge;
 use nescore::cart::CHR_ROM_BANK_SIZE;
 
-
 const BYTES_PER_TILE: usize = 16;
 const OUTPUT_TILES_PER_ROW: usize = 32;
 const TILES_PER_BANK: usize = CHR_ROM_BANK_SIZE / BYTES_PER_TILE;
+
+#[derive(Clap)]
+pub struct Options {
+    /// ROM file
+    rom: String,
+    /// Output file name
+    #[clap(short = "o", long = "output", default_value = "chr_rom.png")]
+    output: String,
+}
 
 struct Tile {
     data: [u8; 64],
@@ -99,20 +108,8 @@ fn pattern_to_color(pattern: u8) -> (u8, u8, u8) {
     }
 }
 
-fn main() {
-    let matches = clap_app!(nesui =>
-        (version: "1.0")
-        (author: "Natesh Narain <nnaraindev@gmail.com>")
-        (about: "Run a NES ROM file")
-        (@arg ROM: -f --file +takes_value +required "The ROM file to run")
-    ).get_matches();
-
-    // Load ROM file and get CHR ROM
-    let (_, _, chr_rom) = matches.value_of("ROM")
-                                    .ok_or("Invalid file")
-                                    .map(Cartridge::from_path).map(|r| r.unwrap())
-                                    .map(|cart| cart.to_parts())
-                                    .unwrap();
+pub fn dispatch(opts: Options) {
+    let (_, _, chr_rom) = Cartridge::from_path(&opts.rom).unwrap().to_parts();
 
     // Create a tile provider to iterate over tile data
     let provider = TileProvider::from(chr_rom);
@@ -140,5 +137,5 @@ fn main() {
         }
     }
 
-    img.save("test.png").unwrap();
+    img.save(&opts.output).unwrap();
 }

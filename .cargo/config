@@ -1,4 +1,2 @@
 [alias]
-nesinfo = "run --package nesinfo --bin nesinfo --"
-nesui = "run --package nesui --"
-nesimg = "run --package nesimg --"
+nescli = "run --release --package nescli --"

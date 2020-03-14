@@ -1,0 +1,22 @@
+[package]
+name = "nescli"
+version = "0.1.0"
+authors = ["Natesh Narain <nnaraindev@gmail.com>"]
+edition = "2018"
+
+[[bin]]
+name = "nescli"
+path = "src/main.rs"
+required-features = ["cli", "gui", "utils"]
+
+[dependencies]
+nescore = {path="../nescore"}
+clap = { git = "https://github.com/clap-rs/clap/", optional = true }
+sdl2 = { version = "0.33.0", features = ["bundled"], optional = true }
+image = {version = "0.23.0", optional = true}
+
+[features]
+cli = ["clap"]
+gui = ["sdl2"]
+utils = ["image"]
+default = ["cli", "gui", "utils"]
