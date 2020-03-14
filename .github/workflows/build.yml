@@ -23,7 +23,7 @@ jobs:
     # - name: Benchmark
     #   run: cargo bench
     - name: Generate Coverage Report
-      run: cargo install cargo-tarpaulin && cargo tarpaulin --out Xml --all-features --workspace --exclude nesui
+      run: cargo install cargo-tarpaulin && cargo tarpaulin --out Xml --all-features --workspace --exclude nescli
       if: matrix.os == 'ubuntu-latest'
     - uses: codecov/codecov-action@v1
       with:
