@@ -24,29 +24,35 @@ nescore
 
 Core library for emulating the NES.
 
-nesinfo
--------
+The basics so far:
 
-Display cartridge information contained in the `.nes` rom file.
+```rust
+use nescore::{Nes, Cartridge, Button};
 
+fn main() {
+    let cart = Cartridge::from_path("/path/to/rom.nes").unwrap();
+    let mut nes = Nes::default().with_cart(cart);
+
+    // Run the NES for a single frame. Audio is TODO
+    let framebuffer = nes.emulate_frame();
+
+    // Standard controller input
+    nes.input(Button::A, true);
+
+    // Update display on platform of your choice
+    // ...
+}
 ```
-nesinfo -f <ROM>
-```
 
-nesui
------
-
-Debugging UI for `nescore`
-
-```
-nesui -f <ROM>
-```
-
-nesimg
+nescli
 ------
 
-Dump CHR ROM data as a monochrome image.
+Some tooling for interacting with ROM files.
 
 ```
-nesimg -f <ROM>
+nescli run    <ROM> # Run the ROM file
+nescli run -d <ROM> # Run the ROM file with CPU debug output
+
+nescli info <ROM> # Display cartridge header information
+nescli img  <ROM> # Dump CHR ROM to a PNG file
 ```
