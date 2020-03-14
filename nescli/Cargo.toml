@@ -7,7 +7,7 @@ edition = "2018"
 [[bin]]
 name = "nescli"
 path = "src/main.rs"
-required-features = ["cli", "gui"]
+required-features = ["cli", "gui", "utils"]
 
 [dependencies]
 nescore = {path="../nescore"}
