@@ -13,6 +13,7 @@ const INTERNAL_RAM_SIZE: usize = 0x800;
 pub struct CpuIoBus {
     ram: [u8; INTERNAL_RAM_SIZE], // CPU RAM
     ppu: IoAccessRef,
+    joy: IoAccessRef,
     mapper: Mapper,
 }
 
@@ -21,11 +22,12 @@ fn mirror_address(addr: u16, base: u16, count: u16) -> u16 {
 }
 
 impl CpuIoBus {
-    pub fn new(ppu_io: IoAccessRef, mapper: Mapper) -> Self {
+    pub fn new(ppu: IoAccessRef, joy: IoAccessRef, mapper: Mapper) -> Self {
         CpuIoBus {
             ram: [0x00; INTERNAL_RAM_SIZE],
-            ppu: ppu_io,
-            mapper: mapper,
+            ppu,
+            joy,
+            mapper,
         }
     }
 }
@@ -35,8 +37,9 @@ impl IoAccess for CpuIoBus {
         match addr {
             0x0000..=0x1FFF => self.ram[mirror_address(addr, 0x0000, INTERNAL_RAM_SIZE as u16) as usize],
             0x2000..=0x3FFF => self.ppu.borrow().read_byte(mirror_address(addr, 0x2000, 8)),
-            0x4000..=0x401F => { 0 },
+            0x4016 | 0x4017 => self.joy.borrow().read_byte(addr),
             0x4020..=0xFFFF => self.mapper.borrow().read(addr),
+            _ => 0,
         }
     }
 
@@ -56,6 +59,9 @@ impl IoAccess for CpuIoBus {
                     self.ppu.borrow_mut().write_byte(0xFF00 | i, cpu_byte);
                 }
             },
+            0x4016 => {
+                self.joy.borrow_mut().write_byte(addr, data);
+            }
             _ => {}
         }
     }
@@ -71,10 +77,11 @@ mod tests {
 
     #[test]
     fn mirror_ram() {
-        let ppu = Rc::new(RefCell::new(FakePpu::new()));
-        let mapper = Rc::new(RefCell::new(FakeMapper::new()));
+        let ppu = Rc::new(RefCell::new(FakePpu::default()));
+        let joy = Rc::new(RefCell::new(FakeJoy::default()));
+        let mapper = Rc::new(RefCell::new(FakeMapper::default()));
 
-        let mut bus = CpuIoBus::new(ppu, mapper);
+        let mut bus = CpuIoBus::new(ppu, joy, mapper);
 
         bus.write_byte(0x0000, 0xDE);
         assert_eq!(bus.read_byte(0x0800), 0xDE);
@@ -90,10 +97,11 @@ mod tests {
 
     #[test]
     fn ppu_mirrored_registers() {
-        let ppu = Rc::new(RefCell::new(FakePpu::new()));
-        let mapper = Rc::new(RefCell::new(FakeMapper::new()));
+        let ppu = Rc::new(RefCell::new(FakePpu::default()));
+        let joy = Rc::new(RefCell::new(FakeJoy::default()));
+        let mapper = Rc::new(RefCell::new(FakeMapper::default()));
 
-        let mut bus = CpuIoBus::new(ppu, mapper);
+        let mut bus = CpuIoBus::new(ppu, joy, mapper);
 
         for i in 0..8 {
             bus.write_byte(0x2000 + i, i as u8);
@@ -122,16 +130,9 @@ mod tests {
     // Helpers
     //------------------------------------------------------------------------------------------------------------------
 
+    #[derive(Default)]
     struct FakePpu {
         data: [u8; 10],
-    }
-
-    impl FakePpu {
-        fn new() -> Self {
-            FakePpu {
-                data: [0; 10],
-            }
-        }
     }
 
     impl IoAccess for FakePpu {
@@ -144,16 +145,23 @@ mod tests {
         }
     }
 
-    struct FakeMapper {
-        data: [u8; 10],
+    #[derive(Default)]
+    struct FakeJoy {
+
     }
 
-    impl FakeMapper {
-        fn new() -> Self {
-            FakeMapper {
-                data: [0; 10],
-            }
+    impl IoAccess for FakeJoy {
+        fn read_byte(&self, _addr: u16) -> u8 {
+            0
         }
+        fn write_byte(&mut self, _addr: u16, _data: u8) {
+
+        }
+    }
+
+    #[derive(Default)]
+    struct FakeMapper {
+        data: [u8; 10],
     }
 
     impl MapperControl for FakeMapper {

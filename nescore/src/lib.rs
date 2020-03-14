@@ -9,16 +9,19 @@ mod bit;
 mod cpu;
 mod ppu;
 mod mapper;
+mod joy;
 mod common;
 
 pub mod cart;
 pub use cart::Cartridge;
 pub use ppu::{DISPLAY_WIDTH, DISPLAY_HEIGHT};
+pub use joy::{Controller, Button};
 
 use cpu::Cpu;
 use cpu::bus::CpuIoBus;
 use ppu::Ppu;
 use ppu::bus::PpuIoBus;
+use joy::Joy;
 use mapper::Mapper;
 use common::Clockable;
 
@@ -33,6 +36,7 @@ const FRAME_BUFFER_SIZE: usize = DISPLAY_WIDTH * DISPLAY_HEIGHT * 3;
 pub struct Nes {
     cpu: Rc<RefCell<Cpu<CpuIoBus>>>,    // NES CPU
     ppu: Rc<RefCell<Ppu<PpuIoBus>>>,    // NES PPU
+    joy: Rc<RefCell<Joy>>,              // NES Joystick
                                         // TODO: APU
     mapper: Option<Mapper> // Catridge Mapper
 }
@@ -55,12 +59,21 @@ impl Nes {
     }
 
     /// Builder function to set debug mode
+    /// ```
+    /// # use nescore::Nes;
+    /// let nes = Nes::default().debug_mode(true);
+    /// ```
     pub fn debug_mode(self, debug: bool) -> Self {
         self.cpu.borrow_mut().set_debug(debug);
         self
     }
 
     /// Run the emulator for a single frame
+    /// ```
+    /// # use nescore::Nes;
+    /// let mut nes = Nes::default();
+    /// let framebuffer = nes.emulate_frame();
+    /// ```
     pub fn emulate_frame(&mut self) -> [u8; FRAME_BUFFER_SIZE] {
         let mut framebuffer = [0x00u8; FRAME_BUFFER_SIZE];
         let mut idx = 0usize;
@@ -83,6 +96,16 @@ impl Nes {
         }
 
         framebuffer
+    }
+
+    /// Apply a button input into the emulator
+    /// ```
+    /// # use nescore::{Nes, Button};
+    /// let mut nes = Nes::default();
+    /// nes.input(Button::A, true);
+    /// ```
+    pub fn input(&mut self, btn: Button, pressed: bool) {
+        self.joy.borrow_mut().input(btn, pressed);
     }
 
     /// Run until the CPU's PC is at address **addr**
@@ -120,7 +143,7 @@ impl Nes {
         let mapper = mapper::from_cartridge(cart);
 
         // Complete initialization of components
-        let cpu_bus = CpuIoBus::new(self.ppu.clone(), mapper.clone());
+        let cpu_bus = CpuIoBus::new(self.ppu.clone(), self.joy.clone(), mapper.clone());
         self.cpu.borrow_mut().load_bus(cpu_bus);
 
         let ppu_bus = PpuIoBus::new(self.cpu.clone(), mapper.clone(), mirror_v);
