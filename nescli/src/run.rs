@@ -13,7 +13,7 @@ use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use std::time::Duration;
 
-use nescore::{Nes, Cartridge};
+use nescore::{Nes, Cartridge, Button};
 use nescore::{DISPLAY_WIDTH, DISPLAY_HEIGHT};
 
 const WINDOW_WIDTH: u32 = 800;
@@ -26,6 +26,23 @@ pub struct Options {
     pub debug: bool,
     /// The ROM file to run
     pub rom: String,
+}
+
+fn map_nes_key(keycode: Keycode) -> Option<Button> {
+    match keycode {
+        Keycode::W => Some(Button::Up),
+        Keycode::A => Some(Button::Left),
+        Keycode::D => Some(Button::Right),
+        Keycode::S => Some(Button::Down),
+
+        Keycode::J => Some(Button::A),
+        Keycode::K => Some(Button::B),
+
+        Keycode::Return => Some(Button::Start),
+        Keycode::LShift => Some(Button::Select),
+
+        _ => None,
+    }
 }
 
 pub fn dispatch(opts: Options) {
@@ -59,6 +76,18 @@ pub fn dispatch(opts: Options) {
                 Event::Quit {..} | Event::KeyDown { keycode: Some(Keycode::Escape), .. } => {
                     break 'running
                 },
+                Event::KeyDown {keycode, ..} => {
+                    let btn = keycode.map(map_nes_key).flatten();
+                    if let Some(btn) = btn {
+                        nes.input(btn, true);
+                    }
+                }
+                Event::KeyUp {keycode, ..} => {
+                    let btn = keycode.map(map_nes_key).flatten();
+                    if let Some(btn) = btn {
+                        nes.input(btn, false);
+                    }
+                }
                 _ => {}
             }
         }
