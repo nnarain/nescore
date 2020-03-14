@@ -76,7 +76,7 @@ impl TileProvider {
         let data_len = data.len();
 
         TileProvider {
-            data: data,
+            data,
             tile_no: 0,
             max_tiles: data_len / BYTES_PER_TILE,
         }
