@@ -77,7 +77,7 @@ impl Register<u8> for PpuCtrl {
 pub struct PpuStatus {
     pub lsb: u8,               // Least significant bits of the previous write to a PPU register
     pub sprite_overflow: bool, //
-    pub sprite0_hit: bool,     //
+    pub sprite0_hit: bool,     // Set when a non-zero pixel of sprite 0 overlaps a nonzero background pixel.
     pub vblank: bool,          // Set when PPU enters vertical blanking period
 }
 

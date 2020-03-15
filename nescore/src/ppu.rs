@@ -116,7 +116,11 @@ impl<Io: IoAccess> Ppu<Io> {
         let scanline = Scanline::from(self.scanline);
         match scanline {
             Scanline::PreRender => {
+                // FIXME: Clear after read of PPUSTATUS
                 self.status.vblank = false;
+                if self.cycle == 1 {
+                    self.status.sprite0_hit = false;
+                }
                 // Same as a normal scanline but no output to the screen
                 self.process_scanline(self.cycle);
             },
@@ -140,7 +144,7 @@ impl<Io: IoAccess> Ppu<Io> {
         }
 
         if scanline == Scanline::Visible && self.cycle <= 255 {
-            Some(self.generate_pixel())
+            Some(self.apply_mux())
         }
         else {
             None
@@ -215,10 +219,6 @@ impl<Io: IoAccess> Ppu<Io> {
 
         // Read pattern from pattern table memory
         let fine_y = (base_y % 8) as u8;
-
-        // if tile_no == 1 {
-        //     println!("NT: ({}, {}) {:?}, {:04X}", dot, fine_y, coarse, tile_idx);
-        // }
 
         let pattern = self.read_pattern(self.ctrl.background_pattern_table(), tile_no, fine_y);
         // Fetch tile attributes
@@ -330,16 +330,16 @@ impl<Io: IoAccess> Ppu<Io> {
         (lo, hi)
     }
 
-    fn get_sprite_pixel_data(&self) -> (u8, u8, bool) {
-        let mut pixel_data = (0, 0, false);
+    fn get_sprite_pixel_data(&self) -> (u8, u8, bool, bool) {
+        let mut pixel_data = (0, 0, false, false);
 
         // Find the first opaque pixel for the active sprites
-        for sprite_reg in self.sprite_regs.iter() {
+        for (i, sprite_reg) in self.sprite_regs.iter().enumerate() {
             if sprite_reg.active() {
                 let sprite_data = sprite_reg.get_value();
                 // Check if not opaque
                 if sprite_data.0 != 0 {
-                    pixel_data = sprite_data;
+                    pixel_data = (sprite_data.0, sprite_data.1, sprite_data.2, i == 0);
                     break;
                 }
             }
@@ -348,7 +348,7 @@ impl<Io: IoAccess> Ppu<Io> {
         pixel_data
     }
 
-    fn generate_pixel(&self) -> Pixel {
+    fn apply_mux(&mut self) -> Pixel {
         // Use fine X to select the pixel to render
         let fine_x = (self.scroll.x % 8) as u8;
 
@@ -356,12 +356,17 @@ impl<Io: IoAccess> Ppu<Io> {
         let bg_pattern = self.tile_reg.get_value(fine_x);
         let bg_palette = self.pal_reg.get_value(fine_x);
 
-        let (sp_pattern, sp_palette, sp_priority) = if self.mask.sprites_enabled {
+        let (sp_pattern, sp_palette, sp_priority, is_sprite0) = if self.mask.sprites_enabled {
             self.get_sprite_pixel_data()
         }
         else {
-            (0, 0, false)
+            (0, 0, false, false)
         };
+
+        // Determine sprite 0 hit status
+        if is_sprite0 && sp_pattern > 0 && bg_pattern > 0 {
+            self.status.sprite0_hit = true;
+        }
 
         // Choose which pattern and palette to use
         // Select the sprite data is the sprite pixel is opaque and has front priority OR the background is transparent
@@ -441,7 +446,7 @@ impl<Io: IoAccess> IoAccess for Ppu<Io> {
             0x2004 => {
                 let data = self.oam[*self.oam_addr.borrow() as usize];
                 // Increment OAM pointer
-                let new_oam_addr = self.oam_addr.borrow().wrapping_add(1);
+                let new_oam_addr = self.oam_addr.borrow().wrapping_add(1) % 256;
                 *self.oam_addr.borrow_mut() = new_oam_addr;
 
                 data
@@ -483,7 +488,7 @@ impl<Io: IoAccess> IoAccess for Ppu<Io> {
             0x2004 => {
                 self.oam[*self.oam_addr.borrow() as usize] = value;
                 // Increment OAM pointer
-                let new_oam_addr = self.oam_addr.borrow().wrapping_add(1);
+                let new_oam_addr = self.oam_addr.borrow().wrapping_add(1) % 256;
                 *self.oam_addr.borrow_mut() = new_oam_addr;
             },
             // PPU Scroll
@@ -594,12 +599,24 @@ mod tests {
         assert_eq!(helpers::pixel_mux(bg, sp, false), (0, 0, 0));
 
         let bg = (0, 0);
+        let sp = (0, 0);
+        assert_eq!(helpers::pixel_mux(bg, sp, true), (0, 0, 0));
+
+        let bg = (0, 0);
         let sp = (1, 2);
         assert_eq!(helpers::pixel_mux(bg, sp, false), (1, 2, 0x10));
+
+        let bg = (0, 0);
+        let sp = (1, 2);
+        assert_eq!(helpers::pixel_mux(bg, sp, true), (1, 2, 0x10));
 
         let bg = (1, 3);
         let sp = (0, 2);
         assert_eq!(helpers::pixel_mux(bg, sp, false), (1, 3, 0x00));
+
+        let bg = (1, 3);
+        let sp = (0, 2);
+        assert_eq!(helpers::pixel_mux(bg, sp, true), (1, 3, 0x00));
 
         let bg = (1, 3);
         let sp = (1, 2);
@@ -698,6 +715,13 @@ mod tests {
 
         // Set first color in Sprite Palette 1
         ppu.write_vram(0x3F11, 0x01);
+
+        // Write into nametable
+        ppu.write_vram(0x2000, 0x01);
+        // Write attribute - Top Left - Background Palette 1
+        ppu.write_vram(0x23C0, 0x01);
+        // Set first color in Background Palette 1
+        ppu.write_vram(0x3F05, 0x01);
 
         // Run the PPU for the pre-render scanline
         for _ in 0..CYCLES_PER_SCANLINE {
