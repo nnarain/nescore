@@ -398,7 +398,7 @@ impl<Io: IoAccess> Ppu<Io> {
     /// Read directly from PPU VRAM
     pub fn read_vram(&self, addr: u16) -> u8 {
         if let Some(ref bus) = self.bus {
-            bus.read_byte(addr)
+            bus.read_byte(addr & 0x3FFF)
         }
         else {
             panic!("PPU's bus not initialized");
@@ -408,7 +408,7 @@ impl<Io: IoAccess> Ppu<Io> {
     /// Write directly to PPU VRAM
     pub fn write_vram(&mut self, addr: u16, value: u8) {
         if let Some(ref mut bus) = self.bus {
-            bus.write_byte(addr, value);
+            bus.write_byte(addr & 0x3FFF, value);
         }
     }
 
