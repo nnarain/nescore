@@ -23,9 +23,9 @@ impl Memory {
     pub fn new(mem: Vec<u8>, bank_size: usize) -> Self {
         let num_banks = mem.len() / bank_size;
         Memory {
-            mem: mem,
-            num_banks: num_banks,
-            bank_size: bank_size,
+            mem,
+            num_banks,
+            bank_size,
         }
     }
 

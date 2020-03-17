@@ -22,10 +22,10 @@ pub struct PpuIoBus {
 }
 
 impl PpuIoBus {
-    pub fn new(cpu_io: IoAccessRef, mapper: Mapper, mirror_v: bool) -> Self {
+    pub fn new(cpu: IoAccessRef, mapper: Mapper, mirror_v: bool) -> Self {
         PpuIoBus {
-            cpu: cpu_io,
-            mapper: mapper,
+            cpu,
+            mapper,
 
             nametable_ram: [0x00; INTERNAL_RAM],
             palette_ram: [0x00; 256],

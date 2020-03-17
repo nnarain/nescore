@@ -1,15 +1,14 @@
-use nescore::{Nes, Cartridge};
+//
+// branching.rs
+//
+// @author Natesh Narain <nnaraindev@gmail.com>
+// @date Mar 16 2020
+//
+mod common;
 
 #[test]
+#[ignore]
 fn branch_timing_branch_basics() {
-    let cart = Cartridge::from_path("tests/roms/nes-test-roms/branch_timing_tests/1.Branch_Basics.nes").unwrap();
-    let mut nes = Nes::default().with_cart(cart);
-
-    while !nes.is_holding() {
-        nes.emulate_frame();
-    }
-
-    // According to branch_timing_tests/validation.a: Results are store in $F8
-    // let result = nes.read_cpu_ram(0xF8);
-    // assert_eq!(result, 1, "Branch Basics returned result ${:02X}", result);
+    let mut nes = common::init_nes("tests/roms/nes-test-roms/branch_timing_tests/1.Branch_Basics.nes");
+    common::run_test(&mut nes, "Branch timing basic test failed with");
 }

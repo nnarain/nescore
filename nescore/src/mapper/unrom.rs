@@ -33,11 +33,12 @@ use super::MapperControl;
 use super::mem::Memory;
 use crate::cart::{Cartridge, PRG_ROM_BANK_SIZE};
 
+const CHR_RAM_SIZE: usize = kb!(8);
+
 /// UNROM Mapper
 pub struct Unrom {
     prg_rom: Memory,
-    prg_ram: [u8; 0x2000],
-    _chr_ram: Memory,
+    chr_ram: [u8; CHR_RAM_SIZE],
     rom_bank_selection: usize, // Select ROM bank
 }
 
@@ -48,8 +49,7 @@ impl Unrom {
 
         Unrom{
             prg_rom: Memory::new(prg_rom, PRG_ROM_BANK_SIZE),
-            prg_ram: [0; 0x2000],
-            _chr_ram: Memory::new(vec![0; 8 * 1024], 8 * 1024),
+            chr_ram: [0; CHR_RAM_SIZE],
             rom_bank_selection: 0,
         }
     }
@@ -58,14 +58,11 @@ impl Unrom {
 impl MapperControl for Unrom {
     fn read(&self, addr: u16) -> u8 {
         match addr {
-            0x6000..=0x7FFF => {
-                self.prg_ram[(addr - 0x6000u16) as usize]
-            },
             0x8000..=0xBFFF => {
                 self.prg_rom.read(self.rom_bank_selection, (addr - 0x8000) as usize)
             },
             0xC000..=0xFFFF => {
-                self.prg_rom.read_last((addr - 0x8000) as usize)
+                self.prg_rom.read_last((addr - 0xC000) as usize)
             }
             _ => { 0 }
         }
@@ -73,11 +70,8 @@ impl MapperControl for Unrom {
 
     fn write(&mut self, addr: u16, data: u8) {
         match addr {
-            0x6000..=0x7FFF => {
-                self.prg_ram[(addr - 0x6000) as usize] = data;
-            },
             0x8000..=0xFFFF => {
-                self.rom_bank_selection = data as usize;
+                self.rom_bank_selection = (data & 0x0F) as usize;
             },
             _ => {
                 
@@ -85,12 +79,12 @@ impl MapperControl for Unrom {
         }
     }
 
-    fn read_chr(&self, _addr: u16) -> u8 {
-        0
+    fn read_chr(&self, addr: u16) -> u8 {
+        self.chr_ram[addr as usize]
     }
 
-    fn write_chr(&mut self, _addr: u16, _value: u8) {
-
+    fn write_chr(&mut self, addr: u16, value: u8) {
+        self.chr_ram[addr as usize] = value;
     }
 }
 
@@ -110,11 +104,25 @@ mod tests {
         assert_eq!(unrom.read(0x8000), 0xDE);
     }
 
+    #[test]
+    fn irq() {
+        let mut prg = vec![0; PRG_ROM_BANK_SIZE * 2];
+        prg[(PRG_ROM_BANK_SIZE * 2)-2] = 0x01;
+        prg[(PRG_ROM_BANK_SIZE * 2)-1] = 0x60;
+
+        let unrom = init_unrom(prg, PRG_ROM_BANK_SIZE);
+        let irq_lo = unrom.read(0xFFFE) as u16;
+        let irq_hi = unrom.read(0xFFFF) as u16;
+
+        let irq = (irq_hi << 8) | irq_lo;
+
+        assert_eq!(irq, 0x6001);
+    }
+
     fn init_unrom(data: Vec<u8>, bank_size: usize) -> Unrom {
         Unrom {
             prg_rom: Memory::new(data, bank_size),
-            prg_ram: [0; 0x2000],
-            _chr_ram: Memory::new(vec![0; 20], 10),
+            chr_ram: [0; CHR_RAM_SIZE],
             rom_bank_selection: 0,
         }
     }

@@ -89,6 +89,8 @@ pub struct SpriteRegister {
 
     plane0: u8,
     plane1: u8,
+
+    sprite_num: u8,
 }
 
 impl Clockable for SpriteRegister {
@@ -110,7 +112,7 @@ impl Clockable for SpriteRegister {
 }
 
 impl SpriteRegister {
-    pub fn load(&mut self, x_pos: u8, pattern: (u8, u8), palette: u8, front_priority: bool) {
+    pub fn load(&mut self, x_pos: u8, pattern: (u8, u8), palette: u8, front_priority: bool, sprite_num: u8) {
         self.x_counter = x_pos;
         self.plane0 = reverse_bits!(pattern.0);
         self.plane1 = reverse_bits!(pattern.1);
@@ -118,14 +120,16 @@ impl SpriteRegister {
 
         self.palette = palette;
         self.priority = front_priority;
+
+        self.sprite_num = sprite_num;
     }
 
-    pub fn get_value(&self) -> (u8, u8, bool) {
+    pub fn get_value(&self) -> (u8, u8, bool, u8) {
         // Get the value of the two registers combined
         let lo = bit_as_value!(self.plane0, 0) as u8;
         let hi = bit_as_value!(self.plane1, 0) as u8;
 
-        ((hi << 1) | lo, self.palette, self.priority)
+        ((hi << 1) | lo, self.palette, self.priority, self.sprite_num)
     }
 
     pub fn active(&self) -> bool {
@@ -142,17 +146,17 @@ mod tests {
         let mut sprite_reg = SpriteRegister::default();
 
         // Load x position 10 and the pattern data
-        sprite_reg.load(10, (0x80, 0x00), 0, false);
+        sprite_reg.load(10, (0x80, 0x00), 0, false, 0);
 
         for _ in 0..10 {
             sprite_reg.tick();
         }
 
         assert!(sprite_reg.active());
-        assert_eq!(sprite_reg.get_value(), (1, 0, false));
+        assert_eq!(sprite_reg.get_value(), (1, 0, false, 0));
 
         sprite_reg.tick();
-        assert_eq!(sprite_reg.get_value(), (0, 0, false));
+        assert_eq!(sprite_reg.get_value(), (0, 0, false, 0));
     }
 
     #[test]

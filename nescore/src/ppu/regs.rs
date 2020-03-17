@@ -77,13 +77,13 @@ impl Register<u8> for PpuCtrl {
 pub struct PpuStatus {
     pub lsb: u8,               // Least significant bits of the previous write to a PPU register
     pub sprite_overflow: bool, //
-    pub sprite0_hit: bool,     //
+    pub sprite0_hit: bool,     // Set when a non-zero pixel of sprite 0 overlaps a nonzero background pixel.
     pub vblank: bool,          // Set when PPU enters vertical blanking period
 }
 
 impl Register<u8> for PpuStatus {
     fn value(&self) -> u8 {
-        self.lsb
+        (self.lsb & 0x1F)
         | (self.sprite_overflow as u8) << 5
         | (self.sprite0_hit as u8) << 6
         | (self.vblank as u8) << 7
@@ -244,6 +244,22 @@ mod tests {
         let value: u8 = status.value();
 
         assert_eq!(value, 0xE0);
+    }
+
+    #[test]
+    fn sprite_zero_hit() {
+        let mut status = PpuStatus::default();
+        status.sprite0_hit = true;
+
+        assert!(mask_is_set!(status.value(), 0x40));
+    }
+
+    #[test]
+    fn ppustatus_lsb() {
+        let mut status = PpuStatus::default();
+        status.lsb = 0xFF;
+
+        assert_eq!(status.value(), 0x1F);
     }
 
     #[test]
