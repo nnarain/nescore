@@ -1179,9 +1179,9 @@ impl<Io: IoAccess> Cpu<Io> {
     // Flags Register
     //------------------------------------------------------------------------------------------------------------------
 
-    fn interrupts_disabled(&self) -> bool {
-        self.get_flag_bit(Flags::InterruptDisable)
-    }
+    // fn interrupts_disabled(&self) -> bool {
+    //     self.get_flag_bit(Flags::InterruptDisable)
+    // }
 
     fn update_flags_with_carry(&mut self, a: u8, c: bool) {
         self.update_flags(a);
