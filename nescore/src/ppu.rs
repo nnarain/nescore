@@ -68,12 +68,12 @@ pub struct Ppu<Io: IoAccess> {
     oam: [u8; 256],            // Object Attribute Memory (Sprites)
     sprite_cache: [Option<Sprite>; 8],   // Up to 8 sprites per scanline
 
-    ctrl: PpuCtrl,             // PPUCTRL   - Control Register
-    status: PpuStatus,         // PPUSTATUS - Status Register
-    mask: PpuMask,             // PPUMASK   - Mask Register (Render controls)
-    addr: RefCell<PpuAddr>,    // PPUADDR   - VRAM Address
-    scroll: PpuScroll,         // PPUSCROLL - Scroll register
-    oam_addr: RefCell<u16>,    // OAMADDR   - OAM Address
+    ctrl: PpuCtrl,              // PPUCTRL   - Control Register
+    status: RefCell<PpuStatus>, // PPUSTATUS - Status Register
+    mask: PpuMask,              // PPUMASK   - Mask Register (Render controls)
+    addr: RefCell<PpuAddr>,     // PPUADDR   - VRAM Address
+    scroll: PpuScroll,          // PPUSCROLL - Scroll register
+    oam_addr: RefCell<u16>,     // OAMADDR   - OAM Address
 
     // Render pipeline hardware
     tile_reg: TileRegister,    // PPU tile shift registers
@@ -93,7 +93,7 @@ impl<Io: IoAccess> Default for Ppu<Io> {
             sprite_cache: [None; 8],
 
             ctrl: PpuCtrl::default(),
-            status: PpuStatus::default(),
+            status: RefCell::new(PpuStatus::default()),
             mask: PpuMask::default(),
             addr: RefCell::new(PpuAddr::default()),
             scroll: PpuScroll::default(),
@@ -116,10 +116,10 @@ impl<Io: IoAccess> Ppu<Io> {
         let scanline = Scanline::from(self.scanline);
         match scanline {
             Scanline::PreRender => {
-                // FIXME: Clear after read of PPUSTATUS
-                self.status.vblank = false;
                 if self.cycle == 1 {
-                    self.status.sprite0_hit = false;
+                    println!("Sprite zero hit cleared");
+                    self.status.borrow_mut().sprite0_hit = false;
+                    self.status.borrow_mut().vblank = false;
                 }
                 // Same as a normal scanline but no output to the screen
                 self.process_scanline(self.cycle);
@@ -135,10 +135,13 @@ impl<Io: IoAccess> Ppu<Io> {
                 // PPU is idle
             },
             Scanline::VBlank => {
-                self.status.vblank = true;
-                // Set NMI during 2nd cycle of VBlank period
-                if self.ctrl.nmi_enable && self.cycle == 1 {
-                    self.raise_interrupt();
+                if self.cycle == 1 {
+                    self.status.borrow_mut().vblank = true;
+
+                    // Signal NMI interrupt
+                    if self.ctrl.nmi_enable {
+                        self.raise_interrupt();
+                    }
                 }
             }
         }
@@ -240,9 +243,9 @@ impl<Io: IoAccess> Ppu<Io> {
             if found_sprites < 8 {
                 let offset = n * 4;
                 let sprite_data = &self.oam[offset..offset+4];
-                let sprite = Sprite::from(sprite_data);
+                let sprite = Sprite::from(sprite_data, n as u8);
 
-                let max_y = (sprite.y as u16) + (self.ctrl.sprite_height() as u16) - 1 ;
+                let max_y = (sprite.y as u16) + (self.ctrl.sprite_height() as u16) - 1;
 
                 if sprite.y > 0 && scanline >= sprite.y as u16 && scanline <= max_y {
                     // Found a valid sprite
@@ -276,6 +279,7 @@ impl<Io: IoAccess> Ppu<Io> {
                 else {
                     (sprite_height - 1) - (scanline - (sprite.y as u16)) as u8
                 };
+
                 let pattern = self.read_pattern(base, sprite.tile, fine_y);
 
                 // Reverse bit pattern if the sprite is horizontally flipped
@@ -286,7 +290,7 @@ impl<Io: IoAccess> Ppu<Io> {
                     pattern
                 };
 
-                self.sprite_regs[i].load(sprite.x, pattern, sprite.palette(), sprite.priority());
+                self.sprite_regs[i].load(sprite.x, pattern, sprite.palette(), sprite.priority(), sprite.num);
             }
         }
     }
@@ -334,12 +338,12 @@ impl<Io: IoAccess> Ppu<Io> {
         let mut pixel_data = (0, 0, false, false);
 
         // Find the first opaque pixel for the active sprites
-        for (i, sprite_reg) in self.sprite_regs.iter().enumerate() {
+        for sprite_reg in self.sprite_regs.iter() {
             if sprite_reg.active() {
                 let sprite_data = sprite_reg.get_value();
                 // Check if not opaque
                 if sprite_data.0 != 0 {
-                    pixel_data = (sprite_data.0, sprite_data.1, sprite_data.2, i == 0);
+                    pixel_data = (sprite_data.0, sprite_data.1, sprite_data.2, sprite_data.3 == 0);
                     break;
                 }
             }
@@ -348,13 +352,20 @@ impl<Io: IoAccess> Ppu<Io> {
         pixel_data
     }
 
-    fn apply_mux(&mut self) -> Pixel {
+    fn apply_mux(&self) -> Pixel {
         // Use fine X to select the pixel to render
         let fine_x = (self.scroll.x % 8) as u8;
 
         // Fetch pattern and attributes from shifters
         let bg_pattern = self.tile_reg.get_value(fine_x);
         let bg_palette = self.pal_reg.get_value(fine_x);
+
+        let (bg_pattern, bg_palette) = if self.mask.background_enabled {
+            (bg_pattern, bg_palette)
+        }
+        else {
+            (0, 0)
+        };
 
         let (sp_pattern, sp_palette, sp_priority, is_sprite0) = if self.mask.sprites_enabled {
             self.get_sprite_pixel_data()
@@ -365,7 +376,8 @@ impl<Io: IoAccess> Ppu<Io> {
 
         // Determine sprite 0 hit status
         if is_sprite0 && sp_pattern > 0 && bg_pattern > 0 {
-            self.status.sprite0_hit = true;
+            println!("Sprite zero hit set");
+            self.status.borrow_mut().sprite0_hit = true;
         }
 
         // Choose which pattern and palette to use
@@ -424,6 +436,11 @@ impl<Io: IoAccess> Ppu<Io> {
     pub fn load_bus(&mut self, bus: Io) {
         self.bus = Some(bus);
     }
+
+    pub fn read_tile(&self, x: usize, y: usize) -> u8 {
+        let idx = (y * TILES_PER_ROW) + x;
+        self.read_nametable(idx)
+    }
 }
 
 // TODO: Latch behaviour
@@ -438,7 +455,11 @@ impl<Io: IoAccess> IoAccess for Ppu<Io> {
                 self.mask.value()
             },
             0x2002 => {
-                self.status.value()
+                let status = self.status.borrow().value();
+                // VBlank flag is clear on reading the status register
+                self.status.borrow_mut().vblank = false;
+
+                status
             },
             0x2003 => {
                 0
@@ -508,6 +529,7 @@ impl<Io: IoAccess> IoAccess for Ppu<Io> {
             }
             _ => {
                 // FIXME: OAM DMA
+                // FIXME: DMA uses OAM ADDR?
                 if mask_is_set!(addr, 0xFF00) {
                     let oam_addr = (addr & 0xFF) as u8;
                     self.write_oam(oam_addr, value);
@@ -515,7 +537,7 @@ impl<Io: IoAccess> IoAccess for Ppu<Io> {
             }
         }
 
-        self.status.lsb = value;
+        self.status.borrow_mut().lsb = value;
     }
 }
 
@@ -643,49 +665,50 @@ mod tests {
     }
 
     // TODO: Would like to get this test working..
-    // #[test]
-    // fn corner() {
-    //     // Place a pixel at the bottom right corner of the visible area
-    //     let mut ppu = init_ppu();
+    #[test]
+    #[ignore]
+    fn corner() {
+        // Place a pixel at the bottom right corner of the visible area
+        let mut ppu = init_ppu();
 
-    //     // Clear scroll
-    //     ppu.write_byte(0x2005, 0);
-    //     ppu.write_byte(0x2005, 0);
+        // Clear scroll
+        ppu.write_byte(0x2005, 0);
+        ppu.write_byte(0x2005, 0);
 
-    //     // Write pattern into pattern table
-    //     ppu.write_vram(0x0017, 0x01);
-    //     ppu.write_vram(0x001F, 0x00);
+        // Write pattern into pattern table
+        ppu.write_vram(0x0017, 0x01);
+        ppu.write_vram(0x001F, 0x00);
 
-    //     // Write into nametable
-    //     ppu.write_vram(0x23BF, 0x01);
-    //     // Write attribute - Top Left - Background Palette 1
-    //     ppu.write_vram(0x23C0, 0x01);
-    //     // Set first color in Background Palette 1
-    //     ppu.write_vram(0x3F05, 0x01);
+        // Write into nametable
+        ppu.write_vram(0x23BF, 0x01);
+        // Write attribute - Top Left - Background Palette 1
+        ppu.write_vram(0x23C0, 0x01);
+        // Set first color in Background Palette 1
+        ppu.write_vram(0x3F05, 0x01);
 
-    //     // Pre-render
-    //     for _ in 0..CYCLES_PER_SCANLINE {
-    //         let pixel = ppu.tick();
-    //         assert!(pixel.is_none());
-    //     }
+        // Pre-render
+        for _ in 0..CYCLES_PER_SCANLINE {
+            let pixel = ppu.tick();
+            assert!(pixel.is_none());
+        }
 
-    //     // All scanlines minus 1
-    //     for _ in 0..(239 * CYCLES_PER_SCANLINE) {
-    //         ppu.tick();
-    //     }
+        // All scanlines minus 1
+        for _ in 0..(239 * CYCLES_PER_SCANLINE) {
+            ppu.tick();
+        }
 
-    //     // Last scanline expect last pixel
-    //     for _ in 0..255 {
-    //         ppu.tick();
-    //     }
+        // Last scanline expect last pixel
+        for _ in 0..255 {
+            ppu.tick();
+        }
 
-    //     // Get the last pixel
-    //     let pixel = ppu.tick();
+        // Get the last pixel
+        let pixel = ppu.tick();
 
-    //     // The color of the pixel should be the index one of the color table
-    //     let color = pixel.unwrap();
-    //     assert_eq!(color, helpers::color_to_pixel(COLOR_INDEX_TO_RGB[0x01]), "Color was: RGB{:?}", color);
-    // }
+        // The color of the pixel should be the index one of the color table
+        let color = pixel.unwrap();
+        assert_eq!(color, helpers::color_to_pixel(COLOR_INDEX_TO_RGB[0x01]), "Color was: RGB{:?}", color);
+    }
 
     #[test]
     fn render_one_sprite_pixel() {
@@ -793,6 +816,9 @@ mod tests {
         // Clear scroll
         ppu.write_byte(0x2005, 0);
         ppu.write_byte(0x2005, 0);
+
+        // Enable background
+        ppu.write_byte(0x2001, 0x08);
 
         // Write pattern into pattern table
         ppu.write_vram(0x0010, 0x80);
@@ -907,7 +933,7 @@ mod tests {
 
     #[test]
     fn vblank() {
-        const CYCLES_TO_VBLANK: usize = CYCLES_PER_SCANLINE * 242 + 1;
+        const CYCLES_TO_VBLANK: usize = CYCLES_PER_SCANLINE * 242 + 2;
 
         let mut ppu = init_ppu();
 
@@ -915,7 +941,7 @@ mod tests {
             ppu.tick();
         }
 
-        assert_eq!(ppu.status.vblank, true);
+        assert_eq!(ppu.status.borrow().vblank, true);
     }
 
     #[test]

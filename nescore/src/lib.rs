@@ -170,6 +170,11 @@ impl Nes {
     pub fn read_ppu_memory(&self, addr: u16) -> u8 {
         self.ppu.borrow().read_vram(addr)
     }
+
+    /// Read a tile from the current nametable
+    pub fn read_tile(&self, x: usize, y: usize) -> u8 {
+        self.ppu.borrow().read_tile(x, y)
+    }
 }
 
 #[cfg(test)]

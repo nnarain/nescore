@@ -77,6 +77,10 @@ use nescore::{Nes, Cartridge};
 #[test]
 fn render_one_pixel() {
     let prg = vec![
+                          // -- Enable background rendering
+        0xA9, 0x08,       // LDA $20
+        0x8D, 0x01, 0x20, // STA $2001; PPU MASK
+
                           // -- Set PPU ADDR to nametable address $2000
         0xA9, 0x20,       // LDA $20
         0x8D, 0x06, 0x20, // STA $2006; PPU ADDR
