@@ -117,7 +117,6 @@ impl<Io: IoAccess> Ppu<Io> {
         match scanline {
             Scanline::PreRender => {
                 if self.cycle == 1 {
-                    println!("Sprite zero hit cleared");
                     self.status.borrow_mut().sprite0_hit = false;
                     self.status.borrow_mut().vblank = false;
                 }
@@ -376,7 +375,6 @@ impl<Io: IoAccess> Ppu<Io> {
 
         // Determine sprite 0 hit status
         if is_sprite0 && sp_pattern > 0 && bg_pattern > 0 {
-            println!("Sprite zero hit set");
             self.status.borrow_mut().sprite0_hit = true;
         }
 
