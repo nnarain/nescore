@@ -7,7 +7,7 @@
 
 #[derive(Default, Copy, Clone)]
 pub struct Sprite {
-    pub y: u8,
+    pub y: u16,
     pub x: u8,
     pub tile: u8,
     attr: u8,
@@ -17,7 +17,7 @@ pub struct Sprite {
 impl Sprite {
     pub fn from(data: &[u8], num: u8) -> Self {
         Sprite {
-            y: data[0],
+            y: ((data[0] as u16) + 1),
             x: data[3],
             tile: data[1],
             attr: data[2],
@@ -48,7 +48,7 @@ mod tests {
 
     #[test]
     fn load_from_slice() {
-        let data: [u8; 4] = [1, 2, 0, 3];
+        let data: [u8; 4] = [0, 2, 0, 3];
         let sprite = Sprite::from(&data[..], 0);
 
         assert_eq!(sprite.x, 3);
