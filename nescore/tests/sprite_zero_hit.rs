@@ -19,6 +19,7 @@ fn sprite_zero_alignment() {
 }
 
 #[test]
+// #[ignore]
 fn sprite_zero_corners() {
     let mut nes = common::init_nes("tests/roms/nes-test-roms/sprite_hit_tests_2005.10.05/03.corners.nes");
     common::run_test(&mut nes, "Corner test failed with");
@@ -28,4 +29,10 @@ fn sprite_zero_corners() {
 fn sprite_zero_flip() {
     let mut nes = common::init_nes("tests/roms/nes-test-roms/sprite_hit_tests_2005.10.05/04.flip.nes");
     common::run_test(&mut nes, "Flip test failed with");
+}
+
+#[test]
+fn sprite_zero_left_clip() {
+    let mut nes = common::init_nes("tests/roms/nes-test-roms/sprite_hit_tests_2005.10.05/05.left_clip.nes");
+    common::run_test(&mut nes, "Left clip test failed with");
 }

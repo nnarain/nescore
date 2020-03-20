@@ -122,16 +122,30 @@ impl<Io: IoAccess> Ppu<Io> {
                 }
                 // Same as a normal scanline but no output to the screen
                 self.process_scanline(self.cycle);
+
+                None
             },
             Scanline::Visible => {
+                let pixel = if self.cycle <= 255 {
+                    // Generate a pixel
+                    let pixel = Some(self.apply_mux());
+
+                    // Clock sprite registers
+                    self.tick_sprite_registers();
+
+                    pixel
+                }
+                else {
+                    None
+                };
+
                 self.process_scanline(self.cycle);
 
-                if self.cycle <= 255 {
-                    self.tick_sprite_registers();
-                }
+                pixel
             },
             Scanline::PostRender => {
                 // PPU is idle
+                None
             },
             Scanline::VBlank => {
                 if self.cycle == 1 {
@@ -142,15 +156,17 @@ impl<Io: IoAccess> Ppu<Io> {
                         self.raise_interrupt();
                     }
                 }
+
+                None
             }
         }
 
-        if scanline == Scanline::Visible && self.cycle <= 255 {
-            Some(self.apply_mux())
-        }
-        else {
-            None
-        }
+        // if scanline == Scanline::Visible && self.cycle <= 255 {
+        //     Some(self.apply_mux())
+        // }
+        // else {
+        //     None
+        // }
     }
 
     // Processing a single scanline per cycle
@@ -201,7 +217,7 @@ impl<Io: IoAccess> Ppu<Io> {
 
         // Tick shift register
         match cycle {
-            1..=256 | 322..=335 => self.tick_shifters(),
+            0..=256 | 322..=335 => self.tick_shifters(),
             _ => {}
         }
     }
@@ -358,19 +374,31 @@ impl<Io: IoAccess> Ppu<Io> {
         // Use fine X to select the pixel to render
         let fine_x = (self.scroll.x % 8) as u8;
 
+        let dot = self.cycle;
+
         // Fetch pattern and attributes from shifters
         let bg_pattern = self.tile_reg.get_value(fine_x);
         let bg_palette = self.pal_reg.get_value(fine_x);
 
         let (bg_pattern, bg_palette) = if self.mask.background_enabled {
-            (bg_pattern, bg_palette)
+            if !self.mask.show_background_left && dot < 8 {
+                (0, 0)
+            }
+            else {
+                (bg_pattern, bg_palette)
+            }
         }
         else {
             (0, 0)
         };
 
         let (sp_pattern, sp_palette, sp_priority, is_sprite0) = if self.mask.sprites_enabled {
-            self.get_sprite_pixel_data()
+            if !self.mask.show_sprites_left && dot < 8 {
+                (0, 0, false, false)
+            }
+            else {
+                self.get_sprite_pixel_data()
+            }
         }
         else {
             (0, 0, false, false)
@@ -718,6 +746,7 @@ mod tests {
         // Enable sprites
         let mut mask = PpuMask::default();
         mask.sprites_enabled = true;
+        mask.show_sprites_left = true;
         mask.background_enabled = false;
 
         ppu.write_byte(0x2001, mask.value());
@@ -777,6 +806,7 @@ mod tests {
         // Enable sprites
         let mut mask = PpuMask::default();
         mask.sprites_enabled = true;
+        mask.show_sprites_left = true;
         mask.background_enabled = false;
 
         ppu.write_byte(0x2001, mask.value());
@@ -819,15 +849,116 @@ mod tests {
     }
 
     #[test]
+    fn render_one_sprite_pixel_x1() {
+        let mut ppu = init_ppu();
+
+        // Enable sprites
+        let mut mask = PpuMask::default();
+        mask.sprites_enabled = true;
+        mask.show_sprites_left = true;
+        mask.background_enabled = false;
+
+        ppu.write_byte(0x2001, mask.value());
+
+        // -- Setup OAM
+        let oam_data: [u8; 4] = [0x00, 0x01, 0x20, 0x01];
+        for (i, oam_byte) in oam_data.iter().enumerate() {
+            let addr = (0xFF00 | i) as u16;
+            ppu.write_byte(addr, *oam_byte);
+        }
+
+        // Write pattern into pattern table
+        ppu.write_vram(0x0010, 0x80);
+        ppu.write_vram(0x0018, 0x00);
+
+        // Set first color in Sprite Palette 1
+        ppu.write_vram(0x3F11, 0x01);
+
+        // Run the PPU for the pre-render scanline
+        for _ in 0..CYCLES_PER_SCANLINE {
+            let pixel = ppu.tick();
+            assert!(pixel.is_none());
+        }
+
+        let target_color = helpers::color_to_pixel(COLOR_INDEX_TO_RGB[0x01]);
+
+        // Sprites cannot be displayed on the first scanline
+        // Run for one more scanline
+        for _ in 0..CYCLES_PER_SCANLINE {
+            if let Some(color) = ppu.tick() {
+                assert_ne!(color, target_color);
+            }
+        }
+
+        // Sprite is at X=1
+        assert_ne!(ppu.tick().unwrap(), target_color);
+        assert_eq!(ppu.tick().unwrap(), target_color);
+    }
+
+    #[test]
+    fn render_one_sprite_pixel_hide_left_x_gr_zero() {
+        let mut ppu = init_ppu();
+
+        // Enable sprites
+        let mut mask = PpuMask::default();
+        mask.sprites_enabled = true;
+        mask.show_sprites_left = false;
+        mask.background_enabled = false;
+
+        ppu.write_byte(0x2001, mask.value());
+
+        // -- Setup OAM
+        let oam_data: [u8; 4] = [0x00, 0x01, 0x20, 0x01];
+        for (i, oam_byte) in oam_data.iter().enumerate() {
+            let addr = (0xFF00 | i) as u16;
+            ppu.write_byte(addr, *oam_byte);
+        }
+
+        // Write pattern into pattern table
+        ppu.write_vram(0x0010, 0x01);
+        ppu.write_vram(0x0018, 0x00);
+
+        // Set first color in Sprite Palette 1
+        ppu.write_vram(0x3F11, 0x01);
+
+        // Run the PPU for the pre-render scanline
+        for _ in 0..CYCLES_PER_SCANLINE {
+            let pixel = ppu.tick();
+            assert!(pixel.is_none());
+        }
+
+        let target_color = helpers::color_to_pixel(COLOR_INDEX_TO_RGB[0x01]);
+
+        // Sprites cannot be displayed on the first scanline
+        // Run for one more scanline
+        for _ in 0..CYCLES_PER_SCANLINE {
+            if let Some(color) = ppu.tick() {
+                assert_ne!(color, target_color);
+            }
+        }
+
+        // Showing sprites on the left most 8 pixels is disabled
+        for _ in 0..8 {
+            assert_ne!(ppu.tick().unwrap(), target_color);
+        }
+
+        assert_eq!(ppu.tick().unwrap(), target_color);
+    }
+
+    #[test]
     fn render_one_pixel() {
         let mut ppu = init_ppu();
+
+        // Enable sprites
+        let mut mask = PpuMask::default();
+        mask.background_enabled = true;
+        mask.show_background_left = true;
+
+        ppu.write_byte(0x2001, mask.value());
 
         // Clear scroll
         ppu.write_byte(0x2005, 0);
         ppu.write_byte(0x2005, 0);
-
-        // Enable background
-        ppu.write_byte(0x2001, 0x08);
 
         // Write pattern into pattern table
         ppu.write_vram(0x0010, 0x80);
@@ -853,6 +984,51 @@ mod tests {
         // The color of the pixel should be the index one of the color table
         let color = pixel.unwrap();
         assert_eq!(color, helpers::color_to_pixel(COLOR_INDEX_TO_RGB[0x01]), "Color was: RGB{:?}", color);
+    }
+
+    #[test]
+    fn render_eight_pixels_tile1() {
+        let mut ppu = init_ppu();
+
+        // Enable sprites
+        let mut mask = PpuMask::default();
+        mask.background_enabled = true;
+
+        ppu.write_byte(0x2001, mask.value());
+
+        // Clear scroll
+        ppu.write_byte(0x2005, 0);
+        ppu.write_byte(0x2005, 0);
+
+        // Write pattern into pattern table
+        ppu.write_vram(0x0010, 0xFF);
+        ppu.write_vram(0x0018, 0x00);
+
+        // Write into nametable
+        ppu.write_vram(0x2001, 0x01);
+        // Write attribute - Top Left - Background Palette 1
+        ppu.write_vram(0x23C0, 0x01);
+        // Set first color in Background Palette 1
+        ppu.write_vram(0x3F05, 0x01);
+
+        // Run the PPU for the pre-render scanline
+        for _ in 0..CYCLES_PER_SCANLINE {
+            assert!(ppu.tick().is_none());
+        }
+
+        let target_color = helpers::color_to_pixel(COLOR_INDEX_TO_RGB[0x01]);
+
+        // The first tile has no data
+        for _ in 0..8 {
+            assert_ne!(ppu.tick().unwrap(), target_color);
+        }
+
+        // All pixels active for tile 1
+        for i in 0..8 {
+            assert_eq!(ppu.tick().unwrap(), target_color, "Tile 1: Failed for {}", i);
+        }
+
+        assert_ne!(ppu.tick().unwrap(), target_color);
     }
 
     #[test]
