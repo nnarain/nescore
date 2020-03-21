@@ -278,6 +278,15 @@ mod tests {
     }
 
     #[test]
+    fn ppumask_show_background_left() {
+        let mut mask = PpuMask::default();
+        mask.load(0x02);
+
+        assert_eq!(mask.show_background_left, true);
+        assert_eq!(mask.value(), 0x02);
+    }
+
+    #[test]
     fn ppuaddr() {
         let mut addr = PpuAddr::default();
 

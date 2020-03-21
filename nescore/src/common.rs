@@ -31,6 +31,7 @@ pub trait Register<T> {
         r.load(value);
         r
     }
-    fn load(&mut self, _value: T){}
+    #[allow(unused)]
+    fn load(&mut self, value: T){}
     fn value(&self) -> T;
 }

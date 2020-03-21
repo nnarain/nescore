@@ -1,7 +1,7 @@
 use nescore::{Nes, Cartridge};
 
 pub fn init_nes(path: &str) -> Nes {
-    Cartridge::from_path(path).map(|cart| Nes::default().with_cart(cart).debug_mode(true)).unwrap()
+    Cartridge::from_path(path).map(|cart| Nes::default().with_cart(cart).debug_mode(false)).unwrap()
 }
 
 pub fn run_test(nes: &mut Nes, fail_msg: &str) {
@@ -11,6 +11,13 @@ pub fn run_test(nes: &mut Nes, fail_msg: &str) {
         nes.emulate_frame();
         result_text = read_result_text(&nes);
     }
+
+    // Run another few times to let the test ROM finish writing text to the screen
+    for _ in 0..5 {
+        nes.emulate_frame();
+    }
+
+    result_text = read_result_text(&nes);
 
     assert_eq!(result_text, "PASSED", "{}: \"{}\"", fail_msg, result_text);
 }

@@ -87,7 +87,7 @@ pub struct SpriteRegister {
     palette: u8,
     priority: bool,
 
-    plane0: u8,
+    pub plane0: u8,
     plane1: u8,
 
     sprite_num: u8,
@@ -98,6 +98,7 @@ impl Clockable for SpriteRegister {
         if self.x_counter > 0 {
             // Clock down the x position counter
             self.x_counter -= 1;
+            self.is_active = self.x_counter == 0;
         }
         else {
             if self.is_active {
@@ -106,8 +107,6 @@ impl Clockable for SpriteRegister {
                 self.plane1 >>= 1;
             }
         }
-
-        self.is_active = self.x_counter == 0;
     }
 }
 
@@ -116,7 +115,8 @@ impl SpriteRegister {
         self.x_counter = x_pos;
         self.plane0 = reverse_bits!(pattern.0);
         self.plane1 = reverse_bits!(pattern.1);
-        self.is_active = false;
+
+        self.is_active = self.x_counter == 0;
 
         self.palette = palette;
         self.priority = front_priority;
@@ -148,15 +148,27 @@ mod tests {
         // Load x position 10 and the pattern data
         sprite_reg.load(10, (0x80, 0x00), 0, false, 0);
 
-        for _ in 0..10 {
+        for _ in 0..9 {
             sprite_reg.tick();
         }
 
+        assert!(!sprite_reg.active());
+
+        sprite_reg.tick();
         assert!(sprite_reg.active());
         assert_eq!(sprite_reg.get_value(), (1, 0, false, 0));
 
         sprite_reg.tick();
         assert_eq!(sprite_reg.get_value(), (0, 0, false, 0));
+    }
+
+    #[test]
+    fn sprite_register_load_zero() {
+        let mut sprite_reg = SpriteRegister::default();
+        // Load X position 1
+        sprite_reg.load(0, (0x80, 0x00), 0, false, 0);
+
+        assert!(sprite_reg.active());
     }
 
     #[test]
