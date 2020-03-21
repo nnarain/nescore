@@ -87,7 +87,7 @@ pub struct SpriteRegister {
     palette: u8,
     priority: bool,
 
-    plane0: u8,
+    pub plane0: u8,
     plane1: u8,
 
     sprite_num: u8,
@@ -107,8 +107,6 @@ impl Clockable for SpriteRegister {
                 self.plane1 >>= 1;
             }
         }
-
-        // self.is_active = self.x_counter == 0;
     }
 }
 

@@ -67,4 +67,12 @@ mod tests {
         assert_eq!(sprite.flip_v(), true);
         assert_eq!(sprite.flip_h(), true);
     }
+
+    #[test]
+    fn sprite_y_255() {
+        let data: [u8; 4] = [255, 0, 0, 0];
+        let sprite = Sprite::from(&data[..], 0);
+
+        assert_eq!(sprite.y, 256);
+    }
 }

@@ -36,3 +36,31 @@ fn sprite_zero_left_clip() {
     let mut nes = common::init_nes("tests/roms/nes-test-roms/sprite_hit_tests_2005.10.05/05.left_clip.nes");
     common::run_test(&mut nes, "Left clip test failed with");
 }
+
+#[test]
+#[ignore]
+fn sprite_zero_right_edge() {
+    let mut nes = common::init_nes("tests/roms/nes-test-roms/sprite_hit_tests_2005.10.05/06.right_edge.nes");
+    common::run_test(&mut nes, "Right edge test failed with");
+}
+
+#[test]
+#[ignore]
+fn sprite_zero_screen_bottom() {
+    // FIXME: I suspect this fails because the instruction and branch timing is off
+    let mut nes = common::init_nes("tests/roms/nes-test-roms/sprite_hit_tests_2005.10.05/07.screen_bottom.nes");
+    common::run_test(&mut nes, "Screen bottom test failed with");
+}
+
+#[test]
+fn sprite_zero_double_height() {
+    let mut nes = common::init_nes("tests/roms/nes-test-roms/sprite_hit_tests_2005.10.05/08.double_height.nes");
+    common::run_test(&mut nes, "Double height test failed with");
+}
+
+#[test]
+#[ignore]
+fn sprite_zero_timing_basics() {
+    let mut nes = common::init_nes("tests/roms/nes-test-roms/sprite_hit_tests_2005.10.05/09.timing_basics.nes");
+    common::run_test(&mut nes, "Timing basics test failed with");
+}
