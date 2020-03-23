@@ -7,6 +7,13 @@
 use std::rc::Rc;
 use std::cell::RefCell;
 
+#[macro_export]
+macro_rules! kb {
+    ($x:expr) => {
+        $x * 1024
+    };
+}
+
 /// Access a memory mapped component
 pub trait IoAccess {
     #[allow(unused)]

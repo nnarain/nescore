@@ -31,6 +31,14 @@ impl PpuCtrl {
         0x2000u16 + (0x400u16 * self.base_nametable_address as u16)
     }
 
+    /// Base scroll
+    pub fn base_scroll(&self) -> (usize, usize) {
+        (
+            bit_as_value!(self.base_nametable_address, 0) as usize * 256,
+            bit_as_value!(self.base_nametable_address, 1) as usize * 240
+        )
+    }
+
     /// Attribute table for the selected nametable
     pub fn attribute(&self) -> u16 {
         // Nametable + Size of nametable - Size of attribute table

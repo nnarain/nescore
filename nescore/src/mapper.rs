@@ -4,7 +4,6 @@
 // @author Natesh Narain <nnaraindev@gmail.com>
 // @date Nov 11 2019
 //
-#[macro_use]
 mod mem;
 
 mod nrom;

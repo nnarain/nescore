@@ -175,7 +175,7 @@ impl<Io: IoAccess> Ppu<Io> {
                 if cycle % 8 == 0 {
                     if cycle <= 240 {
                         let dot = (cycle - 1) as u8;
-                        self.load_shift_registers(dot, 2, self.scanline as u16);
+                        self.load_shift_registers(dot as usize, 2, self.scanline as usize);
                     }
                 }
             },
@@ -194,7 +194,7 @@ impl<Io: IoAccess> Ppu<Io> {
 
                 if cycle % 8 == 0 {
                     let dot = (cycle - 321) as u8;
-                    self.load_shift_registers(dot, 0, scanline as u16);
+                    self.load_shift_registers(dot as usize, 0, scanline as usize);
                 }
 
                 // Sprite data loading has completed by cycle 321
@@ -216,21 +216,29 @@ impl<Io: IoAccess> Ppu<Io> {
         }
     }
 
-    fn load_shift_registers(&mut self, dot: u8, tile_x_offset: u8, scanline: u16) {
-        // Get pixel scroll offset
-        let scroll = self.scroll.offset();
-        let (base_x, base_y) = (scroll.0 as usize + dot as usize, scroll.1 as usize + scanline as usize);
+    fn load_shift_registers(&mut self, dot: usize, tile_x: usize, scanline: usize) {
+        // Get the base scroll offset based on the specified nametable
+        let base_scroll = self.ctrl.base_scroll();
+        // Get the scroll offset as defined by the scroll register
+        let fine_scroll = self.scroll.offset();
+        let fine_scroll = (fine_scroll.0 as usize, fine_scroll.1 as usize);
+        // Calculate the "global" scroll position
+        // This is the scroll position in the 4 nametables
+        let scroll = (base_scroll.0 + fine_scroll.0 + (tile_x * 8) + dot, base_scroll.1 + fine_scroll.1 + scanline);
+
+        // Determine the nametable the dot is in
+        let nametable = helpers::nametable_address_from_scroll(scroll);
 
         // Determine tile offset
-        let coarse = ((base_x / 8) + tile_x_offset as usize, base_y / 8);
+        let coarse = ((scroll.0 / 8) % 32, (scroll.1 / 8) % 30);
         // Determine tile index for nametable
-        let tile_idx = (coarse.1 as usize * TILES_PER_ROW) + coarse.0 as usize;
+        let tile_idx = (coarse.1 * (TILES_PER_ROW * 1)) + coarse.0;
 
         // Read tile number from nametable
-        let tile_no = self.read_nametable(tile_idx);
+        let tile_no = self.read_nametable(nametable, tile_idx);
 
         // Read pattern from pattern table memory
-        let fine_y = (base_y % 8) as u8;
+        let fine_y = (scroll.1 % 8) as u8;
 
         let pattern = self.read_pattern(self.ctrl.background_pattern_table(), tile_no, fine_y);
         // Fetch tile attributes
@@ -316,8 +324,8 @@ impl<Io: IoAccess> Ppu<Io> {
         }
     }
 
-    fn read_nametable(&self, idx: usize) -> u8 {
-        let addr = helpers::calc_nametable_address(self.ctrl.nametable(), idx);
+    fn read_nametable(&self, nametable: u16, idx: usize) -> u8 {
+        let addr = helpers::calc_nametable_address(nametable, idx);
         self.read_vram(addr)
     }
 
@@ -471,7 +479,7 @@ impl<Io: IoAccess> Ppu<Io> {
 
     pub fn read_tile(&self, x: usize, y: usize) -> u8 {
         let idx = (y * TILES_PER_ROW) + x;
-        self.read_nametable(idx)
+        self.read_nametable(self.ctrl.nametable(), idx)
     }
 }
 
@@ -636,6 +644,17 @@ mod helpers {
             (0, 0, 0)
         }
     }
+
+    pub fn nametable_address_from_scroll(scroll: (usize, usize)) -> u16 {
+        const BASE_NAMETABLE_ADDRESS: usize = 0x2000;
+
+        // The horizontal nametables are $400 apart ($2000 -> $2400)
+        let horizontal_offset = ((scroll.0 >= 256) as usize) * 0x400;
+        // The vertical nametables are $400 apart ($2000 -> $2400)
+        let vertical_offset = ((scroll.1 >= 240) as usize) * 0x800;
+
+        (BASE_NAMETABLE_ADDRESS + horizontal_offset + vertical_offset) as u16
+    }
 }
 
 //----------------------------------------------------------------------------------------------------------------------
@@ -645,6 +664,14 @@ mod helpers {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn nametable_from_scroll() {
+        assert_eq!(helpers::nametable_address_from_scroll((0, 0)), 0x2000);
+        assert_eq!(helpers::nametable_address_from_scroll((256, 0)), 0x2400);
+        assert_eq!(helpers::nametable_address_from_scroll((0, 240)), 0x2800);
+        assert_eq!(helpers::nametable_address_from_scroll((256, 240)), 0x2C00);
+    }
 
     #[test]
     fn mux() {
