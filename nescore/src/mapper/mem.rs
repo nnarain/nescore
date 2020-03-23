@@ -5,13 +5,6 @@
 // @date Dec 27 2019
 //
 
-#[macro_export]
-macro_rules! kb {
-    ($x:expr) => {
-        $x * 1024
-    };
-}
-
 /// Representation of a memory block in the mapper
 pub struct Memory {
     mem: Vec<u8>,

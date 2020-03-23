@@ -9,13 +9,13 @@
 use crate::common::{IoAccess, IoAccessRef};
 use crate::mapper::Mapper;
 
-const INTERNAL_RAM: usize = 0x1000;
+const NAMETABLE_RAM_SIZE: usize = kb!(4);
 
 pub struct PpuIoBus {
     cpu: IoAccessRef,
     mapper: Mapper,
 
-    nametable_ram: [u8; INTERNAL_RAM],
+    nametable_ram: [u8; NAMETABLE_RAM_SIZE],
     palette_ram: [u8; 256],
 
     vertical_mirroring: bool,
@@ -27,7 +27,7 @@ impl PpuIoBus {
             cpu,
             mapper,
 
-            nametable_ram: [0x00; INTERNAL_RAM],
+            nametable_ram: [0x00; NAMETABLE_RAM_SIZE],
             palette_ram: [0x00; 256],
 
             vertical_mirroring: mirror_v,

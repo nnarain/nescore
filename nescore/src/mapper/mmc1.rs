@@ -5,9 +5,6 @@
 // @date Dec 26 2019
 //
 
-
-
-
 use super::MapperControl;
 use crate::cart::{Cartridge, PRG_ROM_BANK_SIZE, CHR_ROM_BANK_SIZE};
 

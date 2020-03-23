@@ -4,13 +4,12 @@
 /// @author Natesh Narain <nnaraindev@gmail.com>
 ///
 
-#[macro_use]
-mod bit;
+#[macro_use] mod bit;
+#[macro_use] mod common;
 mod cpu;
 mod ppu;
 mod mapper;
 mod joy;
-mod common;
 
 pub mod cart;
 pub use cart::Cartridge;
