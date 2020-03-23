@@ -477,9 +477,9 @@ impl<Io: IoAccess> Ppu<Io> {
         self.bus = Some(bus);
     }
 
-    pub fn read_tile(&self, x: usize, y: usize) -> u8 {
+    pub fn read_tile(&self, nametable: u16, x: usize, y: usize) -> u8 {
         let idx = (y * TILES_PER_ROW) + x;
-        self.read_nametable(self.ctrl.nametable(), idx)
+        self.read_nametable(nametable, idx)
     }
 }
 
