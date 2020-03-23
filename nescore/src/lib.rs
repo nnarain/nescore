@@ -171,8 +171,8 @@ impl Nes {
     }
 
     /// Read a tile from the current nametable
-    pub fn read_tile(&self, x: usize, y: usize) -> u8 {
-        self.ppu.borrow().read_tile(x, y)
+    pub fn read_tile(&self, nametable: u16, x: usize, y: usize) -> u8 {
+        self.ppu.borrow().read_tile(nametable, x, y)
     }
 }
 
