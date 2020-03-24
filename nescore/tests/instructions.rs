@@ -34,6 +34,7 @@ fn nes_instr_implied() {
 
 #[test]
 #[ignore]
+// Panics due to unofficial opcodes that are not implemented
 fn nes_instr_immediate() {
     let mut nes = common::init_nes("tests/roms/nes-test-roms/nes_instr_test/rom_singles/02-immediate.nes");
     common::run_test(&mut nes, 5, "Immediate instructions exited with");

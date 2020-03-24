@@ -204,6 +204,10 @@ impl<Io: IoAccess> Cpu<Io> {
                         let byte = addressing_result.to_byte(read_mem);
                         self.and(byte.unwrap())
                     },
+                    Instruction::ANC => {
+                        let byte = addressing_result.to_byte(read_mem);
+                        self.anc(byte.unwrap())
+                    }
                     Instruction::BCC => {
                         let offset = addressing_result.to_offset();
                         self.bcc(offset.unwrap())
@@ -368,7 +372,7 @@ impl<Io: IoAccess> Cpu<Io> {
         let (instr, mode) = match opcode {
             // NOP
             0xEA | 0x1A | 0x3A | 0x5A | 0x7A | 0xDA | 0xFA => (Instruction::NOP, AddressingMode::Implied),
-            0x04 | 0x44 | 0x64 => (Instruction::NOP, AddressingMode::Immediate),
+            0x04 | 0x44 | 0x64 | 0x82 | 0x89 | 0xC2 | 0xE2 => (Instruction::NOP, AddressingMode::Immediate),
             0x0C => (Instruction::NOP, AddressingMode::Absolute),
             0x80 => (Instruction::NOP, AddressingMode::ZeroPage),
             0x14 | 0x34 | 0x54 | 0x74 | 0xD4 | 0xF4 => (Instruction::NOP, AddressingMode::ZeroPageX),
@@ -423,6 +427,8 @@ impl<Io: IoAccess> Cpu<Io> {
             0x39 => (Instruction::AND, AddressingMode::AbsoluteY),
             0x21 => (Instruction::AND, AddressingMode::IndexedIndirect),
             0x31 => (Instruction::AND, AddressingMode::IndirectIndexed),
+            // ANC
+            0x0B | 0x2B => (Instruction::ANC, AddressingMode::Immediate),
             // ASL
             0x0A => (Instruction::ASL, AddressingMode::Accumulator),
             0x06 => (Instruction::ASL, AddressingMode::ZeroPage),
@@ -715,7 +721,12 @@ impl<Io: IoAccess> Cpu<Io> {
         self.a &= m;
 
         self.update_flags(self.a);
+    }
 
+    /// ANC - AND, b7 -> C
+    fn anc(&mut self, m: u8) {
+        self.and(m);
+        self.set_flag_bit(Flags::Carry, bit_is_set!(self.a, 7));
     }
 
     /// ASL - Arithmetic shift left
