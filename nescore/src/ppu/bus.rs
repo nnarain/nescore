@@ -60,7 +60,7 @@ impl IoAccess for PpuIoBus {
             0x3000..=0x3EFF => {
                 self.nametable_ram[(helpers::calc_nametable_addr(addr - 0x1000, self.vertical_mirroring) - 0x2000) as usize] = value;
             },
-            0x3F00..=0x3FFF => self.palette_ram[(addr - 0x3F00) as usize] = value,
+            0x3F00..=0x3FFF => self.palette_ram[(addr - 0x3F00) as usize] = value & 0x3F,
 
             _ => panic!("Invalid write ${:04X}={:02X}", addr, value),
         }
