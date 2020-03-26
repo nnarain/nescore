@@ -19,13 +19,15 @@ enum Mirroring {
 }
 
 /// Program ROM Bank Mode Options
+#[derive(Debug)]
 enum PrgRomBankMode {
     Switch32K,
     SwitchC000,
     Switch8000,
 }
 
-enum ChrRomBankMode {
+#[derive(Debug)]
+enum ChrBankMode {
     Switch8K,
     Switch4K,
 }
@@ -34,13 +36,13 @@ enum ChrRomBankMode {
 pub struct Mmc1 {
     prg_rom: Memory,             // Program ROM
     prg_ram: [u8; PRG_RAM_SIZE], // Program RAM
-    _chr_rom: Memory,
+    chr_data: Memory,
 
     shift_register: u8,
 
     mirroring: Mirroring,
     prg_rom_bank_mode: PrgRomBankMode,
-    chr_rom_bank_mode: ChrRomBankMode,
+    chr_bank_mode: ChrBankMode,
 
     prg_bank_selection: usize,
     chr_bank0_selection: usize,
@@ -51,16 +53,24 @@ impl Mmc1 {
     pub fn from(cart: Cartridge) -> Self {
         let (_, prg_rom, chr_rom) = cart.to_parts();
 
+        // If know CHR ROM is provided, use 8Kb of CHR RAM
+        let chr_data = if chr_rom.len() == 0 {
+            vec![0x00u8; kb!(8)]
+        }
+        else {
+            chr_rom
+        };
+
         Mmc1{
             prg_rom: Memory::new(prg_rom, PRG_ROM_BANK_SIZE),
             prg_ram: [0; PRG_RAM_SIZE],
-            _chr_rom: Memory::new(chr_rom, CHR_ROM_BANK_SIZE),
+            chr_data: Memory::new(chr_data, CHR_ROM_BANK_SIZE),
 
             shift_register: SHIFT_REGISTER_INIT_VALUE,
 
             mirroring: Mirroring::Vertical,
             prg_rom_bank_mode: PrgRomBankMode::Switch8000,
-            chr_rom_bank_mode: ChrRomBankMode::Switch8K,
+            chr_bank_mode: ChrBankMode::Switch4K,
 
             prg_bank_selection: 0,
             chr_bank0_selection: 0,
@@ -71,7 +81,7 @@ impl Mmc1 {
     fn load_shift_register(&mut self, data: u8) -> Option<u8> {
         let final_write = bit_is_set!(self.shift_register, 0);
 
-        self.shift_register = (self.shift_register >> 1) | ((data & 0x01) << 5);
+        self.shift_register = (self.shift_register >> 1) | ((data & 0x01) << 4);
 
         if final_write {
             let sr = self.shift_register;
@@ -100,17 +110,23 @@ impl Mmc1 {
             _ => unreachable!(),
         };
 
-        self.chr_rom_bank_mode = match mask_is_set!(flags, 4) {
-            false => ChrRomBankMode::Switch8K,
-            true  => ChrRomBankMode::Switch4K,
+        self.chr_bank_mode = match bit_is_set!(flags, 4) {
+            false => ChrBankMode::Switch8K,
+            true  => ChrBankMode::Switch4K,
         };
 
         let prg_switch_size = match self.prg_rom_bank_mode {
-            PrgRomBankMode::Switch32K                                => kb!(32),
+            PrgRomBankMode::Switch32K                               => kb!(32),
             PrgRomBankMode::Switch8000 | PrgRomBankMode::SwitchC000 => kb!(16),
         };
 
+        let chr_switch_size = match self.chr_bank_mode {
+            ChrBankMode::Switch8K => kb!(8),
+            ChrBankMode::Switch4K => kb!(4),
+        };
+
         self.prg_rom.set_bank_size(prg_switch_size);
+        self.chr_data.set_bank_size(chr_switch_size);
     }
 
     fn write_chr_bank0(&mut self, value: u8) {
@@ -161,7 +177,9 @@ impl MapperControl for Mmc1 {
             0x8000..=0xFFFF => {
                 match self.prg_rom_bank_mode {
                     PrgRomBankMode::Switch32K => {
-                        self.prg_rom.read(self.prg_bank_selection, (addr - 0x8000) as usize)
+                        // Ignore lower bit of the PRG ROM back selection
+                        let bank = self.prg_bank_selection >> 1;
+                        self.prg_rom.read(bank, (addr - 0x8000) as usize)
                     },
                     PrgRomBankMode::Switch8000 => {
                         match addr {
@@ -179,32 +197,148 @@ impl MapperControl for Mmc1 {
                     }
                 }
             }
-            _ => panic!("Invalid address for MMC1 read"),
+            _ => panic!("Invalid address for MMC1 read: ${:04X}", addr),
         }
     }
 
     fn write(&mut self, addr: u16, value: u8) {
         if bit_is_set!(value, 7) {
+            // Any value with bit 7 set will load the shift register with its initial value
             self.shift_register = SHIFT_REGISTER_INIT_VALUE;
             self.write_control(0x0C);
         }
         else {
+            // Write to the shift register until it is full
             if let Some(value) = self.load_shift_register(value) {
-                self.write_registers(addr, value & 0x01);
+                // Write to internal registers
+                self.write_registers(addr, value);
             }
         }
     }
 
-    fn read_chr(&self, _addr: u16) -> u8 {
-        0
+    fn read_chr(&self, addr: u16) -> u8 {
+        match self.chr_bank_mode {
+            ChrBankMode::Switch8K => {
+                // Low bit ignored in this mode
+                let bank = self.chr_bank0_selection >> 1;
+                self.chr_data.read(bank, addr as usize)
+            },
+            ChrBankMode::Switch4K => {
+                match addr {
+                    0x0000..=0x0FFF => {
+                        self.chr_data.read(self.chr_bank0_selection, addr as usize)
+                    },
+                    0x1000..=0x1FFF => {
+                        self.chr_data.read(self.chr_bank1_selection, (addr - 0x1000) as usize)
+                    },
+                    _ => {
+                        panic!("Invalid address of chr read: {:04X}", addr)
+                    }
+                }
+            }
+        }
     }
 
-    fn write_chr(&mut self, _addr: u16, _value: u8) {
-
+    fn write_chr(&mut self, addr: u16, value: u8) {
+        match self.chr_bank_mode {
+            ChrBankMode::Switch8K => {
+                // Low bit ignored in this mode
+                let bank = self.chr_bank0_selection >> 1;
+                self.chr_data.write(bank, addr as usize, value);
+            },
+            ChrBankMode::Switch4K => {
+                match addr {
+                    0x0000..=0x0FFF => {
+                        self.chr_data.write(self.chr_bank0_selection, addr as usize, value);
+                    },
+                    0x1000..=0x1FFF => {
+                        self.chr_data.write(self.chr_bank1_selection, (addr - 0x1000) as usize, value);
+                    },
+                    _ => {
+                        panic!("Invalid address of chr write: ${:04X}", addr)
+                    }
+                }
+            }
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
 
+    #[test]
+    fn read_chr_4k_switch() {
+        let header = init_header(1, 1);
+        let prg_rom = [0u8; kb!(16)];
+        let mut chr_rom = [0u8; kb!(8)];
+
+        chr_rom[0x0000] = 0xDE;
+        chr_rom[0x1000] = 0xAD;
+
+        let rom = [&header[..], &prg_rom[..], &chr_rom[..]].concat();
+
+        let cart = Cartridge::from(rom).unwrap();
+        let mut mmc1 = Mmc1::from(cart);
+
+        // Set 4Kb switch mode
+        write_register(&mut mmc1, 0x8000, 0x10);
+        // Set first pattern area to bank 1
+        write_register(&mut mmc1, 0xA000, 0x01);
+        // Set second pattern area to bank 0
+        write_register(&mut mmc1, 0xC000, 0x00);
+
+
+        assert_eq!(mmc1.read_chr(0x0000), 0xAD);
+        assert_eq!(mmc1.read_chr(0x1000), 0xDE);
+    }
+
+    #[test]
+    fn read_prg_32k() {
+        let header = init_header(2, 1);
+        let mut prg_rom = [0u8; kb!(32)];
+        let chr_rom = [0u8; kb!(8)];
+
+        prg_rom[0] = 0xDE;
+        prg_rom[prg_rom.len()-1] = 0xAD;
+
+        let rom = [&header[..], &prg_rom[..], &chr_rom[..]].concat();
+
+        let cart = Cartridge::from(rom).unwrap();
+        let mut mmc1 = Mmc1::from(cart);
+
+        // Set 32K switch mode
+        write_register(&mut mmc1, 0x8000, 0x07);
+        // ROM bank 0
+        write_register(&mut mmc1, 0xE000, 0x00);
+
+
+        assert_eq!(mmc1.read(0x8000), 0xDE);
+        assert_eq!(mmc1.read(0xFFFF), 0xAD);
+    }
+
+    fn write_register(mmc1: &mut Mmc1, addr: u16, mut value: u8) {
+        for _ in 0..5 {
+            mmc1.write(addr, value & 0x01);
+            value >>= 1;
+        }
+    }
+
+    fn init_header(num_prg_banks: u8, num_chr_banks: u8) -> [u8; 16] {
+        [
+            0x4E, 0x45, 0x53, 0x1A, // NES<EOF>
+            num_prg_banks,          // PRG ROM
+            num_chr_banks,          // CHR ROM
+            0x00,                   // Flag 6
+            0x00,                   // Flag 7
+            0x00,                   // Flag 8
+            0x00,                   // Flag 9
+            0x00,                   // Flag 10
+            0x00,                   // Flag 11
+            0x00,                   // Flag 12
+            0x00,                   // Flag 13
+            0x00,                   // Flag 14
+            0x00,                   // Flag 15
+        ]
+    }
 }

@@ -201,6 +201,8 @@ mod tests {
         assert_eq!(ctrl.master_slave_select, true);
         assert_eq!(ctrl.nmi_enable, true);
 
+        assert_eq!(ctrl.background_pattern_table(), 0x1000);
+
         let value = ctrl.value();
         assert_eq!(value, 0xFF);
     }

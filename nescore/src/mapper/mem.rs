@@ -28,6 +28,11 @@ impl Memory {
         self.mem[bank_offset + index]
     }
 
+    pub fn write(&mut self, bank: usize, index: usize, value: u8) {
+        let bank_offset = self.get_bank_offset(bank);
+        self.mem[bank_offset + index] = value;
+    }
+
     /// Explicity read from the first bank of memory
     pub fn read_first(&self, index: usize) -> u8 {
         self.read(0, index)
