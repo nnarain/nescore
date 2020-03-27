@@ -35,7 +35,7 @@ pub struct Cpu<Io: IoAccess> {
     x: u8,                        // Index register X
     y: u8,                        // Index register Y
     pc: u16,                      // Program Counter
-    sp: u16,                      // Stack Pointer
+    sp: u8,                       // Stack Pointer
     p: u8,                        // Flag register
 
     bus: Option<Io>,
@@ -54,7 +54,7 @@ impl<Io: IoAccess> Default for Cpu<Io> {
             x: 0,
             y: 0,
             pc: 0,
-            sp: 0x00FD,
+            sp: 0xFD,
             p: 0x24,
 
             bus: None,
@@ -1143,7 +1143,7 @@ impl<Io: IoAccess> Cpu<Io> {
     }
 
     fn txs(&mut self) {
-        self.sp = self.x as u16;
+        self.sp = self.x
     }
 
     fn tya(&mut self) {
@@ -1354,14 +1354,14 @@ impl<Io: IoAccess> Cpu<Io> {
     /// Push a value onto the stack
     fn push(&mut self, data: u8) {
         // The stack is always stored in page 1
-        self.write_u8(self.sp + STACK_PAGE_OFFSET, data);
-        self.sp = (Wrapping(self.sp) - Wrapping(1u16)).0;
+        self.write_u8((self.sp as u16) + STACK_PAGE_OFFSET, data);
+        self.sp = self.sp.wrapping_sub(1);
     }
 
     /// Pull a value off the stack
     fn pull(&mut self) -> u8 {
         self.sp = self.sp.wrapping_add(1);
-        let data = self.read_u8(self.sp + STACK_PAGE_OFFSET);
+        let data = self.read_u8((self.sp as u16) + STACK_PAGE_OFFSET);
 
         data
     }

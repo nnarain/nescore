@@ -83,7 +83,6 @@ fn nes_instr_branches() {
 }
 
 #[test]
-#[ignore]
 fn nes_instr_stack() {
     let mut nes = common::init_nes("tests/roms/nes-test-roms/nes_instr_test/rom_singles/10-stack.nes");
     common::run_test(&mut nes, "Branch instructions exited with");
