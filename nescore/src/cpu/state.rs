@@ -85,7 +85,7 @@ pub enum Instruction {
     CLD, CLI, CLV, CMP, CPX, CPY, DEC, DEX, DEY, EOR, INC, INX, INY, JMP,
     JSR, LDA, LDX, LDY, LSR, NOP, ORA, PHA, PHP, PLA, PLP, ROL, ROR, RTI,
     RTS, SBC, SEC, SED, SEI, STA, STX, STY, TAX, TAY, TSX, TXA, TXS, TYA,
-    LAX, SAX, DCP, ISB, SLO, RLA, RRA, SRE, ANC, ALR, ARR, AXS,
+    LAX, SAX, DCP, ISB, SLO, RLA, RRA, SRE, ANC, ALR, ARR, AXS, SHY, SHX
 }
 
 impl Instruction {
@@ -115,6 +115,8 @@ impl Instruction {
             | Instruction::STY => InstructionCategory::Write,
 
               Instruction::ASL
+            | Instruction::SHY
+            | Instruction::SHX
             | Instruction::LSR
             | Instruction::ROL
             | Instruction::ROR

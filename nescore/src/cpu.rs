@@ -307,7 +307,17 @@ impl<Io: IoAccess> Cpu<Io> {
                     Instruction::SAX => {
                         let v = self.sax();
                         self.write_result(addressing_result, v);
-                    }
+                    },
+                    Instruction::SHY => {
+                        let byte = high_byte!(addressing_result.to_address().unwrap()) as u8;
+                        let v = self.shy(byte.wrapping_add(1));
+                        self.write_result(addressing_result, v);
+                    },
+                    Instruction::SHX => {
+                        let byte = high_byte!(addressing_result.to_address().unwrap()) as u8;
+                        let v = self.shx(byte.wrapping_add(1));
+                        self.write_result(addressing_result, v);
+                    },
                     Instruction::ASL => {
                         let byte = addressing_result.to_byte(read_mem);
                         let v = self.asl(byte.unwrap());
@@ -641,6 +651,10 @@ impl<Io: IoAccess> Cpu<Io> {
             0xF8 => (Instruction::SED, AddressingMode::Implied),
             // SEI
             0x78 => (Instruction::SEI, AddressingMode::Implied),
+            // SHY
+            0x9C => (Instruction::SHY, AddressingMode::AbsoluteX),
+            // SHX
+            0x9E => (Instruction::SHX, AddressingMode::AbsoluteY),
             // STX
             0x86 => (Instruction::STX, AddressingMode::ZeroPage),
             0x96 => (Instruction::STX, AddressingMode::ZeroPageY),
@@ -1086,6 +1100,14 @@ impl<Io: IoAccess> Cpu<Io> {
 
     fn sei(&mut self) {
         self.set_flag_bit(Flags::InterruptDisable, true);
+    }
+
+    fn shy(&self, m: u8) -> u8 {
+        self.y & m
+    }
+
+    fn shx(&self, m: u8) -> u8 {
+        self.x & m
     }
 
     fn stx(&mut self) -> u8 {

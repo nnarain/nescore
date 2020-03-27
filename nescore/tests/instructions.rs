@@ -47,35 +47,30 @@ fn nes_instr_zeropage() {
 }
 
 #[test]
-#[ignore]
 fn nes_instr_zp_xy() {
     let mut nes = common::init_nes("tests/roms/nes-test-roms/nes_instr_test/rom_singles/04-zp_xy.nes");
     common::run_test(&mut nes, "Zeropage XY instructions exited with");
 }
 
 #[test]
-#[ignore]
 fn nes_instr_absolute() {
     let mut nes = common::init_nes("tests/roms/nes-test-roms/nes_instr_test/rom_singles/05-absolute.nes");
     common::run_test(&mut nes, "Absolute instructions exited with");
 }
 
 #[test]
-#[ignore]
 fn nes_instr_abs_xy() {
     let mut nes = common::init_nes("tests/roms/nes-test-roms/nes_instr_test/rom_singles/06-abs_xy.nes");
-    common::run_test(&mut nes, "Aboslute XY instructions exited with");
+    common::run_test_with_ignore(&mut nes, "Absolute XY instructions exited with", vec![String::from("sxa"), String::from("sya")]);
 }
 
 #[test]
-#[ignore]
 fn nes_instr_ind_x() {
     let mut nes = common::init_nes("tests/roms/nes-test-roms/nes_instr_test/rom_singles/07-ind_x.nes");
     common::run_test(&mut nes, "Indirect X instructions exited with");
 }
 
 #[test]
-#[ignore]
 fn nes_instr_ind_y() {
     let mut nes = common::init_nes("tests/roms/nes-test-roms/nes_instr_test/rom_singles/08-ind_y.nes");
     common::run_test(&mut nes, "Indirect Y instructions exited with");
@@ -97,5 +92,5 @@ fn nes_instr_stack() {
 #[ignore]
 fn nes_instr_special() {
     let mut nes = common::init_nes("tests/roms/nes-test-roms/nes_instr_test/rom_singles/11-special.nes");
-    common::run_test(&mut nes, "Branch instructions exited with");
+    common::run_test(&mut nes, "Special instructions exited with");
 }
