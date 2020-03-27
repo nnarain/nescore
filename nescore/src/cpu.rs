@@ -184,6 +184,18 @@ impl<Io: IoAccess> Cpu<Io> {
                     Instruction::TXS => self.txs(),
                     Instruction::TYA => self.tya(),
                     Instruction::BRK => self.brk(),
+                    Instruction::ALR => {
+                        let byte = addressing_result.to_byte(read_mem);
+                        self.alr(byte.unwrap());
+                    },
+                    Instruction::ARR => {
+                        let byte = addressing_result.to_byte(read_mem);
+                        self.arr(byte.unwrap());
+                    },
+                    Instruction::AXS => {
+                        let byte = addressing_result.to_byte(read_mem);
+                        self.axs(byte.unwrap());
+                    },
                     Instruction::LDA => {
                         let byte = addressing_result.to_byte(read_mem);
                         self.lda(byte.unwrap())
@@ -387,6 +399,7 @@ impl<Io: IoAccess> Cpu<Io> {
             0xA1 => (Instruction::LDA, AddressingMode::IndexedIndirect),
             0xB1 => (Instruction::LDA, AddressingMode::IndirectIndexed),
             // LAX
+            0xAB => (Instruction::LAX, AddressingMode::Immediate),
             0xA7 => (Instruction::LAX, AddressingMode::ZeroPage),
             0xB7 => (Instruction::LAX, AddressingMode::ZeroPageY),
             0xAF => (Instruction::LAX, AddressingMode::Absolute),
@@ -540,6 +553,12 @@ impl<Io: IoAccess> Cpu<Io> {
             0x56 => (Instruction::LSR, AddressingMode::ZeroPageX),
             0x4E => (Instruction::LSR, AddressingMode::Absolute),
             0x5E => (Instruction::LSR, AddressingMode::AbsoluteX),
+            // ALR
+            0x4B => (Instruction::ALR, AddressingMode::Immediate),
+            // ARR
+            0x6B => (Instruction::ARR, AddressingMode::Immediate),
+            // AXS
+            0xCB => (Instruction::AXS, AddressingMode::Immediate),
             // ORA
             0x09 => (Instruction::ORA, AddressingMode::Immediate),
             0x05 => (Instruction::ORA, AddressingMode::ZeroPage),
@@ -687,8 +706,11 @@ impl<Io: IoAccess> Cpu<Io> {
         self.a & self.x
     }
 
-    fn dcp(&self, m: u8) -> u8 {
-        (Wrapping(m) - Wrapping(1)).0
+    fn dcp(&mut self, m: u8) -> u8 {
+        let m = m.wrapping_sub(1);
+        self.cmp(m);
+
+        m
     }
 
     /// Jump
@@ -740,6 +762,40 @@ impl<Io: IoAccess> Cpu<Io> {
         self.set_flag_bit(Flags::Carry, c);
 
         r
+    }
+
+    /// ALR
+    fn alr(&mut self, m: u8) {
+        self.and(m);
+        self.a = self.lsr(self.a);
+    }
+
+    /// ARR
+    fn arr(&mut self, m: u8) {
+        self.and(m);
+
+        let b6 = bit_as_value!(self.a, 6);
+        let b7 = bit_as_value!(self.a, 7);
+
+        let v = b6 ^ b7;
+
+        let c = self.get_carry();
+        self.a >>= 1;
+
+        self.a |= c << 7;
+
+        self.update_flags(self.a);
+        self.set_flag_bit(Flags::Overflow, v != 0);
+    }
+
+    /// AXS - A & X - M -> X
+    fn axs(&mut self, m: u8) {
+        let r = self.a & self.x;
+        let r = r.wrapping_sub(m);
+
+        self.x = r;
+
+        self.set_zero_flag(r);
     }
 
     fn sta(&mut self) -> u8 {
@@ -947,7 +1003,7 @@ impl<Io: IoAccess> Cpu<Io> {
     }
 
     fn sre(&mut self, m: u8) -> u8 {
-        let m = m >> 1;
+        let m = self.lsr(m);
         self.eor(m);
         m
     }
@@ -1014,8 +1070,7 @@ impl<Io: IoAccess> Cpu<Io> {
     }
 
     fn slo(&mut self, m: u8) -> u8 {
-        // TODO: Set carry?
-        let m = m << 1;
+        let m = self.asl(m);
         self.ora(m);
 
         m

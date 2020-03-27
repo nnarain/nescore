@@ -85,7 +85,7 @@ pub enum Instruction {
     CLD, CLI, CLV, CMP, CPX, CPY, DEC, DEX, DEY, EOR, INC, INX, INY, JMP,
     JSR, LDA, LDX, LDY, LSR, NOP, ORA, PHA, PHP, PLA, PLP, ROL, ROR, RTI,
     RTS, SBC, SEC, SED, SEI, STA, STX, STY, TAX, TAY, TSX, TXA, TXS, TYA,
-    LAX, SAX, DCP, ISB, SLO, RLA, RRA, SRE, ANC,
+    LAX, SAX, DCP, ISB, SLO, RLA, RRA, SRE, ANC, ALR, ARR, AXS,
 }
 
 impl Instruction {
@@ -98,6 +98,9 @@ impl Instruction {
             | Instruction::EOR
             | Instruction::AND
             | Instruction::ANC
+            | Instruction::ALR
+            | Instruction::ARR
+            | Instruction::AXS
             | Instruction::ORA
             | Instruction::ADC
             | Instruction::SBC
