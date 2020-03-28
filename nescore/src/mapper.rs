@@ -6,10 +6,12 @@
 //
 mod mem;
 
+mod base;
 mod nrom;
 mod mmc1;
 mod unrom;
 
+use base::MapperBase;
 use nrom::Nrom;
 use mmc1::Mmc1;
 use unrom::Unrom;
@@ -20,12 +22,22 @@ use std::cell::RefCell;
 
 use crate::cart::Cartridge;
 
+#[derive(Debug, Clone, Copy)]
+pub enum Mirroring {
+    OneScreenLower,
+    OneScreenUpper,
+    Vertical,
+    Horizontal,
+}
+
 pub trait MapperControl {
     fn read(&self, addr: u16) -> u8;
     fn write(&mut self, addr: u16, data: u8);
 
     fn read_chr(&self, addr: u16) -> u8;
     fn write_chr(&mut self, addr: u16, value: u8);
+
+    fn mirroring(&self) -> Option<Mirroring> { None }
 }
 
 pub type Mapper = Rc<RefCell<dyn MapperControl>>;
@@ -33,9 +45,15 @@ pub type Mapper = Rc<RefCell<dyn MapperControl>>;
 /// Create mapper instance from cartridge
 pub fn from_cartridge(cart: Cartridge) -> Mapper {
     match cart.info.mapper {
-        0 => Rc::new(RefCell::new(Nrom::from(cart))),
-        1 => Rc::new(RefCell::new(Mmc1::from(cart))),
-        2 => Rc::new(RefCell::new(Unrom::from(cart))),
-        _ => panic!("Invalid or unimplemented mapper"),
+        0 => create_mapper::<Nrom>(cart),
+        1 => create_mapper::<Mmc1>(cart),
+        2 => create_mapper::<Unrom>(cart),
+        _ => panic!("Invalid or unimplemented mapper: #{mapper}", mapper=cart.info.mapper),
     }
+}
+
+/// Instantiate a mapper from a Cartridge
+fn create_mapper<T: 'static + MapperControl + From<Cartridge>>(cart: Cartridge) -> Mapper {
+    let mapper = MapperBase::<T>::from(cart);
+    Rc::new(RefCell::new(mapper))
 }

@@ -5,18 +5,13 @@
 // @date Dec 26 2019
 //
 
-use super::MapperControl;
+use super::{MapperControl, Mirroring};
 use crate::cart::{Cartridge, PRG_ROM_BANK_SIZE, CHR_ROM_BANK_SIZE};
 
 use super::mem::Memory;
 
 const PRG_RAM_SIZE: usize = 0x2000;
 const SHIFT_REGISTER_INIT_VALUE: u8 = 0x10;
-
-/// Mirroring Options
-enum Mirroring {
-    OneScreenLower, OneScreenUpper, Vertical, Horizontal,
-}
 
 /// Program ROM Bank Mode Options
 #[derive(Debug)]
@@ -49,8 +44,8 @@ pub struct Mmc1 {
     chr_bank1_selection: usize,
 }
 
-impl Mmc1 {
-    pub fn from(cart: Cartridge) -> Self {
+impl From<Cartridge> for Mmc1 {
+    fn from(cart: Cartridge) -> Self {
         let (_, prg_rom, chr_rom) = cart.to_parts();
 
         // If know CHR ROM is provided, use 8Kb of CHR RAM
@@ -68,7 +63,7 @@ impl Mmc1 {
 
             shift_register: SHIFT_REGISTER_INIT_VALUE,
 
-            mirroring: Mirroring::Vertical,
+            mirroring: Mirroring::OneScreenLower,
             prg_rom_bank_mode: PrgRomBankMode::Switch8000,
             chr_bank_mode: ChrBankMode::Switch4K,
 
@@ -77,7 +72,9 @@ impl Mmc1 {
             chr_bank1_selection: 0,
         }
     }
+}
 
+impl Mmc1 {
     fn load_shift_register(&mut self, data: u8) -> Option<u8> {
         let final_write = bit_is_set!(self.shift_register, 0);
 
@@ -260,6 +257,10 @@ impl MapperControl for Mmc1 {
                 }
             }
         }
+    }
+
+    fn mirroring(&self) -> Option<Mirroring> {
+        Some(self.mirroring)
     }
 }
 
