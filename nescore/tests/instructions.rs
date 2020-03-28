@@ -88,7 +88,6 @@ fn nes_instr_stack() {
     common::run_test(&mut nes, "Branch instructions exited with");
 }
 #[test]
-#[ignore]
 fn nes_instr_special() {
     let mut nes = common::init_nes("tests/roms/nes-test-roms/nes_instr_test/rom_singles/11-special.nes");
     common::run_test(&mut nes, "Special instructions exited with");

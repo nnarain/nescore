@@ -21,7 +21,6 @@ enum Flags {
     Zero             = 1 << 1,
     InterruptDisable = 1 << 2,
     Decimal          = 1 << 3,
-    Break            = 3 << 4,
     Overflow         = 1 << 6,
     Negative         = 1 << 7,
 }
@@ -675,8 +674,8 @@ impl<Io: IoAccess> Cpu<Io> {
             0x9A => (Instruction::TXS, AddressingMode::Implied),
             // TYA
             0x98 => (Instruction::TYA, AddressingMode::Implied),
-            // BRK
-            0x00 => (Instruction::BRK, AddressingMode::Implied),
+            // BRK - Followed by an unused byte
+            0x00 => (Instruction::BRK, AddressingMode::Immediate),
 
             _ => {
                 panic!("Invalid opcode: ${opcode}", opcode=format!("{:X}", opcode));
@@ -946,7 +945,7 @@ impl<Io: IoAccess> Cpu<Io> {
     }
 
     fn plp(&mut self) {
-        self.p = (self.pull() | 0x20) & 0xEF;
+        self.p = self.pull();
     }
 
     fn lsr(&mut self, m: u8) -> u8 {
@@ -1025,6 +1024,8 @@ impl<Io: IoAccess> Cpu<Io> {
     fn rti(&mut self) {
         self.p = self.pull();
         self.pc = self.pull16();
+
+        self.set_flag_bit(Flags::InterruptDisable, false);
     }
 
     fn jsr(&mut self, addr: u16) {
@@ -1053,7 +1054,7 @@ impl<Io: IoAccess> Cpu<Io> {
         //  5  $0100,S  R  pull PCH from stack
         //  6    PC     R  increment PC
         self.pc = self.pull16();
-        self.pc = (Wrapping(self.pc) + Wrapping(1)).0;
+        self.pc = self.pc.wrapping_add(1);
     }
 
     fn sbc(&mut self, m: u8) {
@@ -1077,7 +1078,7 @@ impl<Io: IoAccess> Cpu<Io> {
 
     /// Increase memory by one and subtract from the accumulator with borrow
     fn isb(&mut self, m: u8) -> u8 {
-        let m = (Wrapping(m) + Wrapping(1)).0;
+        let m = m.wrapping_add(1);
         self.sbc(m);
 
         m
@@ -1153,12 +1154,16 @@ impl<Io: IoAccess> Cpu<Io> {
     }
 
     fn brk(&mut self) {
+        // Docs for BRK say to add 2 to the PC when it goes on the stack.
+        // This is to skip the unused byte after the BRK
+        // The PC is already in the right spot
         self.push16(self.pc);
-
-        self.set_flag_bit(Flags::Break, true);
-        self.push(self.p);
+        // OR with $30 to set the B flag
+        self.push(self.p | 0x30);
 
         self.pc = self.read_u16(memorymap::IRQ_VECTOR);
+
+        self.set_flag_bit(Flags::InterruptDisable, true);
     }
 
     //------------------------------------------------------------------------------------------------------------------
@@ -2486,7 +2491,7 @@ mod tests {
 
         simple_test_base(&mut cpu, 4);
 
-        assert_eq!(cpu.p, 0xFF & 0xEF);
+        assert_eq!(cpu.p, 0xFF);
         assert_eq!(cpu.sp, 0x0A);
     }
 
@@ -2562,12 +2567,12 @@ mod tests {
         let mut cpu = init_cpu(prg);
         cpu.write_u8(0x10A, 0xDE);
         cpu.write_u8(0x109, 0xAD);
-        cpu.write_u8(0x108, 0xA5);
+        cpu.write_u8(0x108, 0xA1);
         cpu.sp = 0x0007;
 
         simple_test_base(&mut cpu, 6);
 
-        assert_eq!(cpu.p, 0xA5);
+        assert_eq!(cpu.p, 0xA1);
         assert_eq!(cpu.sp, 0x0A);
         assert_eq!(cpu.pc, 0xDEAD);
     }
