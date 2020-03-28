@@ -68,7 +68,7 @@ impl<Mapper: MapperControl> MapperControl for MapperBase<Mapper> {
             0x0000..=0x1FFF => self.mapper.write_chr(addr, value),
             0x2000..=0x2FFF => self.nametable_ram[(self.apply_mirroring(addr) - 0x2000) as usize] = value,
             0x3000..=0x3EFF => self.nametable_ram[(self.apply_mirroring(addr - 0x1000) - 0x2000) as usize] = value,
-            0x3F00..=0x3FFF => self.palette_ram[(addr - 0x3F00) as usize] = value,
+            0x3F00..=0x3FFF => self.palette_ram[(addr - 0x3F00) as usize] = value & 0x3F,
             _ => panic!("Invalid address for VRAM: ${:04X}", addr),
         }
     }
