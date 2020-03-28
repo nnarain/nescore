@@ -21,7 +21,6 @@ enum Flags {
     Zero             = 1 << 1,
     InterruptDisable = 1 << 2,
     Decimal          = 1 << 3,
-    Break            = 3 << 4,
     Overflow         = 1 << 6,
     Negative         = 1 << 7,
 }
@@ -35,7 +34,7 @@ pub struct Cpu<Io: IoAccess> {
     x: u8,                        // Index register X
     y: u8,                        // Index register Y
     pc: u16,                      // Program Counter
-    sp: u16,                      // Stack Pointer
+    sp: u8,                       // Stack Pointer
     p: u8,                        // Flag register
 
     bus: Option<Io>,
@@ -54,7 +53,7 @@ impl<Io: IoAccess> Default for Cpu<Io> {
             x: 0,
             y: 0,
             pc: 0,
-            sp: 0x00FD,
+            sp: 0xFD,
             p: 0x24,
 
             bus: None,
@@ -184,6 +183,18 @@ impl<Io: IoAccess> Cpu<Io> {
                     Instruction::TXS => self.txs(),
                     Instruction::TYA => self.tya(),
                     Instruction::BRK => self.brk(),
+                    Instruction::ALR => {
+                        let byte = addressing_result.to_byte(read_mem);
+                        self.alr(byte.unwrap());
+                    },
+                    Instruction::ARR => {
+                        let byte = addressing_result.to_byte(read_mem);
+                        self.arr(byte.unwrap());
+                    },
+                    Instruction::AXS => {
+                        let byte = addressing_result.to_byte(read_mem);
+                        self.axs(byte.unwrap());
+                    },
                     Instruction::LDA => {
                         let byte = addressing_result.to_byte(read_mem);
                         self.lda(byte.unwrap())
@@ -295,7 +306,17 @@ impl<Io: IoAccess> Cpu<Io> {
                     Instruction::SAX => {
                         let v = self.sax();
                         self.write_result(addressing_result, v);
-                    }
+                    },
+                    Instruction::SHY => {
+                        let byte = high_byte!(addressing_result.to_address().unwrap()) as u8;
+                        let v = self.shy(byte.wrapping_add(1));
+                        self.write_result(addressing_result, v);
+                    },
+                    Instruction::SHX => {
+                        let byte = high_byte!(addressing_result.to_address().unwrap()) as u8;
+                        let v = self.shx(byte.wrapping_add(1));
+                        self.write_result(addressing_result, v);
+                    },
                     Instruction::ASL => {
                         let byte = addressing_result.to_byte(read_mem);
                         let v = self.asl(byte.unwrap());
@@ -387,6 +408,7 @@ impl<Io: IoAccess> Cpu<Io> {
             0xA1 => (Instruction::LDA, AddressingMode::IndexedIndirect),
             0xB1 => (Instruction::LDA, AddressingMode::IndirectIndexed),
             // LAX
+            0xAB => (Instruction::LAX, AddressingMode::Immediate),
             0xA7 => (Instruction::LAX, AddressingMode::ZeroPage),
             0xB7 => (Instruction::LAX, AddressingMode::ZeroPageY),
             0xAF => (Instruction::LAX, AddressingMode::Absolute),
@@ -540,6 +562,12 @@ impl<Io: IoAccess> Cpu<Io> {
             0x56 => (Instruction::LSR, AddressingMode::ZeroPageX),
             0x4E => (Instruction::LSR, AddressingMode::Absolute),
             0x5E => (Instruction::LSR, AddressingMode::AbsoluteX),
+            // ALR
+            0x4B => (Instruction::ALR, AddressingMode::Immediate),
+            // ARR
+            0x6B => (Instruction::ARR, AddressingMode::Immediate),
+            // AXS
+            0xCB => (Instruction::AXS, AddressingMode::Immediate),
             // ORA
             0x09 => (Instruction::ORA, AddressingMode::Immediate),
             0x05 => (Instruction::ORA, AddressingMode::ZeroPage),
@@ -622,6 +650,10 @@ impl<Io: IoAccess> Cpu<Io> {
             0xF8 => (Instruction::SED, AddressingMode::Implied),
             // SEI
             0x78 => (Instruction::SEI, AddressingMode::Implied),
+            // SHY
+            0x9C => (Instruction::SHY, AddressingMode::AbsoluteX),
+            // SHX
+            0x9E => (Instruction::SHX, AddressingMode::AbsoluteY),
             // STX
             0x86 => (Instruction::STX, AddressingMode::ZeroPage),
             0x96 => (Instruction::STX, AddressingMode::ZeroPageY),
@@ -642,8 +674,8 @@ impl<Io: IoAccess> Cpu<Io> {
             0x9A => (Instruction::TXS, AddressingMode::Implied),
             // TYA
             0x98 => (Instruction::TYA, AddressingMode::Implied),
-            // BRK
-            0x00 => (Instruction::BRK, AddressingMode::Implied),
+            // BRK - Followed by an unused byte
+            0x00 => (Instruction::BRK, AddressingMode::Immediate),
 
             _ => {
                 panic!("Invalid opcode: ${opcode}", opcode=format!("{:X}", opcode));
@@ -687,8 +719,11 @@ impl<Io: IoAccess> Cpu<Io> {
         self.a & self.x
     }
 
-    fn dcp(&self, m: u8) -> u8 {
-        (Wrapping(m) - Wrapping(1)).0
+    fn dcp(&mut self, m: u8) -> u8 {
+        let m = m.wrapping_sub(1);
+        self.cmp(m);
+
+        m
     }
 
     /// Jump
@@ -740,6 +775,40 @@ impl<Io: IoAccess> Cpu<Io> {
         self.set_flag_bit(Flags::Carry, c);
 
         r
+    }
+
+    /// ALR
+    fn alr(&mut self, m: u8) {
+        self.and(m);
+        self.a = self.lsr(self.a);
+    }
+
+    /// ARR
+    fn arr(&mut self, m: u8) {
+        self.and(m);
+
+        let b6 = bit_as_value!(self.a, 6);
+        let b7 = bit_as_value!(self.a, 7);
+
+        let v = b6 ^ b7;
+
+        let c = self.get_carry();
+        self.a >>= 1;
+
+        self.a |= c << 7;
+
+        self.update_flags(self.a);
+        self.set_flag_bit(Flags::Overflow, v != 0);
+    }
+
+    /// AXS - A & X - M -> X
+    fn axs(&mut self, m: u8) {
+        let r = self.a & self.x;
+        let r = r.wrapping_sub(m);
+
+        self.x = r;
+
+        self.set_zero_flag(r);
     }
 
     fn sta(&mut self) -> u8 {
@@ -876,7 +945,7 @@ impl<Io: IoAccess> Cpu<Io> {
     }
 
     fn plp(&mut self) {
-        self.p = (self.pull() | 0x20) & 0xEF;
+        self.p = self.pull();
     }
 
     fn lsr(&mut self, m: u8) -> u8 {
@@ -947,7 +1016,7 @@ impl<Io: IoAccess> Cpu<Io> {
     }
 
     fn sre(&mut self, m: u8) -> u8 {
-        let m = m >> 1;
+        let m = self.lsr(m);
         self.eor(m);
         m
     }
@@ -955,6 +1024,8 @@ impl<Io: IoAccess> Cpu<Io> {
     fn rti(&mut self) {
         self.p = self.pull();
         self.pc = self.pull16();
+
+        self.set_flag_bit(Flags::InterruptDisable, false);
     }
 
     fn jsr(&mut self, addr: u16) {
@@ -983,7 +1054,7 @@ impl<Io: IoAccess> Cpu<Io> {
         //  5  $0100,S  R  pull PCH from stack
         //  6    PC     R  increment PC
         self.pc = self.pull16();
-        self.pc = (Wrapping(self.pc) + Wrapping(1)).0;
+        self.pc = self.pc.wrapping_add(1);
     }
 
     fn sbc(&mut self, m: u8) {
@@ -1007,15 +1078,14 @@ impl<Io: IoAccess> Cpu<Io> {
 
     /// Increase memory by one and subtract from the accumulator with borrow
     fn isb(&mut self, m: u8) -> u8 {
-        let m = (Wrapping(m) + Wrapping(1)).0;
+        let m = m.wrapping_add(1);
         self.sbc(m);
 
         m
     }
 
     fn slo(&mut self, m: u8) -> u8 {
-        // TODO: Set carry?
-        let m = m << 1;
+        let m = self.asl(m);
         self.ora(m);
 
         m
@@ -1031,6 +1101,14 @@ impl<Io: IoAccess> Cpu<Io> {
 
     fn sei(&mut self) {
         self.set_flag_bit(Flags::InterruptDisable, true);
+    }
+
+    fn shy(&self, m: u8) -> u8 {
+        self.y & m
+    }
+
+    fn shx(&self, m: u8) -> u8 {
+        self.x & m
     }
 
     fn stx(&mut self) -> u8 {
@@ -1066,7 +1144,7 @@ impl<Io: IoAccess> Cpu<Io> {
     }
 
     fn txs(&mut self) {
-        self.sp = self.x as u16;
+        self.sp = self.x
     }
 
     fn tya(&mut self) {
@@ -1076,12 +1154,16 @@ impl<Io: IoAccess> Cpu<Io> {
     }
 
     fn brk(&mut self) {
+        // Docs for BRK say to add 2 to the PC when it goes on the stack.
+        // This is to skip the unused byte after the BRK
+        // The PC is already in the right spot
         self.push16(self.pc);
-
-        self.set_flag_bit(Flags::Break, true);
-        self.push(self.p);
+        // OR with $30 to set the B flag
+        self.push(self.p | 0x30);
 
         self.pc = self.read_u16(memorymap::IRQ_VECTOR);
+
+        self.set_flag_bit(Flags::InterruptDisable, true);
     }
 
     //------------------------------------------------------------------------------------------------------------------
@@ -1277,14 +1359,14 @@ impl<Io: IoAccess> Cpu<Io> {
     /// Push a value onto the stack
     fn push(&mut self, data: u8) {
         // The stack is always stored in page 1
-        self.write_u8(self.sp + STACK_PAGE_OFFSET, data);
-        self.sp = (Wrapping(self.sp) - Wrapping(1u16)).0;
+        self.write_u8((self.sp as u16) + STACK_PAGE_OFFSET, data);
+        self.sp = self.sp.wrapping_sub(1);
     }
 
     /// Pull a value off the stack
     fn pull(&mut self) -> u8 {
         self.sp = self.sp.wrapping_add(1);
-        let data = self.read_u8(self.sp + STACK_PAGE_OFFSET);
+        let data = self.read_u8((self.sp as u16) + STACK_PAGE_OFFSET);
 
         data
     }
@@ -2409,7 +2491,7 @@ mod tests {
 
         simple_test_base(&mut cpu, 4);
 
-        assert_eq!(cpu.p, 0xFF & 0xEF);
+        assert_eq!(cpu.p, 0xFF);
         assert_eq!(cpu.sp, 0x0A);
     }
 
@@ -2485,12 +2567,12 @@ mod tests {
         let mut cpu = init_cpu(prg);
         cpu.write_u8(0x10A, 0xDE);
         cpu.write_u8(0x109, 0xAD);
-        cpu.write_u8(0x108, 0xA5);
+        cpu.write_u8(0x108, 0xA1);
         cpu.sp = 0x0007;
 
         simple_test_base(&mut cpu, 6);
 
-        assert_eq!(cpu.p, 0xA5);
+        assert_eq!(cpu.p, 0xA1);
         assert_eq!(cpu.sp, 0x0A);
         assert_eq!(cpu.pc, 0xDEAD);
     }
