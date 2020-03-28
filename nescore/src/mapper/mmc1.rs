@@ -14,6 +14,7 @@ const PRG_RAM_SIZE: usize = 0x2000;
 const SHIFT_REGISTER_INIT_VALUE: u8 = 0x10;
 
 /// Mirroring Options
+#[derive(Debug)]
 enum Mirroring {
     OneScreenLower, OneScreenUpper, Vertical, Horizontal,
 }

@@ -247,16 +247,16 @@ fn get_info_common(rom_header: &[u8], info: &mut CartridgeInfo) {
     let flag7 = rom_header[7];
 
     // vertical mirroring flag
-    let mirror_v = (flag6 & 0x01u8) != 0;
+    let mirror_v = bit_is_set!(flag6, 0);
     // battery backed SRAM flag
-    let battback_sram = (flag6 & 0x02u8) != 0;
+    let battback_sram = bit_is_set!(flag6, 1);
     // trainer
-    let trainer = (flag6 & 0x04u8) != 0;
+    let trainer = bit_is_set!(flag6, 2);
     // four screen mode
-    let four_screen_mode = (flag6 & 0x08u8) != 0;
+    let four_screen_mode = bit_is_set!(flag6, 3);
 
-    let vs_unisystem = (flag7 & 0x01) != 0;
-    let playchoice10 = (flag7 & 0x02) != 0;
+    let vs_unisystem = bit_is_set!(flag7, 0);
+    let playchoice10 = bit_is_set!(flag7, 1);
 
     // mapper number
     let mapper_lo = flag6 >> 4;

@@ -678,7 +678,7 @@ impl<Io: IoAccess> Cpu<Io> {
             0x00 => (Instruction::BRK, AddressingMode::Immediate),
 
             _ => {
-                panic!("Invalid opcode: ${opcode}", opcode=format!("{:X}", opcode));
+                panic!("Invalid opcode: ${opcode} at ${addr}", opcode=format!("{:X}", opcode), addr=format!("{:04X}", self.pc-1));
             }
         };
 
@@ -1236,14 +1236,14 @@ impl<Io: IoAccess> Cpu<Io> {
         let ptr = data[0] as u16;
 
         let addr = self.indirect_read(ptr);
-        let addr = (Wrapping(addr) + Wrapping(self.y as u16)).0;
+        let addr = addr.wrapping_add(self.y as u16);
 
         AddressingModeResult::Address(addr)
     }
 
     /// Indirect
     /// Only applicable to JMP instruction
-    fn indirect(&mut self, data: &[u8]) -> AddressingModeResult {
+    fn indirect(&self, data: &[u8]) -> AddressingModeResult {
         let ptr = ((data[1] as u16) << 8) | data[0] as u16;
 
         let addr = self.indirect_read(ptr);
@@ -1251,7 +1251,7 @@ impl<Io: IoAccess> Cpu<Io> {
         AddressingModeResult::Address(addr)
     }
 
-    fn indirect_read(&mut self, ptr: u16) -> u16 {
+    fn indirect_read(&self, ptr: u16) -> u16 {
         // Note: The PCH will always be fetched from the same page
         // as PCL, i.e. page boundary crossing is not handled.
         let page = ptr & 0xFF00;

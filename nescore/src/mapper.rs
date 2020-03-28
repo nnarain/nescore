@@ -36,6 +36,6 @@ pub fn from_cartridge(cart: Cartridge) -> Mapper {
         0 => Rc::new(RefCell::new(Nrom::from(cart))),
         1 => Rc::new(RefCell::new(Mmc1::from(cart))),
         2 => Rc::new(RefCell::new(Unrom::from(cart))),
-        _ => panic!("Invalid or unimplemented mapper"),
+        _ => panic!("Invalid or unimplemented mapper: #{mapper}", mapper=cart.info.mapper),
     }
 }
