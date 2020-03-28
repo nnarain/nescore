@@ -12,7 +12,7 @@ Build
 cargo build
 ```
 
-To test, pull in submodules and run `cargo test`
+Several ROM tests such as `nestest`, `nes_instr_test` and `sprite_zero_hit` are run as integration tests. They can be run with the following:
 
 ```
 git submodule update --init --recursive
