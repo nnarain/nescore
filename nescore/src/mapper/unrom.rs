@@ -42,8 +42,9 @@ pub struct Unrom {
     rom_bank_selection: usize, // Select ROM bank
 }
 
-impl Unrom {
-    pub fn from(cart: Cartridge) -> Self {
+
+impl From<Cartridge> for Unrom {
+    fn from(cart: Cartridge) -> Self {
         // Extract info and ROM data, VROM is unused
         let (_, prg_rom, _) = cart.to_parts();
 

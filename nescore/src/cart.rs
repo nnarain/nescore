@@ -142,16 +142,11 @@ impl Cartridge {
             let prg_rom_offset = header_bytes + trainer_bytes;
 
             // Get a slice for the program ROM
-            let prg_rom = &rom[prg_rom_offset..prg_rom_offset+prg_rom_size];
+            let prg_rom = rom[prg_rom_offset..prg_rom_offset+prg_rom_size].to_vec();
             // Get a slice for the character ROM
-            let chr_rom = &rom[(prg_rom_offset+prg_rom_size)..(prg_rom_offset+prg_rom_size+chr_rom_size)];
+            let chr_rom = rom[(prg_rom_offset+prg_rom_size)..(prg_rom_offset+prg_rom_size+chr_rom_size)].to_vec();
 
-
-            Ok(Cartridge {
-                info: info,
-                prg_rom: prg_rom.to_vec(),
-                chr_rom: chr_rom.to_vec(),
-            })
+            Ok(Cartridge::from_parts(info, prg_rom, chr_rom))
         })
     }
 
@@ -174,9 +169,9 @@ impl Cartridge {
     /// Construct a Cartridge from parts
     pub fn from_parts(info: CartridgeInfo, prg_rom: Vec<u8>, chr_rom: Vec<u8>) -> Self {
         Cartridge {
-            info: info,
-            prg_rom: prg_rom,
-            chr_rom: chr_rom,
+            info,
+            prg_rom,
+            chr_rom,
         }
     }
 

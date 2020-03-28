@@ -23,8 +23,8 @@ pub struct Nrom {
     mirror_rom: bool,
 }
 
-impl Nrom {
-    pub fn from(cart: Cartridge) -> Self {
+impl From<Cartridge> for Nrom {
+    fn from(cart: Cartridge) -> Self {
         let (info, prg_rom, chr_rom) = cart.to_parts();
 
         let mut chr_rom_arr = [0x0u8; CHR_DATA_SIZE];

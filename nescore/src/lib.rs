@@ -136,8 +136,6 @@ impl Nes {
 
     /// Load a cartridge
     pub fn insert(&mut self, cart: Cartridge) {
-        let mirror_v = cart.info.mirror_v;
-
         // Consume provided cartridge and get the mapper
         let mapper = mapper::from_cartridge(cart);
 
@@ -145,7 +143,7 @@ impl Nes {
         let cpu_bus = CpuIoBus::new(self.ppu.clone(), self.joy.clone(), mapper.clone());
         self.cpu.borrow_mut().load_bus(cpu_bus);
 
-        let ppu_bus = PpuIoBus::new(self.cpu.clone(), mapper.clone(), mirror_v);
+        let ppu_bus = PpuIoBus::new(self.cpu.clone(), mapper.clone());
         self.ppu.borrow_mut().load_bus(ppu_bus);
 
         self.mapper = Some(mapper);
