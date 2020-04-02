@@ -8,6 +8,7 @@
 #[macro_use] mod common;
 mod cpu;
 mod ppu;
+mod apu;
 mod mapper;
 mod joy;
 
@@ -20,6 +21,7 @@ use cpu::Cpu;
 use cpu::bus::CpuIoBus;
 use ppu::Ppu;
 use ppu::bus::PpuIoBus;
+use apu::Apu;
 use joy::Joy;
 use mapper::Mapper;
 use common::Clockable;

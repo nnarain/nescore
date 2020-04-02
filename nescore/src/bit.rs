@@ -104,6 +104,14 @@ macro_rules! reverse_bits {
     }
 }
 
+/// Get a group of bits
+#[macro_export]
+macro_rules! bit_group {
+    ($x:expr, $mask:expr, $n:expr) => {
+        ($x & ($mask << $n)) >> $n
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -200,5 +208,11 @@ mod tests {
     #[test]
     fn bit_reverse() {
         assert_eq!(reverse_bits!(0x80), 0x01);
+    }
+
+    #[test]
+    fn bit_group() {
+        assert_eq!(bit_group!(0x70, 0x07, 4), 0x07);
+        assert_eq!(bit_group!(0xC0, 0x03, 6), 0x03);
     }
 }
