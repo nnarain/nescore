@@ -1,8 +1,13 @@
 mod pulse;
+mod triangle;
 mod lenctr;
 
 pub use pulse::Pulse;
+pub use triangle::Triangle;
 pub use lenctr::LengthCounter;
+
+// TODO: Should SoundChannel be a generic type?
+// i.e. SoundChannel<Pulse>?
 
 /// Common Sound Channel Functionality
 pub trait SoundChannel {

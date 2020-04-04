@@ -7,7 +7,7 @@
 mod chnl;
 mod seq;
 
-use chnl::{SoundChannel, Pulse};
+use chnl::{SoundChannel, Pulse, Triangle};
 use seq::{FrameSequencer, Event};
 
 use crate::common::{IoAccess, Clockable, Register};
@@ -16,6 +16,7 @@ use crate::common::{IoAccess, Clockable, Register};
 pub struct Apu {
     pulse1: Pulse,
     pulse2: Pulse,
+    triangle: Triangle,
 
     sequencer: FrameSequencer,
 }
@@ -28,6 +29,7 @@ impl Clockable for Apu {
                 Event::Length => {
                     self.pulse1.clock_length();
                     self.pulse2.clock_length();
+                    self.triangle.clock_length();
                 },
                 Event::Irq => {},
                 Event::None => {}
@@ -41,7 +43,7 @@ impl IoAccess for Apu {
         match addr {
             0x4000..=0x4003 => self.pulse1.read_byte(addr - 0x4000),
             0x4004..=0x4007 => self.pulse2.read_byte(addr - 0x4004),
-            0x4008..=0x400B => 0, // TODO: Triangle
+            0x4008..=0x400B => self.triangle.read_byte(addr - 0x4008),
             0x400C..=0x400F => 0, // TODO: Noise
             0x4010..=0x4013 => 0, // TODO: DMC
             0x4015 => self.status(),
@@ -53,12 +55,13 @@ impl IoAccess for Apu {
         match addr {
             0x4000..=0x4003 => self.pulse1.write_byte(addr - 0x4000, data),
             0x4004..=0x4007 => self.pulse2.write_byte(addr - 0x4004, data),
-            0x4008..=0x400B => {}, // TODO: Triangle
+            0x4008..=0x400B => self.triangle.write_byte(addr - 0x4008, data),
             0x400C..=0x400F => {}, // TODO: Noise
             0x4010..=0x4013 => {}, // TODO: DMC
             0x4015 => {
                 self.pulse1.enable_length(bit_is_set!(data, 0));
                 self.pulse2.enable_length(bit_is_set!(data, 1));
+                self.triangle.enable_length(bit_is_set!(data, 2));
             },
             0x4017 => {
                 self.sequencer.load(data);
@@ -67,6 +70,7 @@ impl IoAccess for Apu {
                     // Immediately clock length units
                     self.pulse1.clock_length();
                     self.pulse2.clock_length();
+                    self.triangle.clock_length();
                 }
             },
             _ => panic!("Invalid address for APU: ${:04X}", addr),
@@ -78,6 +82,7 @@ impl Apu {
     fn status(&self) -> u8 {
         (self.pulse1.length_status() as u8)
         | (self.pulse2.length_status() as u8) << 1
+        | (self.triangle.length_status() as u8) << 2
     }
 }
 
