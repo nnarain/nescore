@@ -69,7 +69,7 @@ impl IoAccess for Apu {
             0x4017 => {
                 self.sequencer.load(data);
 
-                if data == 0x80 {
+                if bit_is_set!(data, 7) {
                     // Immediately clock length units
                     self.pulse1.clock_length();
                     self.pulse2.clock_length();

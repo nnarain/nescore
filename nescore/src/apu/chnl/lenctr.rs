@@ -59,12 +59,18 @@ mod tests {
     fn simple() {
         let mut lenctr = LengthCounter::default();
         lenctr.set_enable(true);
-        lenctr.load(0);
 
-        for _ in 0..10 {
+        let load = 0;
+        let count = LOAD_LOOKUP_TABLE[load] - 1;
+
+        lenctr.load(load);
+
+        for _ in 0..count {
             lenctr.tick();
         }
 
+        assert!(!lenctr.mute());
+        lenctr.tick();
         assert!(lenctr.mute());
     }
 
