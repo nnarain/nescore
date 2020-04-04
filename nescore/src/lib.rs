@@ -8,6 +8,7 @@
 #[macro_use] mod common;
 mod cpu;
 mod ppu;
+mod apu;
 mod mapper;
 mod joy;
 
@@ -20,6 +21,7 @@ use cpu::Cpu;
 use cpu::bus::CpuIoBus;
 use ppu::Ppu;
 use ppu::bus::PpuIoBus;
+use apu::Apu;
 use joy::Joy;
 use mapper::Mapper;
 use common::Clockable;
@@ -33,8 +35,9 @@ const FRAME_BUFFER_SIZE: usize = DISPLAY_WIDTH * DISPLAY_HEIGHT * 3;
 /// Representation of the NES system
 #[derive(Default)]
 pub struct Nes {
-    cpu: Rc<RefCell<Cpu<CpuIoBus>>>,    // NES CPU
-    ppu: Rc<RefCell<Ppu<PpuIoBus>>>,    // NES PPU
+    cpu: Rc<RefCell<Cpu<CpuIoBus>>>,    // NES Central Processing Uni
+    ppu: Rc<RefCell<Ppu<PpuIoBus>>>,    // NES Picture Processing Unit
+    apu: Rc<RefCell<Apu>>,              // NES Audio Processing Unit
     joy: Rc<RefCell<Joy>>,              // NES Joystick
                                         // TODO: APU
     mapper: Option<Mapper> // Catridge Mapper
@@ -78,10 +81,11 @@ impl Nes {
         let mut idx = 0usize;
 
         if self.mapper.is_some() {
+            // TODO: Need some kind of clock sequencer
             let mut count = 0;
             for _ in 0..ppu::CYCLES_PER_FRAME {
                 // Clock the PPU and clock the CPU every 3 cycles
-                let pixel = self.clock_components(count % 3 == 0);
+                let pixel = self.clock_components(count % 3 == 0, count % 6 == 0);
                 if let Some((r, g, b)) = pixel {
                     // Insert RGB data into the frame buffer
                     framebuffer[idx] = r;
@@ -113,17 +117,21 @@ impl Nes {
         // TODO: Consistent clocking of components
         if self.mapper.is_some() {
             while self.cpu.borrow().get_pc() != addr {
-                self.clock_components(true);
+                self.clock_components(true, false);
             }
         }
     }
 
     /// Clock the NES components
-    fn clock_components(&mut self, clock_cpu: bool) -> Option<ppu::Pixel> {
+    fn clock_components(&mut self, clock_cpu: bool, clock_apu: bool) -> Option<ppu::Pixel> {
         let pixel = self.ppu.borrow_mut().tick();
 
         if clock_cpu {
             self.cpu.borrow_mut().tick();
+        }
+
+        if clock_apu {
+            self.apu.borrow_mut().tick();
         }
 
         pixel
@@ -140,7 +148,7 @@ impl Nes {
         let mapper = mapper::from_cartridge(cart);
 
         // Complete initialization of components
-        let cpu_bus = CpuIoBus::new(self.ppu.clone(), self.joy.clone(), mapper.clone());
+        let cpu_bus = CpuIoBus::new(self.ppu.clone(), self.apu.clone(), self.joy.clone(), mapper.clone());
         self.cpu.borrow_mut().load_bus(cpu_bus);
 
         let ppu_bus = PpuIoBus::new(self.cpu.clone(), mapper.clone());
