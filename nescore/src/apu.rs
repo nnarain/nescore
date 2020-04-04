@@ -7,7 +7,7 @@
 mod chnl;
 mod seq;
 
-use chnl::{SoundChannel, Pulse, Triangle};
+use chnl::{SoundChannel, Pulse, Triangle, Noise};
 use seq::{FrameSequencer, Event};
 
 use crate::common::{IoAccess, Clockable, Register};
@@ -17,6 +17,7 @@ pub struct Apu {
     pulse1: Pulse,
     pulse2: Pulse,
     triangle: Triangle,
+    noise: Noise,
 
     sequencer: FrameSequencer,
 }
@@ -30,6 +31,7 @@ impl Clockable for Apu {
                     self.pulse1.clock_length();
                     self.pulse2.clock_length();
                     self.triangle.clock_length();
+                    self.noise.clock_length();
                 },
                 Event::Irq => {},
                 Event::None => {}
@@ -44,7 +46,7 @@ impl IoAccess for Apu {
             0x4000..=0x4003 => self.pulse1.read_byte(addr - 0x4000),
             0x4004..=0x4007 => self.pulse2.read_byte(addr - 0x4004),
             0x4008..=0x400B => self.triangle.read_byte(addr - 0x4008),
-            0x400C..=0x400F => 0, // TODO: Noise
+            0x400C..=0x400F => self.noise.read_byte(addr - 0x400C),
             0x4010..=0x4013 => 0, // TODO: DMC
             0x4015 => self.status(),
             0x4017 => self.sequencer.value(),
@@ -56,12 +58,13 @@ impl IoAccess for Apu {
             0x4000..=0x4003 => self.pulse1.write_byte(addr - 0x4000, data),
             0x4004..=0x4007 => self.pulse2.write_byte(addr - 0x4004, data),
             0x4008..=0x400B => self.triangle.write_byte(addr - 0x4008, data),
-            0x400C..=0x400F => {}, // TODO: Noise
+            0x400C..=0x400F => self.noise.write_byte(addr - 0x400C, data),
             0x4010..=0x4013 => {}, // TODO: DMC
             0x4015 => {
                 self.pulse1.enable_length(bit_is_set!(data, 0));
                 self.pulse2.enable_length(bit_is_set!(data, 1));
                 self.triangle.enable_length(bit_is_set!(data, 2));
+                self.noise.enable_length(bit_is_set!(data, 3));
             },
             0x4017 => {
                 self.sequencer.load(data);
@@ -71,6 +74,7 @@ impl IoAccess for Apu {
                     self.pulse1.clock_length();
                     self.pulse2.clock_length();
                     self.triangle.clock_length();
+                    self.noise.clock_length();
                 }
             },
             _ => panic!("Invalid address for APU: ${:04X}", addr),
@@ -83,6 +87,7 @@ impl Apu {
         (self.pulse1.length_status() as u8)
         | (self.pulse2.length_status() as u8) << 1
         | (self.triangle.length_status() as u8) << 2
+        | (self.noise.length_status() as u8) << 3
     }
 }
 
