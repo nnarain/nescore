@@ -25,6 +25,7 @@ pub enum Step {
     One, Two, Three, Four, Five,
 }
 
+/// Provides low frequency clock events
 pub struct FrameSequencer {
     cycles: usize,
     mode: Mode,
@@ -56,6 +57,9 @@ impl Register<u8> for FrameSequencer {
 
 impl Clockable<SequencerEvents> for FrameSequencer {
     fn tick(&mut self) -> SequencerEvents {
+        // Covert the tracked cycles to the APU step
+        // Map the step to the correct set of clock events
+        // Step 4 is the only thing different between step 4 and 5 mode (expect the extra step in 5 mode)
         let events = helpers::cycles_to_step(self.cycles).map(|step| {
             match step {
                 Step::One => [Event::Envelop, Event::None, Event::None],
@@ -67,6 +71,7 @@ impl Clockable<SequencerEvents> for FrameSequencer {
         })
         .unwrap_or([Event::None, Event::None, Event::None]);
 
+        // Advance cycles given the mode
         self.cycles = match self.mode {
             Mode::Step4 => (self.cycles + 1) % 14915,
             Mode::Step5 => (self.cycles + 1) % 18641,

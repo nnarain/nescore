@@ -5,23 +5,54 @@
 // @date Mar 31 2020
 //
 use crate::common::{IoAccess, Clockable};
+// TODO: Is this layer breaking?
+use super::{SoundChannel, LengthCounter};
+
+// TODO: Pulse 1 vs Pulse 2, negate
 
 /// APU Pulse Channel
 #[derive(Default)]
 pub struct Pulse {
     duty: u8,
-    halt: bool,
     constant: bool,
     volume: u8,
+    timer: u16,
+
+    lenctr: LengthCounter,
+
+    // Sweep
     sweep_enabled: bool,
+    shift: u8,
     period: u8,
     negate: bool,
-    shift: u8,
-    timer: u16,
-    load: u8,
+}
+
+impl SoundChannel for Pulse {
+    fn clock_length(&mut self) {
+        self.lenctr.tick();
+    }
+
+    fn is_enabled(&self) -> bool {
+        !self.lenctr.mute()
+    }
+
+    fn enable_length(&mut self, e: bool) {
+        self.lenctr.set_enable(e);
+    }
+
+    fn length_status(&self) -> bool {
+        !self.lenctr.mute()
+    }
+}
+
+impl Clockable for Pulse {
+    fn tick(&mut self) {
+
+    }
 }
 
 impl IoAccess for Pulse {
+    #[allow(unused)]
     fn read_byte(&self, addr: u16) -> u8 {
         0
     }
@@ -30,9 +61,10 @@ impl IoAccess for Pulse {
         match reg {
             0 => {
                 self.duty = bit_group!(data, 0x03, 6);
-                self.halt = bit_is_set!(data, 5);
                 self.constant = bit_is_set!(data, 4);
                 self.volume = data & 0x0F;
+
+                self.lenctr.set_halt(bit_is_set!(data, 5))
             },
             1 => {
                 self.sweep_enabled = bit_is_set!(data, 7);
@@ -45,15 +77,15 @@ impl IoAccess for Pulse {
             },
             3 => {
                 self.timer = (self.timer & 0x00FF) | (((data as u16) & 0x07) << 8);
-                self.load = bit_group!(data, 0x1F, 3);
+
+                self.lenctr.load(bit_group!(data, 0x1F, 3) as usize);
             }
             _ => panic!("Invalid register for Pulse {}", reg),
         }
     }
 }
 
-impl Clockable for Pulse {
-    fn tick(&mut self) {
+#[cfg(test)]
+mod tests {
 
-    }
 }
