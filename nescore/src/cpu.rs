@@ -10,7 +10,7 @@ pub mod memorymap;
 mod state;
 
 // use bus::CpuIoBus;
-use crate::common::{IoAccess, Clockable};
+use crate::common::{IoAccess, Clockable, Interrupt};
 use state::*;
 
 use std::num::Wrapping;
@@ -30,20 +30,20 @@ const STACK_PAGE_OFFSET: u16 = 0x100;
 
 /// NES Central Processing Unit
 pub struct Cpu<Io: IoAccess> {
-    a: u8,                        // General Purpose Accumulator
-    x: u8,                        // Index register X
-    y: u8,                        // Index register Y
-    pc: u16,                      // Program Counter
-    sp: u8,                       // Stack Pointer
-    p: u8,                        // Flag register
+    a: u8,                          // General Purpose Accumulator
+    x: u8,                          // Index register X
+    y: u8,                          // Index register Y
+    pc: u16,                        // Program Counter
+    sp: u8,                         // Stack Pointer
+    p: u8,                          // Flag register
 
     bus: Option<Io>,
-    state: State,                 // Internal CPU cycle state
+    state: State,                   // Internal CPU cycle state
 
-    interrupted: bool,            // Flag indicating the CPU was interrupt
+    interrupted: Option<Interrupt>, // Flag indicating the CPU was interrupt
 
-    debug: bool,                  // Debug mode
-    is_holding: bool,             // CPU is in an infinite loop state
+    debug: bool,                    // Debug mode
+    is_holding: bool,               // CPU is in an infinite loop state
 }
 
 impl<Io: IoAccess> Default for Cpu<Io> {
@@ -59,7 +59,7 @@ impl<Io: IoAccess> Default for Cpu<Io> {
             bus: None,
             state: State::Reset,
 
-            interrupted: false,
+            interrupted: None,
 
             debug: false,
             is_holding: false,
@@ -105,8 +105,8 @@ impl<Io: IoAccess> Cpu<Io> {
                 State::Fetch
             },
             State::Fetch => {
-                if self.interrupted {
-                    self.interrupt();
+                if let Some(int_type) = self.interrupted {
+                    self.interrupt(int_type);
                     State::Fetch
                 }
                 else {
@@ -1438,13 +1438,19 @@ impl<Io: IoAccess> Cpu<Io> {
         }
     }
 
-    fn interrupt(&mut self) {
-        self.interrupted = false;
+    fn interrupt(&mut self, int_type: Interrupt) {
+        self.interrupted = None;
 
         self.push16(self.pc);
         self.push(self.p);
 
-        self.pc = self.read_u16(memorymap::NMI_VECTOR);
+        // Load the vector for the specified interrupt
+        self.pc = match int_type {
+            Interrupt::Nmi => self.read_u16(memorymap::NMI_VECTOR),
+            // Interrupt::Irq => self.read_u16(memorymap::IRQ_VECTOR),
+        };
+
+        self.set_flag_bit(Flags::InterruptDisable, true);
 
         if self.debug {
             println!("NMI raised in CPU: {:04X}", self.pc);
@@ -1453,8 +1459,10 @@ impl<Io: IoAccess> Cpu<Io> {
 }
 
 impl<Io: IoAccess> IoAccess for Cpu<Io> {
-    fn raise_interrupt(&mut self) {
-        self.interrupted = true;
+    fn raise_interrupt(&mut self, interrupt_type: Interrupt) {
+        if self.interrupted.is_none() {
+            self.interrupted = Some(interrupt_type);
+        }
     }
 }
 
