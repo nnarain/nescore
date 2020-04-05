@@ -71,7 +71,8 @@ impl IoAccess for CpuIoBus {
             0x4017 => {
                 self.apu.borrow_mut().write_byte(addr, data)
             },
-            _ => {}
+            0x4018..=0x401F => println!("Disabled IO {:04X} = {:02X}", addr, data),
+            0x4020..=0xFFFF => self.mapper.borrow_mut().write(addr, data),
         }
     }
 }

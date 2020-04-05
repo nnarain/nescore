@@ -12,7 +12,7 @@ mod sprite;
 use regs::*;
 use hw::*;
 use sprite::Sprite;
-use crate::common::{IoAccess, Clockable, Register};
+use crate::common::{IoAccess, Clockable, Register, Interrupt};
 
 use std::cell::RefCell;
 
@@ -448,7 +448,7 @@ impl<Io: IoAccess> Ppu<Io> {
     /// Raise NMI interrupt
     fn raise_interrupt(&mut self) {
         if let Some(ref mut bus) = self.bus {
-            bus.raise_interrupt();
+            bus.raise_interrupt(Interrupt::Nmi);
         }
     }
 

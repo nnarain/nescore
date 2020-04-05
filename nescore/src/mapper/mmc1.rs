@@ -48,7 +48,7 @@ impl From<Cartridge> for Mmc1 {
     fn from(cart: Cartridge) -> Self {
         let (_, prg_rom, chr_rom) = cart.to_parts();
 
-        // If know CHR ROM is provided, use 8Kb of CHR RAM
+        // If no CHR ROM is provided, use 8Kb of CHR RAM
         let chr_data = if chr_rom.len() == 0 {
             vec![0x00u8; kb!(8)]
         }
@@ -199,17 +199,25 @@ impl MapperControl for Mmc1 {
     }
 
     fn write(&mut self, addr: u16, value: u8) {
-        if bit_is_set!(value, 7) {
-            // Any value with bit 7 set will load the shift register with its initial value
-            self.shift_register = SHIFT_REGISTER_INIT_VALUE;
-            self.write_control(0x0C);
-        }
-        else {
-            // Write to the shift register until it is full
-            if let Some(value) = self.load_shift_register(value) {
-                // Write to internal registers
-                self.write_registers(addr, value);
-            }
+        match addr {
+            0x6000..=0x7FFF => {
+                self.prg_ram[(addr - 0x6000) as usize] = value;
+            },
+            0x8000..=0xFFFF => {
+                if bit_is_set!(value, 7) {
+                    // Any value with bit 7 set will load the shift register with its initial value
+                    self.shift_register = SHIFT_REGISTER_INIT_VALUE;
+                    self.write_control(0x0C);
+                }
+                else {
+                    // Write to the shift register until it is full
+                    if let Some(value) = self.load_shift_register(value) {
+                        // Write to internal registers
+                        self.write_registers(addr, value);
+                    }
+                }
+            },
+            _ => panic!("Invalid address for MMC1"),
         }
     }
 
@@ -289,7 +297,6 @@ mod tests {
         // Set second pattern area to bank 0
         write_register(&mut mmc1, 0xC000, 0x00);
 
-
         assert_eq!(mmc1.read_chr(0x0000), 0xAD);
         assert_eq!(mmc1.read_chr(0x1000), 0xDE);
     }
@@ -312,7 +319,6 @@ mod tests {
         write_register(&mut mmc1, 0x8000, 0x07);
         // ROM bank 0
         write_register(&mut mmc1, 0xE000, 0x00);
-
 
         assert_eq!(mmc1.read(0x8000), 0xDE);
         assert_eq!(mmc1.read(0xFFFF), 0xAD);

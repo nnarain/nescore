@@ -14,13 +14,20 @@ macro_rules! kb {
     };
 }
 
+/// Interrupt
+#[derive(Copy, Clone)]
+pub enum Interrupt {
+    Nmi,
+}
+
 /// Access a memory mapped component
 pub trait IoAccess {
     #[allow(unused)]
     fn read_byte(&self, addr: u16) -> u8 { 0 }
     #[allow(unused)]
     fn write_byte(&mut self, addr: u16, data: u8) {}
-    fn raise_interrupt(&mut self){}
+    #[allow(unused)]
+    fn raise_interrupt(&mut self, interrupt_type: Interrupt){}
 }
 
 pub type IoAccessRef = Rc<RefCell<dyn IoAccess>>;

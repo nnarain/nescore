@@ -39,7 +39,7 @@ fn map_nes_key(keycode: Keycode) -> Option<Button> {
         Keycode::K => Some(Button::B),
 
         Keycode::Return => Some(Button::Start),
-        Keycode::LShift => Some(Button::Select),
+        Keycode::RShift => Some(Button::Select),
 
         _ => None,
     }

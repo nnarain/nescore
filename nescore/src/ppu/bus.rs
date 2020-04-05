@@ -6,7 +6,7 @@
 //
 
 
-use crate::common::{IoAccess, IoAccessRef};
+use crate::common::{IoAccess, IoAccessRef, Interrupt};
 use crate::mapper::Mapper;
 
 pub struct PpuIoBus {
@@ -32,7 +32,7 @@ impl IoAccess for PpuIoBus {
         self.mapper.borrow_mut().write_chr(addr, value);
     }
 
-    fn raise_interrupt(&mut self) {
-        self.cpu.borrow_mut().raise_interrupt();
+    fn raise_interrupt(&mut self, interrupt_type: Interrupt) {
+        self.cpu.borrow_mut().raise_interrupt(interrupt_type);
     }
 }
