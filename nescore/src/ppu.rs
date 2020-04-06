@@ -149,7 +149,7 @@ impl<Io: IoAccess> Ppu<Io> {
                 None
             },
             Scanline::VBlank => {
-                if self.cycle == 1 {
+                if self.cycle == 1 && self.scanline == 241 {
                     self.status.borrow_mut().vblank = true;
 
                     // Signal NMI interrupt
@@ -1266,11 +1266,18 @@ mod tests {
 
         let mut ppu = init_ppu();
 
-        for _ in 0..CYCLES_TO_VBLANK {
+        for _ in 0..CYCLES_TO_VBLANK-1 {
             ppu.tick();
+            assert!(bit_is_clear!(ppu.read_byte(0x2002), 7));
         }
 
-        assert_eq!(ppu.status.borrow().vblank, true);
+        ppu.tick();
+        assert!(bit_is_set!(ppu.read_byte(0x2002), 7));
+        // Should be cleared after reading
+        assert!(bit_is_clear!(ppu.read_byte(0x2002), 7));
+        // Only set during cycle 1
+        ppu.tick();
+        assert!(bit_is_clear!(ppu.read_byte(0x2002), 7));
     }
 
     #[test]
