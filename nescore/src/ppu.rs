@@ -242,7 +242,7 @@ impl<Io: IoAccess> Ppu<Io> {
 
         let pattern = self.read_pattern(self.ctrl.background_pattern_table(), tile_no, fine_y);
         // Fetch tile attributes
-        let attribute = self.read_attribute(coarse.1 as usize, coarse.0 as usize);
+        let attribute = self.read_attribute(nametable, coarse.1 as usize, coarse.0 as usize);
 
         // Load shift registers
         self.tile_reg.load(pattern);
@@ -329,8 +329,9 @@ impl<Io: IoAccess> Ppu<Io> {
         self.read_vram(addr)
     }
 
-    fn read_attribute(&self, tile_row: usize, tile_col: usize) -> u8 {
-        let addr = helpers::calc_attribute_address(self.ctrl.attribute(), tile_row, tile_col);
+    fn read_attribute(&self, nametable: u16, tile_row: usize, tile_col: usize) -> u8 {
+        let table_addr = nametable + (0x400 - 0x40);
+        let addr = helpers::calc_attribute_address(table_addr, tile_row, tile_col);
         let attr = self.read_vram(addr);
 
         // Attributes are encoded as 2 bit for each quadrant, represented as:
