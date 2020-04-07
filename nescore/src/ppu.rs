@@ -224,7 +224,10 @@ impl<Io: IoAccess> Ppu<Io> {
         let fine_scroll = (fine_scroll.0 as usize, fine_scroll.1 as usize);
         // Calculate the "global" scroll position
         // This is the scroll position in the 4 nametables
-        let scroll = (base_scroll.0 + fine_scroll.0 + (tile_x * 8) + dot, base_scroll.1 + fine_scroll.1 + scanline);
+        // Scroll wraps to the left if it goes off the screen (2 nametables)
+        let scroll_x = (base_scroll.0 + fine_scroll.0 + (tile_x * 8) + dot) % (256 * 2);
+        let scroll_y = base_scroll.1 + fine_scroll.1 + scanline;
+        let scroll = (scroll_x, scroll_y);
 
         // Determine the nametable the dot is in
         let nametable = helpers::nametable_address_from_scroll(scroll);
