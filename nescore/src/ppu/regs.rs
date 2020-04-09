@@ -169,9 +169,51 @@ pub struct PpuAddr {
     addr: u16,
 }
 
+impl PpuAddr {
+    /// VRAM Address is composed as the following
+    ///
+    /// yyy NN YYYYY XXXXX
+    /// ||| || ||||| +++++-- coarse X scroll
+    /// ||| || +++++-------- coarse Y scroll
+    /// ||| ++-------------- nametable select
+    /// +++----------------- fine Y scroll
+    /// 
+    /// https://wiki.nesdev.com/w/index.php/PPU_scrolling
+
+    pub fn set_nametable(&mut self, n: u8) {
+        mask_clear!(self.addr, 0x0C00);
+        self.addr |= (n as u16) << 10;
+    }
+
+    pub fn set_coarse_x(&mut self, x: u8) {
+        mask_clear!(self.addr, 0x1F);
+        self.addr |= (x as u16) >> 3;
+    }
+
+    pub fn set_y(&mut self, y: u8) {
+        mask_clear!(self.addr, 0x73E0);
+
+        let coarse_y = (y as u16) >> 3;
+        let fine_y = (y as u16) & 0x07;
+
+        self.addr |= coarse_y << 5;
+        self.addr |= fine_y << 12;
+    }
+
+    pub fn set_low_byte(&mut self, lo: u8) {
+        mask_clear!(self.addr, 0x00FF);
+        self.addr |= lo as u16;
+    }
+
+    pub fn set_high_byte(&mut self, hi: u8) {
+        mask_clear!(self.addr, 0x3F00);
+        self.addr |= ((hi as u16) & 0x3F) << 8;
+    }
+}
+
 impl Register<u16> for PpuAddr {
     fn load(&mut self, value: u16) {
-        self.addr = (self.addr << 8) | value;
+        self.addr = value;
     }
 
     fn value(&self) -> u16 {
@@ -300,13 +342,53 @@ mod tests {
     fn ppuaddr() {
         let mut addr = PpuAddr::default();
 
-        addr.load(0xDE);
-        addr.load(0xAD);
-        assert_eq!(addr.value(), 0xDEAD);
+        addr.set_high_byte(0x1E);
+        addr.set_low_byte(0xAD);
+        assert_eq!(addr.value(), 0x1EAD);
 
-        addr.load(0x20);
-        addr.load(0x00);
+        addr.set_high_byte(0x20);
+        addr.set_low_byte(0x00);
         assert_eq!(addr.value(), 0x2000);
+    }
+
+    #[test]
+    fn ppuaddr_set_nametable() {
+        let mut v = PpuAddr::default();
+        v.set_nametable(0x03);
+
+        assert_eq!(v.value(), 0x0C00);
+    }
+
+    #[test]
+    fn ppuaddr_set_coarse_x() {
+        let mut v = PpuAddr::default();
+        v.set_coarse_x(0x1F);
+
+        assert_eq!(v.value(), 0x0003);
+    }
+
+    #[test]
+    fn ppuaddr_set_y() {
+        let mut v = PpuAddr::default();
+        v.set_y(0xFF);
+
+        assert_eq!(v.value(), 0x73E0);
+    }
+
+    #[test]
+    fn ppuaddr_set_high() {
+        let mut v = PpuAddr::default();
+        v.set_high_byte(0xFF);
+
+        assert_eq!(v.value(), 0x3F00);
+    }
+
+    #[test]
+    fn ppuaddr_set_low() {
+        let mut v = PpuAddr::default();
+        v.set_low_byte(0xFF);
+
+        assert_eq!(v.value(), 0x00FF);
     }
 
     #[test]

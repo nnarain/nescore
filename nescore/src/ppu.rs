@@ -71,9 +71,13 @@ pub struct Ppu<Io: IoAccess> {
     ctrl: PpuCtrl,              // PPUCTRL   - Control Register
     status: RefCell<PpuStatus>, // PPUSTATUS - Status Register
     mask: PpuMask,              // PPUMASK   - Mask Register (Render controls)
-    addr: RefCell<PpuAddr>,     // PPUADDR   - VRAM Address
     scroll: PpuScroll,          // PPUSCROLL - Scroll register
     oam_addr: RefCell<u16>,     // OAMADDR   - OAM Address
+
+    v: RefCell<PpuAddr>,     // VRAM Address
+    t: RefCell<PpuAddr>,     // Temporary VRAM Address
+    x: u8,                   // Fine X scroll
+    w: RefCell<bool>,        // Write toggle
 
     // Render pipeline hardware
     tile_reg: TileRegister,    // PPU tile shift registers
@@ -95,9 +99,13 @@ impl<Io: IoAccess> Default for Ppu<Io> {
             ctrl: PpuCtrl::default(),
             status: RefCell::new(PpuStatus::default()),
             mask: PpuMask::default(),
-            addr: RefCell::new(PpuAddr::default()),
             scroll: PpuScroll::default(),
             oam_addr: RefCell::new(0),
+
+            v: RefCell::new(PpuAddr::default()),
+            t: RefCell::new(PpuAddr::default()),
+            x: 0,
+            w: RefCell::new(false),
 
             tile_reg: TileRegister::default(),
             pal_reg: PaletteRegister::default(),
@@ -493,6 +501,8 @@ impl<Io: IoAccess> IoAccess for Ppu<Io> {
     fn read_byte(&self, addr: u16) -> u8 {
         match addr {
             0x2000 => {
+                // Clear the write toggle
+                *self.w.borrow_mut() = false;
                 self.ctrl.value()
             },
             0x2001 => {
@@ -521,12 +531,12 @@ impl<Io: IoAccess> IoAccess for Ppu<Io> {
             },
             // PPU Address
             0x2006 => {
-                self.addr.borrow().value() as u8
+                self.v.borrow().value() as u8
             },
             // PPU Data
             0x2007 => {
-                let data = self.read_vram(self.addr.borrow().value());
-                *self.addr.borrow_mut() += self.ctrl.vram_increment();
+                let data = self.read_vram(self.v.borrow().value());
+                *self.v.borrow_mut() += self.ctrl.vram_increment();
 
                 data
             },
@@ -540,6 +550,7 @@ impl<Io: IoAccess> IoAccess for Ppu<Io> {
             // PPU Control Register
             0x2000 => {
                 self.ctrl.load(value);
+                self.t.borrow_mut().set_nametable(value);
             },
             // PPU Mask
             0x2001 => {
@@ -558,18 +569,41 @@ impl<Io: IoAccess> IoAccess for Ppu<Io> {
             },
             // PPU Scroll
             0x2005 => {
+                if *self.w.borrow() {
+                    // When the write toggle is set
+                    self.t.borrow_mut().set_y(value);
+                }
+                else {
+                    // When the write toggle is clear
+                    self.t.borrow_mut().set_coarse_x(value);
+                    self.x = value & 0x07;
+                }
                 self.scroll.load(value);
+
+                // Toggle w
+                let w = *self.w.borrow();
+                *self.w.borrow_mut() = !w;
             },
             // PPU Address
             0x2006 => {
-                self.addr.borrow_mut().load(value as u16);
+                if *self.w.borrow() {
+                    self.t.borrow_mut().set_low_byte(value);
+                    self.v.borrow_mut().load(self.t.borrow().value());
+                }
+                else {
+                    self.t.borrow_mut().set_high_byte(value);
+                }
+
+                // Toggle w
+                let w = *self.w.borrow();
+                *self.w.borrow_mut() = !w;
             },
             // PPU Data
             0x2007 => {
-                let addr = self.addr.borrow().value();
+                let addr = self.v.borrow().value();
                 self.write_vram(addr, value);
 
-                *self.addr.borrow_mut() += self.ctrl.vram_increment();
+                *self.v.borrow_mut() += self.ctrl.vram_increment();
             }
             _ => {
                 // FIXME: OAM DMA
