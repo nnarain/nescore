@@ -7,7 +7,6 @@
 
 use crate::common::Register;
 use std::ops::AddAssign;
-use std::num::Wrapping;
 
 /// PPU Control Register
 #[derive(Default)]
@@ -24,25 +23,6 @@ pub struct PpuCtrl {
 impl PpuCtrl {
     pub fn vram_increment(&self) -> u16 {
         if self.inc_mode { 32 } else { 1 }
-    }
-
-    /// Base nametable address
-    pub fn nametable(&self) -> u16 {
-        0x2000u16 + (0x400u16 * self.base_nametable_address as u16)
-    }
-
-    /// Base scroll
-    pub fn base_scroll(&self) -> (usize, usize) {
-        (
-            bit_as_value!(self.base_nametable_address, 0) as usize * 256,
-            bit_as_value!(self.base_nametable_address, 1) as usize * 240
-        )
-    }
-
-    /// Attribute table for the selected nametable
-    pub fn attribute(&self) -> u16 {
-        // Nametable + Size of nametable - Size of attribute table
-        self.nametable() + 0x400 - 0x40
     }
 
     pub fn background_pattern_table(&self) -> u16 {
@@ -134,17 +114,17 @@ impl Register<u8> for PpuMask {
     }
 }
 
+impl PpuMask {
+    pub fn rendering_enabled(&self) -> bool {
+        self.background_enabled || self.sprites_enabled
+    }
+}
+
 #[derive(Default)]
 pub struct PpuScroll {
     pub x: u8,
     pub y: u8,
     flag: bool,
-}
-
-impl PpuScroll {
-    pub fn offset(&self) -> (u8, u8) {
-        (self.x, self.y)
-    }
 }
 
 impl Register<u8> for PpuScroll {
@@ -182,12 +162,24 @@ impl PpuAddr {
 
     pub fn set_nametable(&mut self, n: u8) {
         mask_clear!(self.addr, 0x0C00);
-        self.addr |= (n as u16) << 10;
+        self.addr |= ((n as u16) & 0x03) << 10;
+    }
+
+    pub fn nametable(&self) -> u16 {
+        0x2000 | (self.addr & 0xC00)
+    }
+
+    pub fn tile(&self) -> u16 {
+        0x2000 | (self.addr & 0x0FFF)
     }
 
     pub fn set_coarse_x(&mut self, x: u8) {
         mask_clear!(self.addr, 0x1F);
         self.addr |= (x as u16) >> 3;
+    }
+
+    pub fn coarse_x(&self) -> u8 {
+        (self.addr as u8) & 0x1F
     }
 
     pub fn set_y(&mut self, y: u8) {
@@ -200,6 +192,14 @@ impl PpuAddr {
         self.addr |= fine_y << 12;
     }
 
+    pub fn fine_y(&self) -> u8 {
+        (self.addr >> 12) as u8
+    }
+
+    pub fn coarse_y(&self) -> u8 {
+        ((self.addr >> 5) & 0x1F) as u8
+    }
+
     pub fn set_low_byte(&mut self, lo: u8) {
         mask_clear!(self.addr, 0x00FF);
         self.addr |= lo as u16;
@@ -208,6 +208,69 @@ impl PpuAddr {
     pub fn set_high_byte(&mut self, hi: u8) {
         mask_clear!(self.addr, 0x3F00);
         self.addr |= ((hi as u16) & 0x3F) << 8;
+    }
+
+    pub fn reload_x(&mut self, t: u16) {
+        // Horizontal nametable bit and coarse X
+        mask_clear!(self.addr, 0x041F);
+        self.addr |= t & 0x041F;
+    }
+
+    pub fn reload_y(&mut self, t: u16) {
+        mask_clear!(self.addr, 0x7BE0);
+        self.addr |= t & 0x7BE0;
+    }
+
+    pub fn increment_h(&mut self) {
+        // 0000, 0001, 0002 ... 001E, 001F -> 0400, 0401 ... 041E, 041F -> 0000, 0001
+        // Decompose the VRAM address
+        let nametable = (self.addr >> 10) & 0x03;
+        let nametable_h = nametable & 0x01;
+        let nametable_v = nametable >> 1;
+        let coarse_x = self.addr & 0x1F;
+        let coarse_y = (self.addr >> 5) & 0x1F;
+        let fine_y = (self.addr >> 12) & 0x07;
+
+        // TODO: Probably a better way?
+
+        // Increment coarse x
+        let coarse_x = coarse_x + 1;
+        // Get coarse x overflow bit
+        let coarse_x_overflow = bit_as_value!(coarse_x, 5);
+        // Add the overflow to the nametable value
+        // This will allow transitioning to the adjacent nametable
+        let nametable_h = nametable_h + coarse_x_overflow;
+
+        // Rebuild the nametable portion
+        let nametable = (nametable_v & 0x01) << 1 | (nametable_h & 0x01);
+
+        // Re-compose the VRAM address
+        self.addr = ((fine_y & 0x07) << 12) | ((nametable & 0x03) << 10) | ((coarse_y & 0x1F) << 5) | (coarse_x & 0x1F);
+    }
+
+    pub fn increment_v(&mut self) {
+        // Decompose the VRAM address
+        let nametable = (self.addr >> 10) & 0x03;
+        let nametable_h = nametable & 0x01;
+        let nametable_v = nametable >> 1;
+        let coarse_x = self.addr & 0x1F;
+        let coarse_y = (self.addr >> 5) & 0x1F;
+        let fine_y = (self.addr >> 12) & 0x07;
+
+        // Add the nametable overflow to fine y
+        let fine_y = fine_y + 1;
+        // Get the fine y overflow
+        let fine_y_overflow = bit_as_value!(fine_y, 3);
+        // Get coarse y overflow
+        let coarse_y_overflow = (coarse_y + fine_y_overflow) / 29;
+        // Add the fine y overflow to coarse y
+        let coarse_y = (coarse_y + fine_y_overflow) % 30;
+        // Add the coarse y overflow the the nametable vertical
+        let nametable_v = nametable_v + coarse_y_overflow;
+
+        let nametable = (nametable_v & 0x01) << 1 | (nametable_h & 0x01);
+
+        self.addr = ((fine_y & 0x07) << 12) | ((nametable & 0x03) << 10) | ((coarse_y & 0x1F) << 5) | (coarse_x & 0x1F);
     }
 }
 
@@ -223,7 +286,7 @@ impl Register<u16> for PpuAddr {
 
 impl AddAssign<u16> for PpuAddr {
     fn add_assign(&mut self, rhs: u16) {
-        self.addr = (Wrapping(self.addr) + Wrapping(rhs)).0;
+        self.addr = self.addr.wrapping_add(rhs);
     }
 }
 
@@ -258,32 +321,6 @@ mod tests {
 
         ctrl.load(0x20);
         assert_eq!(ctrl.sprite_height(), 16);
-    }
-
-    #[test]
-    fn nametable_address() {
-        let mut ctrl = PpuCtrl::default();
-        ctrl.load(0x00);
-        assert_eq!(ctrl.nametable(), 0x2000);
-        ctrl.load(0x01);
-        assert_eq!(ctrl.nametable(), 0x2400);
-        ctrl.load(0x02);
-        assert_eq!(ctrl.nametable(), 0x2800);
-        ctrl.load(0x03);
-        assert_eq!(ctrl.nametable(), 0x2C00);
-    }
-
-    #[test]
-    fn nametable_attribute_address() {
-        let mut ctrl = PpuCtrl::default();
-        ctrl.load(0x00);
-        assert_eq!(ctrl.attribute(), 0x23C0);
-        ctrl.load(0x01);
-        assert_eq!(ctrl.attribute(), 0x27C0);
-        ctrl.load(0x02);
-        assert_eq!(ctrl.attribute(), 0x2BC0);
-        ctrl.load(0x03);
-        assert_eq!(ctrl.attribute(), 0x2FC0);
     }
 
     #[test]
@@ -392,14 +429,122 @@ mod tests {
     }
 
     #[test]
-    fn ppuscroll() {
-        let mut scroll = PpuScroll::default();
-        scroll.load(0xDE);
-        scroll.load(0xAD);
+    fn ppuaddr_fine_y() {
+        let mut v = PpuAddr::default();
+        v.set_y(0x07);
 
-        assert_eq!(scroll.x, 0xDE);
-        assert_eq!(scroll.y, 0xAD);
+        assert_eq!(v.fine_y(), 0x07);
+    }
 
-        assert_eq!(scroll.offset(), (0xDE, 0xAD));
+    #[test]
+    fn ppuaddr_increment_h() {
+        let mut addr = PpuAddr::default();
+
+        // Simple Increment
+        addr.load(0x0000);
+        assert_eq!(addr.coarse_x(), 0);
+        addr.increment_h();
+        assert_eq!(addr.coarse_x(), 1);
+
+        // Wrap nametable - $2000 -> $2400
+        addr.load(0x01F);
+        assert_eq!(addr.nametable(), 0x2000);
+        assert_eq!(addr.coarse_x(), 0x1F);
+        addr.increment_h();
+        assert_eq!(addr.nametable(), 0x2400);
+        assert_eq!(addr.coarse_x(), 0x00);
+
+        // Wrap nametable - $2800 -> $2C00
+        addr.load(0x81F);
+        assert_eq!(addr.nametable(), 0x2800);
+        assert_eq!(addr.coarse_x(), 0x1F);
+        addr.increment_h();
+        assert_eq!(addr.nametable(), 0x2C00);
+        assert_eq!(addr.coarse_x(), 0x00);
+
+        // Wrap nametable - $2400 -> $200
+        addr.load(0x41F);
+        assert_eq!(addr.nametable(), 0x2400);
+        assert_eq!(addr.coarse_x(), 0x1F);
+        addr.increment_h();
+        assert_eq!(addr.nametable(), 0x2000);
+        assert_eq!(addr.coarse_x(), 0x00);
+    }
+
+    #[test]
+    fn ppuaddr_increment_v() {
+        let mut addr = PpuAddr::default();
+
+        // Increment fine y
+        addr.load(0x0000);
+        assert_eq!(addr.fine_y(), 0x00);
+        addr.increment_v();
+        assert_eq!(addr.fine_y(), 0x01);
+        addr.increment_v();
+        assert_eq!(addr.fine_y(), 0x02);
+
+        // Increment fine y, overflow, increment coarse y
+        addr.load(0x7000);
+        assert_eq!(addr.nametable(), 0x2000);
+        assert_eq!(addr.fine_y(), 0x07);
+        assert_eq!(addr.coarse_y(), 0x00);
+        addr.increment_v();
+        assert_eq!(addr.nametable(), 0x2000);
+        assert_eq!(addr.fine_y(), 0x00);
+        assert_eq!(addr.coarse_y(), 0x01);
+
+        // Increment to vertical nametable
+        addr.load(0x73A0);
+        assert_eq!(addr.nametable(), 0x2000);
+        assert_eq!(addr.fine_y(), 0x07);
+        assert_eq!(addr.coarse_y(), 0x1D);
+        addr.increment_v();
+        assert_eq!(addr.nametable(), 0x2800);
+        assert_eq!(addr.fine_y(), 0x00);
+        assert_eq!(addr.coarse_y(), 0x00);
+    }
+
+    #[test]
+    fn ppuaddr_reload_x() {
+        let mut v = PpuAddr::default();
+        let mut t = PpuAddr::default();
+
+        t.load(0x01F);
+        v.load(0x01F);
+
+        assert_eq!(v.nametable(), 0x2000);
+        assert_eq!(v.coarse_x(), 0x1F);
+        // Increment to next nametable
+        v.increment_h();
+        assert_eq!(v.nametable(), 0x2400);
+        assert_eq!(v.coarse_x(), 0x00);
+
+        v.reload_x(t.value());
+
+        assert_eq!(v.nametable(), 0x2000);
+        assert_eq!(v.coarse_x(), 0x1F);
+    }
+
+    #[test]
+    fn ppuaddr_reload_y() {
+        let mut v = PpuAddr::default();
+        let mut t = PpuAddr::default();
+
+        t.load(0x73A0);
+        v.load(0x73A0);
+
+        assert_eq!(v.nametable(), 0x2000);
+        assert_eq!(v.fine_y(), 0x07);
+        assert_eq!(v.coarse_y(), 0x1D);
+        v.increment_v();
+        assert_eq!(v.nametable(), 0x2800);
+        assert_eq!(v.fine_y(), 0x00);
+        assert_eq!(v.coarse_y(), 0x00);
+
+        v.reload_y(t.value());
+
+        assert_eq!(v.nametable(), 0x2000);
+        assert_eq!(v.fine_y(), 0x07);
+        assert_eq!(v.coarse_y(), 0x1D);
     }
 }
