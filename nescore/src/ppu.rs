@@ -71,7 +71,6 @@ pub struct Ppu<Io: IoAccess> {
     ctrl: PpuCtrl,              // PPUCTRL   - Control Register
     status: RefCell<PpuStatus>, // PPUSTATUS - Status Register
     mask: PpuMask,              // PPUMASK   - Mask Register (Render controls)
-    scroll: PpuScroll,          // PPUSCROLL - Scroll register
     oam_addr: RefCell<u16>,     // OAMADDR   - OAM Address
 
     v: RefCell<PpuAddr>,     // VRAM Address
@@ -99,7 +98,6 @@ impl<Io: IoAccess> Default for Ppu<Io> {
             ctrl: PpuCtrl::default(),
             status: RefCell::new(PpuStatus::default()),
             mask: PpuMask::default(),
-            scroll: PpuScroll::default(),
             oam_addr: RefCell::new(0),
 
             v: RefCell::new(PpuAddr::default()),
@@ -138,7 +136,9 @@ impl<Io: IoAccess> Ppu<Io> {
                 }
 
                 // Same as a normal scanline but no output to the screen
-                self.process_scanline(self.cycle);
+                if self.mask.rendering_enabled() {
+                    self.process_scanline(self.cycle);
+                }
 
                 None
             },
@@ -156,7 +156,9 @@ impl<Io: IoAccess> Ppu<Io> {
                     None
                 };
 
-                self.process_scanline(self.cycle);
+                if self.mask.rendering_enabled() {
+                    self.process_scanline(self.cycle);
+                }
 
                 pixel
             },
@@ -526,7 +528,7 @@ impl<Io: IoAccess> IoAccess for Ppu<Io> {
                 data
             },
             0x2005 => {
-                self.scroll.x
+                self.x
             },
             // PPU Address
             0x2006 => {
@@ -577,7 +579,6 @@ impl<Io: IoAccess> IoAccess for Ppu<Io> {
                     self.t.borrow_mut().set_coarse_x(value);
                     self.x = value & 0x07;
                 }
-                self.scroll.load(value);
 
                 // Toggle w
                 let w = *self.w.borrow();

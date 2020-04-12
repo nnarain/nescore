@@ -7,6 +7,7 @@
 
 use crate::common::Register;
 use std::ops::AddAssign;
+use std::fmt;
 
 /// PPU Control Register
 #[derive(Default)]
@@ -117,29 +118,6 @@ impl Register<u8> for PpuMask {
 impl PpuMask {
     pub fn rendering_enabled(&self) -> bool {
         self.background_enabled || self.sprites_enabled
-    }
-}
-
-#[derive(Default)]
-pub struct PpuScroll {
-    pub x: u8,
-    pub y: u8,
-    flag: bool,
-}
-
-impl Register<u8> for PpuScroll {
-    fn load(&mut self, value: u8) {
-        if !self.flag {
-            self.x = value;
-        }
-        else {
-            self.y = value;
-        }
-
-        self.flag = !self.flag;
-    }
-    fn value(&self) -> u8 {
-        self.x
     }
 }
 
@@ -256,13 +234,12 @@ impl PpuAddr {
         let coarse_x = self.addr & 0x1F;
         let coarse_y = (self.addr >> 5) & 0x1F;
         let fine_y = (self.addr >> 12) & 0x07;
-
         // Add the nametable overflow to fine y
         let fine_y = fine_y + 1;
         // Get the fine y overflow
         let fine_y_overflow = bit_as_value!(fine_y, 3);
         // Get coarse y overflow
-        let coarse_y_overflow = (coarse_y + fine_y_overflow) / 29;
+        let coarse_y_overflow = (coarse_y + fine_y_overflow) / 30;
         // Add the fine y overflow to coarse y
         let coarse_y = (coarse_y + fine_y_overflow) % 30;
         // Add the coarse y overflow the the nametable vertical
@@ -281,6 +258,12 @@ impl Register<u16> for PpuAddr {
 
     fn value(&self) -> u16 {
         self.addr
+    }
+}
+
+impl fmt::Display for PpuAddr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "N: {:04X}, fy: {}, y: {}, x: {}", self.nametable(), self.fine_y(), self.coarse_y(), self.coarse_x())
     }
 }
 
@@ -450,9 +433,11 @@ mod tests {
         addr.load(0x01F);
         assert_eq!(addr.nametable(), 0x2000);
         assert_eq!(addr.coarse_x(), 0x1F);
+        assert_eq!(addr.coarse_y(), 0x00);
         addr.increment_h();
         assert_eq!(addr.nametable(), 0x2400);
         assert_eq!(addr.coarse_x(), 0x00);
+        assert_eq!(addr.coarse_y(), 0x00);
 
         // Wrap nametable - $2800 -> $2C00
         addr.load(0x81F);
@@ -492,6 +477,15 @@ mod tests {
         assert_eq!(addr.nametable(), 0x2000);
         assert_eq!(addr.fine_y(), 0x00);
         assert_eq!(addr.coarse_y(), 0x01);
+
+        addr.load(0x7380);
+        assert_eq!(addr.nametable(), 0x2000);
+        assert_eq!(addr.fine_y(), 0x07);
+        assert_eq!(addr.coarse_y(), 0x1C);
+        addr.increment_v();
+        assert_eq!(addr.nametable(), 0x2000);
+        assert_eq!(addr.fine_y(), 0x00);
+        assert_eq!(addr.coarse_y(), 0x1D);
 
         // Increment to vertical nametable
         addr.load(0x73A0);
