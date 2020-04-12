@@ -16,7 +16,7 @@ pub struct MapperBase<Mapper: MapperControl> {
 
     // VRAM
     nametable_ram: [u8; NAMETABLE_RAM_SIZE],
-    palette_ram: [u8; 256],
+    palette_ram: [u8; 32],
     mirror_v: bool,
     four_screen: bool,
 }
@@ -31,7 +31,7 @@ impl<Mapper: MapperControl + From<Cartridge>> From<Cartridge> for MapperBase<Map
 
             // VRAM
             nametable_ram: [0; NAMETABLE_RAM_SIZE],
-            palette_ram: [0; 256],
+            palette_ram: [0; 32],
             mirror_v,
             four_screen,
         }
@@ -58,7 +58,8 @@ impl<Mapper: MapperControl> MapperControl for MapperBase<Mapper> {
             0x0000..=0x1FFF => self.mapper.read_chr(addr),
             0x2000..=0x2FFF => self.nametable_ram[(self.apply_mirroring(addr) - 0x2000) as usize],
             0x3000..=0x3EFF => self.nametable_ram[(self.apply_mirroring(addr - 0x1000) - 0x2000) as usize],
-            0x3F00..=0x3FFF => self.palette_ram[(addr - 0x3F00) as usize],
+            0x3F00..=0x3F1F => self.palette_ram[(self.mirror_palette(addr) as usize) - 0x3F00],
+            0x3F20..=0x3FFF => self.palette_ram[(self.mirror_palette(addr - 0x20) as usize) - 0x3F00],
             _ => panic!("Invalid address for VRAM: ${:04X}", addr),
         }
     }
@@ -68,7 +69,8 @@ impl<Mapper: MapperControl> MapperControl for MapperBase<Mapper> {
             0x0000..=0x1FFF => self.mapper.write_chr(addr, value),
             0x2000..=0x2FFF => self.nametable_ram[(self.apply_mirroring(addr) - 0x2000) as usize] = value,
             0x3000..=0x3EFF => self.nametable_ram[(self.apply_mirroring(addr - 0x1000) - 0x2000) as usize] = value,
-            0x3F00..=0x3FFF => self.palette_ram[(addr - 0x3F00) as usize] = value & 0x3F,
+            0x3F00..=0x3F1F => self.palette_ram[(self.mirror_palette(addr) as usize) - 0x3F00] = value & 0x3F,
+            0x3F20..=0x3FFF => self.palette_ram[(self.mirror_palette(addr - 0x20) as usize) - 0x3F00] = value & 0x3F,
             _ => panic!("Invalid address for VRAM: ${:04X}", addr),
         }
     }
@@ -88,6 +90,13 @@ impl<Mapper: MapperControl> MapperBase<Mapper> {
 
     fn get_mirroring_type(&self) -> Mirroring {
         self.mapper.mirroring().unwrap_or_else(|| if self.mirror_v { Mirroring::Vertical } else { Mirroring::Horizontal })
+    }
+
+    fn mirror_palette(&self, addr: u16) -> u16 {
+        match addr {
+            0x3F10 | 0x3F14 | 0x3F18 | 0x3F1C => addr - 0x10,
+            _ => addr,
+        }
     }
 }
 
@@ -164,6 +173,32 @@ mod tests {
         }
     }
 
+    #[test]
+    fn mirror_palette() {
+        let mut mapper = init_mapper();
+
+        for i in 0..32 {
+            mapper.write_chr(0x3F00 + i, i as u8);
+            assert_eq!(mapper.read_chr(0x3F20 + i), i as u8);
+        }
+    }
+
+    #[test]
+    fn special_palette_mirroring() {
+        let mut mapper = init_mapper();
+
+        mapper.write_chr(0x3F10, 0x01);
+        assert_eq!(mapper.read_chr(0x3F00), 0x01);
+
+        mapper.write_chr(0x3F14, 0x01);
+        assert_eq!(mapper.read_chr(0x3F04), 0x01);
+
+        mapper.write_chr(0x3F18, 0x01);
+        assert_eq!(mapper.read_chr(0x3F08), 0x01);
+
+        mapper.write_chr(0x3F1C, 0x01);
+        assert_eq!(mapper.read_chr(0x3F0C), 0x01);
+    }
 
     struct FakeMapper {
 
