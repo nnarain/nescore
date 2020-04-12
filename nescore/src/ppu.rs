@@ -71,9 +71,12 @@ pub struct Ppu<Io: IoAccess> {
     ctrl: PpuCtrl,              // PPUCTRL   - Control Register
     status: RefCell<PpuStatus>, // PPUSTATUS - Status Register
     mask: PpuMask,              // PPUMASK   - Mask Register (Render controls)
-    addr: RefCell<PpuAddr>,     // PPUADDR   - VRAM Address
-    scroll: PpuScroll,          // PPUSCROLL - Scroll register
     oam_addr: RefCell<u16>,     // OAMADDR   - OAM Address
+
+    v: RefCell<PpuAddr>,     // VRAM Address
+    t: RefCell<PpuAddr>,     // Temporary VRAM Address
+    x: u8,                   // Fine X scroll
+    w: RefCell<bool>,        // Write toggle
 
     // Render pipeline hardware
     tile_reg: TileRegister,    // PPU tile shift registers
@@ -95,9 +98,12 @@ impl<Io: IoAccess> Default for Ppu<Io> {
             ctrl: PpuCtrl::default(),
             status: RefCell::new(PpuStatus::default()),
             mask: PpuMask::default(),
-            addr: RefCell::new(PpuAddr::default()),
-            scroll: PpuScroll::default(),
             oam_addr: RefCell::new(0),
+
+            v: RefCell::new(PpuAddr::default()),
+            t: RefCell::new(PpuAddr::default()),
+            x: 0,
+            w: RefCell::new(false),
 
             tile_reg: TileRegister::default(),
             pal_reg: PaletteRegister::default(),
@@ -121,8 +127,18 @@ impl<Io: IoAccess> Ppu<Io> {
                     self.status.borrow_mut().sprite0_hit = false;
                     self.status.borrow_mut().vblank = false;
                 }
+
+                if self.cycle >= 280 && self.cycle <= 304 {
+                    // At dots 280 to 304, the vertical bits of t are copied to v (if rendering)
+                    if self.mask.rendering_enabled() {
+                        self.v.borrow_mut().reload_y(self.t.borrow().value());
+                    }
+                }
+
                 // Same as a normal scanline but no output to the screen
-                self.process_scanline(self.cycle);
+                if self.mask.rendering_enabled() {
+                    self.process_scanline(self.cycle);
+                }
 
                 None
             },
@@ -140,7 +156,9 @@ impl<Io: IoAccess> Ppu<Io> {
                     None
                 };
 
-                self.process_scanline(self.cycle);
+                if self.mask.rendering_enabled() {
+                    self.process_scanline(self.cycle);
+                }
 
                 pixel
             },
@@ -164,27 +182,38 @@ impl<Io: IoAccess> Ppu<Io> {
     }
 
     // Processing a single scanline per cycle
-    fn process_scanline(&mut self, cycle: usize) {
-        match cycle {
+    fn process_scanline(&mut self, dot: usize) {
+        match dot {
             0 => {
                 // Cycle 0 is idle
             },
             1..=256 => {
                 // 4 memory accesses each taking 2 cycles
                 // In addition to all that, the sprite evaluation happens independently
-                if cycle % 8 == 0 {
-                    if cycle <= 240 {
-                        let dot = (cycle - 1) as u8;
-                        self.load_shift_registers(dot as usize, 2, self.scanline as usize);
+                if dot % 8 == 0 {
+                    if dot <= 240 {
+                        self.load_shift_registers();
+                    }
+                }
+
+                if dot == 256 {
+                    // At dot 256 the increment part of v is incremented (if rendering)
+                    if self.mask.rendering_enabled() {
+                        self.v.borrow_mut().increment_v();
                     }
                 }
             },
             257..=320 => {
                 // Cycles 257 - 320: Get tile data for sprites on next scanline
                 // Sprite eval is complete by cycle 257
-                if cycle == 257 {
+                if dot == 257 {
                     let scanline = ((self.scanline + 1) % NUM_SCANLINES) as u16;
                     self.evaluate_sprites(scanline);
+
+                    // At dot 257, the horizontal bits of t are copied to v (if rendering)
+                    if self.mask.rendering_enabled() {
+                        self.v.borrow_mut().reload_x(self.t.borrow().value());
+                    }
                 }
             },
             321..=336 => {
@@ -192,13 +221,12 @@ impl<Io: IoAccess> Ppu<Io> {
                 // accesses: 2 nametable bytes, attribute, pattern table low, pattern table high
                 let scanline = (self.scanline + 1) % NUM_SCANLINES;
 
-                if cycle % 8 == 0 {
-                    let dot = (cycle - 321) as u8;
-                    self.load_shift_registers(dot as usize, 0, scanline as usize);
+                if dot % 8 == 0 {
+                    self.load_shift_registers();
                 }
 
                 // Sprite data loading has completed by cycle 321
-                if cycle == 321 {
+                if dot == 321 {
                     self.load_sprite_data(scanline as u16);
                 }
             },
@@ -206,47 +234,34 @@ impl<Io: IoAccess> Ppu<Io> {
                 // Cycles 337 - 340
                 // Two nametable bytes are fetch, unknown purpose
             },
-            _ => panic!("Invalid cycle for scanline! {}", cycle),
+            _ => panic!("Invalid cycle for scanline! {}", dot),
         }
 
         // Tick shift register
-        match cycle {
+        match dot {
             0..=256 | 322..=335 => self.tick_shifters(),
             _ => {}
         }
     }
 
-    fn load_shift_registers(&mut self, dot: usize, tile_x: usize, scanline: usize) {
-        // Get the base scroll offset based on the specified nametable
-        let base_scroll = self.ctrl.base_scroll();
-        // Get the scroll offset as defined by the scroll register
-        let fine_scroll = self.scroll.offset();
-        let fine_scroll = (fine_scroll.0 as usize, fine_scroll.1 as usize);
-        // Calculate the "global" scroll position
-        // This is the scroll position in the 4 nametables
-        let scroll = (base_scroll.0 + fine_scroll.0 + (tile_x * 8) + dot, base_scroll.1 + fine_scroll.1 + scanline);
+    fn load_shift_registers(&mut self) {
+        let mut addr = self.v.borrow_mut();
 
-        // Determine the nametable the dot is in
-        let nametable = helpers::nametable_address_from_scroll(scroll);
-
-        // Determine tile offset
-        let coarse = ((scroll.0 / 8) % 32, (scroll.1 / 8) % 30);
-        // Determine tile index for nametable
-        let tile_idx = (coarse.1 * (TILES_PER_ROW * 1)) + coarse.0;
-
-        // Read tile number from nametable
-        let tile_no = self.read_nametable(nametable, tile_idx);
+        let tile_no = self.read_vram(addr.tile());
 
         // Read pattern from pattern table memory
-        let fine_y = (scroll.1 % 8) as u8;
-
-        let pattern = self.read_pattern(self.ctrl.background_pattern_table(), tile_no, fine_y);
+        let pattern = self.read_pattern(self.ctrl.background_pattern_table(), tile_no, addr.fine_y());
         // Fetch tile attributes
-        let attribute = self.read_attribute(coarse.1 as usize, coarse.0 as usize);
+        let attribute = self.read_attribute(addr.nametable(), addr.coarse_y() as usize, addr.coarse_x() as usize);
 
         // Load shift registers
         self.tile_reg.load(pattern);
         self.pal_reg.latch(attribute);
+
+        // Increment VRAM to the next tile
+        if self.mask.rendering_enabled() {
+            addr.increment_h();
+        }
     }
 
     fn evaluate_sprites(&mut self, scanline: u16) {
@@ -329,8 +344,9 @@ impl<Io: IoAccess> Ppu<Io> {
         self.read_vram(addr)
     }
 
-    fn read_attribute(&self, tile_row: usize, tile_col: usize) -> u8 {
-        let addr = helpers::calc_attribute_address(self.ctrl.attribute(), tile_row, tile_col);
+    fn read_attribute(&self, nametable: u16, tile_row: usize, tile_col: usize) -> u8 {
+        let table_addr = nametable + (0x400 - 0x40);
+        let addr = helpers::calc_attribute_address(table_addr, tile_row, tile_col);
         let attr = self.read_vram(addr);
 
         // Attributes are encoded as 2 bit for each quadrant, represented as:
@@ -382,14 +398,11 @@ impl<Io: IoAccess> Ppu<Io> {
     }
 
     fn apply_mux(&self) -> Pixel {
-        // Use fine X to select the pixel to render
-        let fine_x = (self.scroll.x % 8) as u8;
-
         let dot = self.cycle;
 
         // Fetch pattern and attributes from shifters
-        let bg_pattern = self.tile_reg.get_value(fine_x);
-        let bg_palette = self.pal_reg.get_value(fine_x);
+        let bg_pattern = self.tile_reg.get_value(self.x);
+        let bg_palette = self.pal_reg.get_value(self.x);
 
         let (bg_pattern, bg_palette) = if self.mask.background_enabled {
             if !self.mask.show_background_left && dot < 8 {
@@ -489,6 +502,8 @@ impl<Io: IoAccess> IoAccess for Ppu<Io> {
     fn read_byte(&self, addr: u16) -> u8 {
         match addr {
             0x2000 => {
+                // Clear the write toggle
+                *self.w.borrow_mut() = false;
                 self.ctrl.value()
             },
             0x2001 => {
@@ -513,16 +528,16 @@ impl<Io: IoAccess> IoAccess for Ppu<Io> {
                 data
             },
             0x2005 => {
-                self.scroll.x
+                self.x
             },
             // PPU Address
             0x2006 => {
-                self.addr.borrow().value() as u8
+                self.v.borrow().value() as u8
             },
             // PPU Data
             0x2007 => {
-                let data = self.read_vram(self.addr.borrow().value());
-                *self.addr.borrow_mut() += self.ctrl.vram_increment();
+                let data = self.read_vram(self.v.borrow().value());
+                *self.v.borrow_mut() += self.ctrl.vram_increment();
 
                 data
             },
@@ -536,6 +551,7 @@ impl<Io: IoAccess> IoAccess for Ppu<Io> {
             // PPU Control Register
             0x2000 => {
                 self.ctrl.load(value);
+                self.t.borrow_mut().set_nametable(value);
             },
             // PPU Mask
             0x2001 => {
@@ -554,18 +570,40 @@ impl<Io: IoAccess> IoAccess for Ppu<Io> {
             },
             // PPU Scroll
             0x2005 => {
-                self.scroll.load(value);
+                if *self.w.borrow() {
+                    // When the write toggle is set
+                    self.t.borrow_mut().set_y(value);
+                }
+                else {
+                    // When the write toggle is clear
+                    self.t.borrow_mut().set_coarse_x(value);
+                    self.x = value & 0x07;
+                }
+
+                // Toggle w
+                let w = *self.w.borrow();
+                *self.w.borrow_mut() = !w;
             },
             // PPU Address
             0x2006 => {
-                self.addr.borrow_mut().load(value as u16);
+                if *self.w.borrow() {
+                    self.t.borrow_mut().set_low_byte(value);
+                    self.v.borrow_mut().load(self.t.borrow().value());
+                }
+                else {
+                    self.t.borrow_mut().set_high_byte(value);
+                }
+
+                // Toggle w
+                let w = *self.w.borrow();
+                *self.w.borrow_mut() = !w;
             },
             // PPU Data
             0x2007 => {
-                let addr = self.addr.borrow().value();
+                let addr = self.v.borrow().value();
                 self.write_vram(addr, value);
 
-                *self.addr.borrow_mut() += self.ctrl.vram_increment();
+                *self.v.borrow_mut() += self.ctrl.vram_increment();
             }
             _ => {
                 // FIXME: OAM DMA
@@ -644,17 +682,6 @@ mod helpers {
             (0, 0, 0)
         }
     }
-
-    pub fn nametable_address_from_scroll(scroll: (usize, usize)) -> u16 {
-        const BASE_NAMETABLE_ADDRESS: usize = 0x2000;
-
-        // The horizontal nametables are $400 apart ($2000 -> $2400)
-        let horizontal_offset = ((scroll.0 >= 256) as usize) * 0x400;
-        // The vertical nametables are $400 apart ($2000 -> $2400)
-        let vertical_offset = ((scroll.1 >= 240) as usize) * 0x800;
-
-        (BASE_NAMETABLE_ADDRESS + horizontal_offset + vertical_offset) as u16
-    }
 }
 
 //----------------------------------------------------------------------------------------------------------------------
@@ -664,14 +691,6 @@ mod helpers {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn nametable_from_scroll() {
-        assert_eq!(helpers::nametable_address_from_scroll((0, 0)), 0x2000);
-        assert_eq!(helpers::nametable_address_from_scroll((256, 0)), 0x2400);
-        assert_eq!(helpers::nametable_address_from_scroll((0, 240)), 0x2800);
-        assert_eq!(helpers::nametable_address_from_scroll((256, 240)), 0x2C00);
-    }
 
     #[test]
     fn mux() {
@@ -721,52 +740,6 @@ mod tests {
         }
 
         assert_eq!(pixel_counter, DISPLAY_WIDTH * DISPLAY_HEIGHT);
-    }
-
-    // TODO: Would like to get this test working..
-    #[test]
-    #[ignore]
-    fn corner() {
-        // Place a pixel at the bottom right corner of the visible area
-        let mut ppu = init_ppu();
-
-        // Clear scroll
-        ppu.write_byte(0x2005, 0);
-        ppu.write_byte(0x2005, 0);
-
-        // Write pattern into pattern table
-        ppu.write_vram(0x0017, 0x01);
-        ppu.write_vram(0x001F, 0x00);
-
-        // Write into nametable
-        ppu.write_vram(0x23BF, 0x01);
-        // Write attribute - Top Left - Background Palette 1
-        ppu.write_vram(0x23C0, 0x01);
-        // Set first color in Background Palette 1
-        ppu.write_vram(0x3F05, 0x01);
-
-        // Pre-render
-        for _ in 0..CYCLES_PER_SCANLINE {
-            let pixel = ppu.tick();
-            assert!(pixel.is_none());
-        }
-
-        // All scanlines minus 1
-        for _ in 0..(239 * CYCLES_PER_SCANLINE) {
-            ppu.tick();
-        }
-
-        // Last scanline expect last pixel
-        for _ in 0..255 {
-            ppu.tick();
-        }
-
-        // Get the last pixel
-        let pixel = ppu.tick();
-
-        // The color of the pixel should be the index one of the color table
-        let color = pixel.unwrap();
-        assert_eq!(color, helpers::color_to_pixel(COLOR_INDEX_TO_RGB[0x01]), "Color was: RGB{:?}", color);
     }
 
     #[test]
