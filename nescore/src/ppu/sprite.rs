@@ -40,6 +40,14 @@ impl Sprite {
     pub fn flip_h(&self) -> bool {
         bit_is_set!(self.attr, 6)
     }
+
+    pub fn pattern_table_8x16(&self) -> u16 {
+        (self.tile & 0x01) as u16 * 0x1000
+    }
+
+    pub fn tile_number_8x16(&self) -> u8 {
+        self.tile & 0xFE
+    }
 }
 
 #[cfg(test)]
@@ -74,5 +82,14 @@ mod tests {
         let sprite = Sprite::from(&data[..], 0);
 
         assert_eq!(sprite.y, 256);
+    }
+
+    #[test]
+    fn sprite_8x16_mode() {
+        let data: [u8; 4] = [0, 0x0F, 0, 0];
+        let sprite = Sprite::from(&data[..], 0);
+
+        assert_eq!(sprite.pattern_table_8x16(), 0x1000);
+        assert_eq!(sprite.tile_number_8x16(), 0x0E);
     }
 }

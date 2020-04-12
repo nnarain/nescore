@@ -302,13 +302,6 @@ impl<Io: IoAccess> Ppu<Io> {
             if let Some(ref sprite) = sprite {
                 let sprite_height = self.ctrl.sprite_height();
 
-                let base = if sprite_height == 16 {
-                    0x0000
-                }
-                else {
-                    self.ctrl.sprite_pattern_table()
-                };
-
                 // Determine fine y for vertical flipping
                 let fine_y = if !sprite.flip_v() {
                     (scanline - sprite.y) as u8
@@ -317,7 +310,24 @@ impl<Io: IoAccess> Ppu<Io> {
                     (sprite_height - 1) - (scanline - sprite.y) as u8
                 };
 
-                let pattern = self.read_pattern(base, sprite.tile, fine_y);
+                // In 8x16 mode the PPU ignores the sprite pattern table selection in the CTRL register
+                // The table selection instead comes from the first bit of the sprite's tile attribute
+                // The tile number selection is then the upper bits of the tile attribute (upper tile)
+                // the bottom tile is the next one
+                // Re-adjusting the fine y will also be necessary
+                let (pattern_table, tile, fine_y) = if sprite_height == 16 {
+                    let bottom_tile = fine_y > 7;
+                    (
+                        sprite.pattern_table_8x16(),
+                        sprite.tile_number_8x16() + if bottom_tile { 1 } else { 0 },
+                        fine_y - if bottom_tile { 8 } else { 0 }
+                    )
+                }
+                else {
+                    (self.ctrl.sprite_pattern_table(), sprite.tile, fine_y)
+                };
+
+                let pattern = self.read_pattern(pattern_table, tile, fine_y);
 
                 // Reverse bit pattern if the sprite is horizontally flipped
                 let pattern = if sprite.flip_h() {
@@ -368,7 +378,6 @@ impl<Io: IoAccess> Ppu<Io> {
     }
 
     fn read_pattern(&self, base: u16, tile_no: u8, fine_y: u8) -> (u8, u8) {
-        // TODO: Sprite size 16?
         let tile_no = tile_no as u16;
         // 16 bytes per tile
         let tile_offset = (tile_no * 16) + fine_y as u16;
