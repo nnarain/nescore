@@ -671,25 +671,37 @@ mod helpers {
 
     // Determine the pixel priority given the background and sprite data
     pub fn pixel_mux(bg_pattern: (u8, u8), sp_pattern: (u8, u8), sp_priority: bool) -> (u8, u8, u8) {
-        if bg_pattern.0 == 0 && sp_pattern.0 == 0 {
+        let bg_opaque = bg_pattern.0 > 0;
+        let sp_opaque = sp_pattern.0 > 0;
+
+        if !bg_opaque && !sp_opaque {
             (0x00, 0x00, 0x00)
         }
-        else if bg_pattern.0 == 0 && sp_pattern.0 > 0 {
+        else if !bg_opaque && sp_opaque {
             (sp_pattern.0, sp_pattern.1, 0x10)
         }
-        else if bg_pattern.0 > 0 && sp_pattern.0 == 0 {
-            (bg_pattern.0, bg_pattern.1, 0x00)
-        }
-        else if bg_pattern.0 > 0 && sp_pattern.0 > 0 && !sp_priority {
-            (sp_pattern.0, sp_pattern.1, 0x10)
-        }
-        else if bg_pattern.0 > 0 && sp_pattern.0 > 0 && sp_priority {
+        else if bg_opaque && !sp_opaque {
             (bg_pattern.0, bg_pattern.1, 0x00)
         }
         else {
-            // Should not get here
-            (0, 0, 0)
+            if !sp_priority {
+                (sp_pattern.0, sp_pattern.1, 0x10)
+            }
+            else {
+                (bg_pattern.0, bg_pattern.1, 0x00)
+            }
         }
+
+        // else if bg_opaque && sp_opaque && !sp_priority {
+        //     (sp_pattern.0, sp_pattern.1, 0x10)
+        // }
+        // else if bg_opaque && sp_opaque && sp_priority {
+        //     (bg_pattern.0, bg_pattern.1, 0x00)
+        // }
+        // else {
+        //     // Should not get here
+        //     (0, 0, 0)
+        // }
     }
 }
 

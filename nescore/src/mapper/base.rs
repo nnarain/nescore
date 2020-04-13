@@ -83,8 +83,7 @@ impl<Mapper: MapperControl> MapperBase<Mapper> {
             addr
         }
         else {
-            let mirror_type = self.get_mirroring_type();
-            helpers::calc_nametable_addr(addr, mirror_type)
+            helpers::calc_nametable_addr(addr, self.get_mirroring_type())
         }
     }
 
@@ -107,13 +106,15 @@ mod helpers {
         match mirror_type {
             Mirroring::Vertical => {
                 match addr {
-                    0x2000..=0x27FF => addr + 0x800,
+                    // 0x2000..=0x27FF => addr + 0x800,
+                    0x2800..=0x2FFF => addr - 0x800,
                     _ => addr,
                 }
             },
             Mirroring::Horizontal => {
                 match addr {
-                    0x2000..=0x23FF | 0x2800..=0x2BFF => addr + 0x400,
+                    // 0x2000..=0x23FF | 0x2800..=0x2BFF => addr + 0x400,
+                    0x2400..=0x27FF | 0x2C00..=0x2FFF => addr - 0x400,
                     _ => addr,
                 }
             },
