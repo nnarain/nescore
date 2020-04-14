@@ -451,8 +451,11 @@ impl<Io: IoAccess> Ppu<Io> {
         // Fetch color from palette
         let color = self.read_vram(0x3F00 + palette_offset as u16) as usize;
 
-        // TODO: Color emphasis
-        // TODO: Grey Scale
+        // Apply grey scale if applicable
+        // Four rows of colors in the palette: $00, $10, $20, $30.
+        // The first colors in the row are the grey colors
+        let color = if self.mask.greyscale { color & 0x30 } else { color };
+
         helpers::color_to_pixel(COLOR_INDEX_TO_RGB[color])
     }
 
