@@ -14,8 +14,10 @@ const NAMETABLE_RAM_SIZE: usize = kb!(4);
 pub struct MapperBase<Mapper: MapperControl> {
     mapper: Mapper,
 
-    // VRAM
-    nametable_ram: [u8; NAMETABLE_RAM_SIZE],
+    // Nametable memory
+    // Large enough for 4 nametables if mirroring is disabled
+    // Normally, only the buffer 2 buffers are used, 1kb apart
+    nametable_buffer: [u8; NAMETABLE_RAM_SIZE],
     palette_ram: [u8; 32],
     mirror_v: bool,
     four_screen: bool,
@@ -30,7 +32,7 @@ impl<Mapper: MapperControl + From<Cartridge>> From<Cartridge> for MapperBase<Map
             mapper: Mapper::from(cart),
 
             // VRAM
-            nametable_ram: [0; NAMETABLE_RAM_SIZE],
+            nametable_buffer: [0; NAMETABLE_RAM_SIZE],
             palette_ram: [0; 32],
             mirror_v,
             four_screen,
@@ -56,8 +58,8 @@ impl<Mapper: MapperControl> MapperControl for MapperBase<Mapper> {
     fn read_chr(&self, addr: u16) -> u8 {
         match addr {
             0x0000..=0x1FFF => self.mapper.read_chr(addr),
-            0x2000..=0x2FFF => self.nametable_ram[(self.apply_mirroring(addr) - 0x2000) as usize],
-            0x3000..=0x3EFF => self.nametable_ram[(self.apply_mirroring(addr - 0x1000) - 0x2000) as usize],
+            0x2000..=0x2FFF => self.nametable_buffer[self.apply_mirroring(addr)],
+            0x3000..=0x3EFF => self.nametable_buffer[self.apply_mirroring(addr - 0x1000)],
             0x3F00..=0x3F1F => self.palette_ram[(self.mirror_palette(addr) as usize) - 0x3F00],
             0x3F20..=0x3FFF => self.palette_ram[(self.mirror_palette(addr - 0x20) as usize) - 0x3F00],
             _ => panic!("Invalid address for VRAM: ${:04X}", addr),
@@ -67,8 +69,8 @@ impl<Mapper: MapperControl> MapperControl for MapperBase<Mapper> {
     fn write_chr(&mut self, addr: u16, value: u8) {
         match addr {
             0x0000..=0x1FFF => self.mapper.write_chr(addr, value),
-            0x2000..=0x2FFF => self.nametable_ram[(self.apply_mirroring(addr) - 0x2000) as usize] = value,
-            0x3000..=0x3EFF => self.nametable_ram[(self.apply_mirroring(addr - 0x1000) - 0x2000) as usize] = value,
+            0x2000..=0x2FFF => self.nametable_buffer[self.apply_mirroring(addr)] = value,
+            0x3000..=0x3EFF => self.nametable_buffer[self.apply_mirroring(addr - 0x1000)] = value,
             0x3F00..=0x3F1F => self.palette_ram[(self.mirror_palette(addr) as usize) - 0x3F00] = value & 0x3F,
             0x3F20..=0x3FFF => self.palette_ram[(self.mirror_palette(addr - 0x20) as usize) - 0x3F00] = value & 0x3F,
             _ => panic!("Invalid address for VRAM: ${:04X}", addr),
@@ -77,14 +79,13 @@ impl<Mapper: MapperControl> MapperControl for MapperBase<Mapper> {
 }
 
 impl<Mapper: MapperControl> MapperBase<Mapper> {
-    fn apply_mirroring(&self, addr: u16) -> u16 {
+    fn apply_mirroring(&self, addr: u16) -> usize {
         if self.four_screen {
             // In Four Screen Mode, mirroring is disabled
-            addr
+            addr as usize
         }
         else {
-            let mirror_type = self.get_mirroring_type();
-            helpers::calc_nametable_addr(addr, mirror_type)
+            helpers::calc_nametable_idx(addr, self.get_mirroring_type())
         }
     }
 
@@ -103,30 +104,34 @@ impl<Mapper: MapperControl> MapperBase<Mapper> {
 mod helpers {
     use super::Mirroring;
 
-    pub fn calc_nametable_addr(addr: u16, mirror_type: Mirroring) -> u16 {
-        match mirror_type {
+    /// Determine the index into the nametable buffer
+    /// Horizontal mirroring - A vertical arrangement of nametable buffers
+    /// Vertical mirroring - A horizontal arrangement of nametable buffers
+    pub fn calc_nametable_idx(addr: u16, mirror_type: Mirroring) -> usize {
+        let idx = (addr & 0x03FF) as usize;
+
+        // Get the buffer offset
+        let offset = match mirror_type {
             Mirroring::Vertical => {
                 match addr {
-                    0x2000..=0x27FF => addr + 0x800,
-                    _ => addr,
+                    0x2000..=0x23FF | 0x2800..=0x2BFF => 0,
+                    0x2400..=0x27FF | 0x2C00..=0x2FFF => kb!(1),
+                    _ => panic!("Invalid address for nametable"),
                 }
             },
             Mirroring::Horizontal => {
                 match addr {
-                    0x2000..=0x23FF | 0x2800..=0x2BFF => addr + 0x400,
-                    _ => addr,
+                    0x2000..=0x23FF | 0x2400..=0x27FF => 0,
+                    0x2800..=0x2BFF | 0x2C00..=0x2FFF => kb!(1),
+                    _ => panic!("Invalid address for nametable"),
                 }
             },
             Mirroring::OneScreenLower | Mirroring::OneScreenUpper => {
-                match addr {
-                    0x2000..=0x23FF => addr,
-                    0x2400..=0x27FF => addr - 0x400,
-                    0x2800..=0x2BFF => addr - 0x800,
-                    0x2C00..=0x2FFF => addr - 0xC00,
-                    _ => unreachable!(),
-                }
+                0
             }
-        }
+        };
+
+        offset + idx
     }
 }
 
@@ -137,26 +142,26 @@ mod tests {
 
     #[test]
     fn horizontal_mirroring() {
-        assert_eq!(helpers::calc_nametable_addr(0x2000, Mirroring::Horizontal), 0x2400);
-        assert_eq!(helpers::calc_nametable_addr(0x2400, Mirroring::Horizontal), 0x2400);
-        assert_eq!(helpers::calc_nametable_addr(0x2800, Mirroring::Horizontal), 0x2C00);
-        assert_eq!(helpers::calc_nametable_addr(0x2C00, Mirroring::Horizontal), 0x2C00);
+        assert_eq!(helpers::calc_nametable_idx(0x2000, Mirroring::Horizontal), 0);
+        assert_eq!(helpers::calc_nametable_idx(0x2400, Mirroring::Horizontal), 0);
+        assert_eq!(helpers::calc_nametable_idx(0x2800, Mirroring::Horizontal), kb!(1));
+        assert_eq!(helpers::calc_nametable_idx(0x2C00, Mirroring::Horizontal), kb!(1));
     }
 
     #[test]
     fn vertical_mirroring() {
-        assert_eq!(helpers::calc_nametable_addr(0x2000, Mirroring::Vertical), 0x2800);
-        assert_eq!(helpers::calc_nametable_addr(0x2800, Mirroring::Vertical), 0x2800);
-        assert_eq!(helpers::calc_nametable_addr(0x2400, Mirroring::Vertical), 0x2C00);
-        assert_eq!(helpers::calc_nametable_addr(0x2C00, Mirroring::Vertical), 0x2C00);
+        assert_eq!(helpers::calc_nametable_idx(0x2000, Mirroring::Vertical), 0);
+        assert_eq!(helpers::calc_nametable_idx(0x2400, Mirroring::Vertical), kb!(1));
+        assert_eq!(helpers::calc_nametable_idx(0x2800, Mirroring::Vertical), 0);
+        assert_eq!(helpers::calc_nametable_idx(0x2C00, Mirroring::Vertical), kb!(1));
     }
 
     #[test]
     fn one_screen_mirroring() {
-        assert_eq!(helpers::calc_nametable_addr(0x2000, Mirroring::OneScreenLower), 0x2000);
-        assert_eq!(helpers::calc_nametable_addr(0x2400, Mirroring::OneScreenLower), 0x2000);
-        assert_eq!(helpers::calc_nametable_addr(0x2800, Mirroring::OneScreenLower), 0x2000);
-        assert_eq!(helpers::calc_nametable_addr(0x2C00, Mirroring::OneScreenLower), 0x2000);
+        assert_eq!(helpers::calc_nametable_idx(0x2000, Mirroring::OneScreenLower), 0);
+        assert_eq!(helpers::calc_nametable_idx(0x2400, Mirroring::OneScreenLower), 0);
+        assert_eq!(helpers::calc_nametable_idx(0x2800, Mirroring::OneScreenLower), 0);
+        assert_eq!(helpers::calc_nametable_idx(0x2C00, Mirroring::OneScreenLower), 0);
     }
 
     #[test]
