@@ -691,17 +691,6 @@ mod helpers {
                 (bg_pattern.0, bg_pattern.1, 0x00)
             }
         }
-
-        // else if bg_opaque && sp_opaque && !sp_priority {
-        //     (sp_pattern.0, sp_pattern.1, 0x10)
-        // }
-        // else if bg_opaque && sp_opaque && sp_priority {
-        //     (bg_pattern.0, bg_pattern.1, 0x00)
-        // }
-        // else {
-        //     // Should not get here
-        //     (0, 0, 0)
-        // }
     }
 }
 
