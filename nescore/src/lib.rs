@@ -13,7 +13,7 @@ mod mapper;
 mod joy;
 
 pub mod cart;
-pub use cart::Cartridge;
+pub use cart::{Cartridge, CartridgeLoader};
 pub use ppu::{DISPLAY_WIDTH, DISPLAY_HEIGHT};
 pub use joy::{Controller, Button};
 
@@ -155,6 +155,17 @@ impl Nes {
         self.ppu.borrow_mut().load_bus(ppu_bus);
 
         self.mapper = Some(mapper);
+    }
+
+    /// Eject the cartridge, returning the save state
+    /// ```
+    /// # use nescore::Nes;
+    /// let nes = Nes::default();
+    /// // This consumes the nes instance
+    /// let battery_ram = nes.eject();
+    /// ```
+    pub fn eject(self) -> Vec<u8> {
+        self.mapper.map_or(vec![], |mapper| mapper.borrow().get_battery_ram())
     }
 
     //------------------------------------------------------------------------------------------------------------------

@@ -76,6 +76,11 @@ impl<Mapper: MapperControl> MapperControl for MapperBase<Mapper> {
             _ => panic!("Invalid address for VRAM: ${:04X}", addr),
         }
     }
+
+    /// Return a copy of battery backed RAM
+    fn get_battery_ram(&self) -> Vec<u8> {
+        self.mapper.get_battery_ram()
+    }
 }
 
 impl<Mapper: MapperControl> MapperBase<Mapper> {
@@ -165,6 +170,19 @@ mod tests {
     }
 
     #[test]
+    fn battery_ram() {
+        let mut mapper = init_mapper();
+
+        mapper.write(0x6000, 0xDE);
+        mapper.write(0x7FFF, 0xAD);
+
+        let battery_ram = mapper.get_battery_ram();
+
+        assert_eq!(battery_ram[0], 0xDE);
+        assert_eq!(battery_ram[battery_ram.len()-1], 0xAD);
+    }
+
+    #[test]
     fn nametable_mirroring() {
         let mut mapper = init_mapper();
 
@@ -206,20 +224,26 @@ mod tests {
     }
 
     struct FakeMapper {
-
+        ram: [u8; kb!(32)],
     }
 
     #[allow(unused)]
     impl MapperControl for FakeMapper {
-        fn read(&self, addr: u16) -> u8 {0}
+        fn read(&self, addr: u16) -> u8 {
+            self.ram[addr as usize]
+        }
         fn read_chr(&self, addr: u16) -> u8 {0}
-        fn write(&mut self, addr: u16, data: u8) {}
+        fn write(&mut self, addr: u16, data: u8) {
+            self.ram[addr as usize] = data;
+        }
         fn write_chr(&mut self, addr: u16, value: u8) {}
     }
 
     impl From<Cartridge> for FakeMapper {
         fn from(_: Cartridge) -> Self {
-            FakeMapper{}
+            FakeMapper{
+                ram: [0; kb!(32)],
+            }
         }
     }
 
@@ -227,7 +251,7 @@ mod tests {
         let header = init_header(1, 1);
         let info = CartridgeInfo::from(&header[..]).unwrap();
 
-        let cart = Cartridge::from_parts(info, vec![0; kb!(16)], vec![0; kb!(8)]);
+        let cart = Cartridge::from_parts(info, vec![0; kb!(16)], vec![0; kb!(8)], vec![]);
         MapperBase::<FakeMapper>::from(cart)
     }
 

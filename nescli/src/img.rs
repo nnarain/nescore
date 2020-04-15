@@ -109,7 +109,7 @@ fn pattern_to_color(pattern: u8) -> (u8, u8, u8) {
 }
 
 pub fn dispatch(opts: Options) {
-    let (_, _, chr_rom) = Cartridge::from_path(&opts.rom).unwrap().to_parts();
+    let (_, _, chr_rom, _) = Cartridge::from_path(&opts.rom).unwrap().to_parts();
 
     // Create a tile provider to iterate over tile data
     let provider = TileProvider::from(chr_rom);

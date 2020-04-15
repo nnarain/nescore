@@ -47,8 +47,9 @@ impl fmt::Debug for ParseError {
 
 #[derive(Debug)]
 pub enum CartridgeError {
-    FailedToOpen(io::Error),
-    FailedToLoad(io::Error),
+    // FailedToOpen(io::Error),
+    // FailedToLoad(io::Error),
+    ReadFail(io::Error),
     InvalidRom(ParseError),
 }
 
@@ -125,6 +126,7 @@ pub struct Cartridge {
     pub info: CartridgeInfo,
     prg_rom: Vec<u8>,
     chr_rom: Vec<u8>,
+    bat_ram: Vec<u8>,
 }
 
 // TODO: Handling Result for failed ROM loading
@@ -146,38 +148,102 @@ impl Cartridge {
             // Get a slice for the character ROM
             let chr_rom = rom[(prg_rom_offset+prg_rom_size)..(prg_rom_offset+prg_rom_size+chr_rom_size)].to_vec();
 
-            Ok(Cartridge::from_parts(info, prg_rom, chr_rom))
+            Ok(Cartridge::from_parts(info, prg_rom, chr_rom, vec![]))
         })
     }
 
     pub fn from_path(path: &str) -> Result<Cartridge, CartridgeError> {
-        match File::open(path) {
-            Ok(ref mut file) => {
-                let mut buffer: Vec<u8> = Vec::new();
-
-                match file.read_to_end(&mut buffer) {
-                    Ok(_) => Cartridge::from(buffer),
-                    Err(e) => Err(CartridgeError::FailedToLoad(e)),
-                }
-            },
-            Err(e) => {
-                Err(CartridgeError::FailedToOpen(e))
-            }
-        }
+        load_file(path)
+            .map_err(|e| CartridgeError::ReadFail(e))
+            .and_then(|rom| Cartridge::from(rom))
     }
 
     /// Construct a Cartridge from parts
-    pub fn from_parts(info: CartridgeInfo, prg_rom: Vec<u8>, chr_rom: Vec<u8>) -> Self {
+    pub fn from_parts(info: CartridgeInfo, prg_rom: Vec<u8>, chr_rom: Vec<u8>, bat_ram: Vec<u8>) -> Self {
         Cartridge {
             info,
             prg_rom,
             chr_rom,
+            bat_ram,
         }
     }
 
     /// Comsume the cartridge and return the info, program ROM and character ROM
-    pub fn to_parts(self) -> (CartridgeInfo, Vec<u8>, Vec<u8>) {
-        (self.info, self.prg_rom, self.chr_rom)
+    pub fn to_parts(self) -> (CartridgeInfo, Vec<u8>, Vec<u8>, Vec<u8>) {
+        (self.info, self.prg_rom, self.chr_rom, self.bat_ram)
+    }
+
+    pub fn add_battery_ram(mut self, batt: Vec<u8>) -> Self {
+        self.bat_ram = batt;
+        self
+    }
+}
+
+#[derive(Debug)]
+pub enum LoaderError {
+    NoRomProvided,
+    LoadCartridge(CartridgeError),
+    LoadSave(io::Error),
+}
+
+/// Catridge Loader Helper
+#[derive(Default)]
+pub struct CartridgeLoader {
+    rom_path: Option<String>,
+    sav_path: Option<String>,
+}
+
+impl CartridgeLoader {
+    pub fn load(self) -> Result<Cartridge, LoaderError> {
+        let cart_result = self.rom_path
+            .map_or(Err(LoaderError::NoRomProvided), |path| {
+                load_file(&path)
+                    .map_err(|e| CartridgeError::ReadFail(e))
+                    .and_then(|rom| Cartridge::from(rom))
+                    .map_err(|e| LoaderError::LoadCartridge(e))
+            });
+
+        // This.. This could probably be better...
+        match cart_result {
+            Ok(cart) => {
+                match self.sav_path {
+                    Some(path) => {
+                        match load_file(&path) {
+                            Ok(buf) => {
+                                Ok(cart.add_battery_ram(buf))
+                            },
+                            Err(_) => Ok(cart),
+                        }
+                    },
+                    None => Ok(cart),
+                }
+            },
+            Err(e) => Err(e),
+        }
+    }
+
+    pub fn rom_path(mut self, path: &String) -> Self {
+        self.rom_path = Some(path.clone());
+        self
+    }
+
+    pub fn save_path(mut self, path: &String) -> Self {
+        self.sav_path = Some(path.clone());
+        self
+    }
+}
+
+fn load_file(path: &str) -> Result<Vec<u8>, io::Error> {
+    match File::open(path) {
+        Ok(ref mut file) => {
+            let mut buffer: Vec<u8> = Vec::new();
+
+            match file.read_to_end(&mut buffer) {
+                Ok(_) => Ok(buffer),
+                Err(e) => Err(e),
+            }
+        },
+        Err(e) => Err(e),
     }
 }
 

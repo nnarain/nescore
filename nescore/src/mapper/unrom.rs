@@ -46,7 +46,7 @@ pub struct Unrom {
 impl From<Cartridge> for Unrom {
     fn from(cart: Cartridge) -> Self {
         // Extract info and ROM data, VROM is unused
-        let (_, prg_rom, _) = cart.to_parts();
+        let (_, prg_rom, _, _) = cart.to_parts();
 
         Unrom{
             prg_rom: Memory::new(prg_rom, PRG_ROM_BANK_SIZE),

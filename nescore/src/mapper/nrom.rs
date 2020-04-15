@@ -25,16 +25,27 @@ pub struct Nrom {
 
 impl From<Cartridge> for Nrom {
     fn from(cart: Cartridge) -> Self {
-        let (info, prg_rom, chr_rom) = cart.to_parts();
+        let (info, prg_rom, chr_rom, sav_ram) = cart.to_parts();
 
         let mut chr_rom_arr = [0x0u8; CHR_DATA_SIZE];
         for (i, byte) in chr_rom.iter().enumerate() {
             chr_rom_arr[i] = *byte;
         }
 
+        // Copy sav ram to prg ram
+        let mut prg_ram = [0u8; PRG_RAM_SIZE];
+        for (i, b) in prg_ram.iter_mut().enumerate() {
+            *b = if i < sav_ram.len() {
+                sav_ram[i]
+            }
+            else {
+                0
+            };
+        }
+
         Nrom {
             prg_rom: Memory::new(prg_rom, PRG_ROM_BANK_SIZE),
-            prg_ram: [0; PRG_RAM_SIZE],
+            prg_ram: prg_ram,
             chr_data: chr_rom_arr,
             mirror_rom: info.prg_rom_banks == 1,
         }
