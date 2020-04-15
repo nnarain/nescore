@@ -46,7 +46,7 @@ pub struct Mmc1 {
 
 impl From<Cartridge> for Mmc1 {
     fn from(cart: Cartridge) -> Self {
-        let (_, prg_rom, chr_rom) = cart.to_parts();
+        let (_, prg_rom, chr_rom, sav_ram) = cart.to_parts();
 
         // If no CHR ROM is provided, use 8Kb of CHR RAM
         let chr_data = if chr_rom.len() == 0 {
@@ -56,9 +56,20 @@ impl From<Cartridge> for Mmc1 {
             chr_rom
         };
 
+        // Copy sav ram to prg ram
+        let mut prg_ram = [0u8; PRG_RAM_SIZE];
+        for (i, b) in prg_ram.iter_mut().enumerate() {
+            *b = if i < sav_ram.len() {
+                sav_ram[i]
+            }
+            else {
+                0
+            };
+        }
+
         Mmc1{
             prg_rom: Memory::new(prg_rom, PRG_ROM_BANK_SIZE),
-            prg_ram: [0; PRG_RAM_SIZE],
+            prg_ram: prg_ram,
             chr_data: Memory::new(chr_data, CHR_ROM_BANK_SIZE),
 
             shift_register: SHIFT_REGISTER_INIT_VALUE,

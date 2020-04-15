@@ -38,6 +38,10 @@ pub trait MapperControl {
     fn write_chr(&mut self, addr: u16, value: u8);
 
     fn mirroring(&self) -> Option<Mirroring> { None }
+
+    fn get_battery_ram(&self) -> Vec<u8> {
+        (0x6000..0x8000).map(|addr| self.read(addr)).collect()
+    }
 }
 
 pub type Mapper = Rc<RefCell<dyn MapperControl>>;

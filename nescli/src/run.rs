@@ -13,8 +13,11 @@ use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use std::time::Duration;
 
-use nescore::{Nes, Cartridge, Button};
+use nescore::{Nes, CartridgeLoader, Button};
 use nescore::{DISPLAY_WIDTH, DISPLAY_HEIGHT};
+
+use std::io::prelude::*;
+use std::fs::File;
 
 const WINDOW_WIDTH: u32 = 800;
 const WINDOW_HEIGHT: u32 = 600;
@@ -46,9 +49,14 @@ fn map_nes_key(keycode: Keycode) -> Option<Button> {
 }
 
 pub fn dispatch(opts: Options) {
-    let mut nes = Cartridge::from_path(&opts.rom)
-                  .map(|cart| Nes::default().with_cart(cart).debug_mode(opts.debug))
-                  .unwrap();
+    let save_file_path = format!("{}.sav", &opts.rom);
+
+    let mut nes = CartridgeLoader::default()
+                        .rom_path(&opts.rom)
+                        .save_path(&save_file_path)
+                        .load()
+                        .map(|cart| Nes::default().with_cart(cart).debug_mode(opts.debug))
+                        .unwrap();
 
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
@@ -106,5 +114,14 @@ pub fn dispatch(opts: Options) {
         canvas.present();
 
         std::thread::sleep(Duration::from_millis(16));
+    }
+
+    // Write the save file
+    match File::create(&save_file_path) {
+        Ok(ref mut file) => {
+            let save_buffer = nes.eject();
+            file.write_all(&save_buffer[..]).unwrap();
+        },
+        Err(e) => println!("{}", e),
     }
 }
