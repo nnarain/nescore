@@ -1,9 +1,11 @@
-# NES
+# NES Core
 
 [![Build Status](https://github.com/nnarain/nes/workflows/Build/badge.svg)](https://github.com/nnarain/nes/actions)
 [![codecov](https://codecov.io/gh/nnarain/nes/branch/develop/graph/badge.svg)](https://codecov.io/gh/nnarain/nes)
 
 NES emulator and tools
+
+![Image not found](docs/images/banner.png)
 
 Build
 -----
@@ -33,16 +35,18 @@ fn main() {
     let cart = Cartridge::from_path("/path/to/rom.nes").unwrap();
     let mut nes = Nes::default().with_cart(cart);
 
-    // Run the NES for a single frame. Audio is TODO
+    // Run the NES for a single frame and return video buffer. Audio is TODO
     let framebuffer = nes.emulate_frame();
 
-    // Standard controller input
+    // Standard controller input: Press the 'A' button
     nes.input(Button::A, true);
 
     // Update display on platform of your choice
     // ...
 }
 ```
+
+Check out `nescli` for a full SDL example.
 
 nescli
 ------
