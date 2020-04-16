@@ -2,7 +2,6 @@
 **/*.rs.bk
 Cargo.lock
 roms/*
-docs/wiki/*
 
 *.log
 *.png
