@@ -4,4 +4,3 @@ Cargo.lock
 roms/*
 
 *.log
-*.png
