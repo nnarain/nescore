@@ -86,9 +86,7 @@ pub struct PpuMask {
     pub show_sprites_left: bool,    // Show sprites in left most 8 pixels of the screen
     pub background_enabled: bool,   // Show background
     pub sprites_enabled: bool,      // Show sprites
-    pub emphasize_red: bool,        // Emphasize Red
-    pub emphasize_green: bool,      // Emphasize Green
-    pub emphasize_blue: bool,       // Emphasize Blue
+    pub pal_idx: usize,                    // Palette index, given the emphasis bits
 }
 
 impl Register<u8> for PpuMask {
@@ -98,9 +96,7 @@ impl Register<u8> for PpuMask {
         self.show_sprites_left = bit_is_set!(value, 2);
         self.background_enabled = bit_is_set!(value, 3);
         self.sprites_enabled = bit_is_set!(value, 4);
-        self.emphasize_red = bit_is_set!(value, 5);
-        self.emphasize_green = bit_is_set!(value, 6);
-        self.emphasize_blue = bit_is_set!(value, 7);
+        self.pal_idx = bit_group!(value, 0x07, 5) as usize;
     }
 
     fn value(&self) -> u8 {
@@ -109,9 +105,7 @@ impl Register<u8> for PpuMask {
         | (self.show_sprites_left as u8) << 2
         | (self.background_enabled as u8) << 3
         | (self.sprites_enabled as u8) << 4
-        | (self.emphasize_red as u8) << 5
-        | (self.emphasize_green as u8) << 6
-        | (self.emphasize_blue as u8) << 7
+        | (self.pal_idx as u8) << 5
     }
 }
 
@@ -344,9 +338,7 @@ mod tests {
         assert_eq!(mask.show_sprites_left, true);
         assert_eq!(mask.background_enabled, true);
         assert_eq!(mask.sprites_enabled, true);
-        assert_eq!(mask.emphasize_red, true);
-        assert_eq!(mask.emphasize_blue, true);
-        assert_eq!(mask.emphasize_green, true);
+        assert_eq!(mask.pal_idx, 0x07);
     }
 
     #[test]

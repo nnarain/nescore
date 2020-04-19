@@ -25,23 +25,6 @@ pub const DISPLAY_WIDTH: usize = 256;
 pub const DISPLAY_HEIGHT: usize = 240;
 pub const CYCLES_PER_FRAME: usize = NUM_SCANLINES * CYCLES_PER_SCANLINE;
 
-
-// Palette from http://wiki.nesdev.com/w/index.php/PPU_palettes
-const COLOR_INDEX_TO_RGB: [u32; 64] = [
-    0x656565, 0x002D69, 0x131F7F, 0x3C137C, 0x600B62, 0x730A37, 0x710F07, 0x5A1A00,
-    0x342800, 0x0B3400, 0x003C00, 0x003D10, 0x003840, 0x000000, 0x000000, 0x000000,
-
-    0xAEAEAE, 0x0F63B3, 0x4051D0, 0x7841CC, 0xA736A9, 0xC03470, 0xBD3C30, 0x9F4A00,
-    0x6D5C00, 0x366D00, 0x077704, 0x00793D, 0x00727D, 0x000000, 0x000000, 0x000000,
-
-    0xFEFEFF, 0x5DB3FF, 0x8FA1FF, 0xC890FF, 0xF785FA, 0xFF83C0, 0xFF8B7F, 0xEF9A49,
-    0xBDAC2C, 0x85BC2F, 0x55C753, 0x3CC98C, 0x3EC2CD, 0x4E4E4E, 0x000000, 0x000000,
-
-    0xFEFEFF, 0xBCDFFF, 0xD1D8FF, 0xE8D1FF, 0xFBCDFD, 0xFFCCE5, 0xFFCFCA, 0xF8D5B4,
-    0xF8D5B4, 0x85BC2F, 0xB9E8B8, 0xAEE8D0, 0xAFE5EA, 0xB6B6B6, 0x000000, 0x000000
-];
-
-
 #[derive(Debug, Copy, Clone, PartialEq)]
 enum Scanline {
     PreRender,
@@ -87,6 +70,8 @@ pub struct Ppu<Io: IoAccess> {
     scanline: usize,           // Current scanline
 
     bus: Option<Io>,
+
+    rgb_palette: [u8; 0x600],
 }
 
 impl<Io: IoAccess> Default for Ppu<Io> {
@@ -113,6 +98,8 @@ impl<Io: IoAccess> Default for Ppu<Io> {
             scanline: NUM_SCANLINES - 1, // Initialize to the Pre-render scanline
 
             bus: None,
+
+            rgb_palette: *include_bytes!("ppu/ntscpalette.pal"),
         }
     }
 }
@@ -455,8 +442,14 @@ impl<Io: IoAccess> Ppu<Io> {
         // Four rows of colors in the palette: $00, $10, $20, $30.
         // The first colors in the row are the grey colors
         let color = if self.mask.greyscale { color & 0x30 } else { color };
+        // Get the index into the RGB palette, account for emphasis bits
+        let color_idx = (self.mask.pal_idx * 64) + (color * 3);
 
-        helpers::color_to_pixel(COLOR_INDEX_TO_RGB[color])
+        (
+            self.rgb_palette[color_idx + 0],
+            self.rgb_palette[color_idx + 1],
+            self.rgb_palette[color_idx + 2],
+        )
     }
 
     fn tick_shifters(&mut self) {
@@ -648,8 +641,6 @@ impl<Io: IoAccess> Clockable<Option<Pixel>> for Ppu<Io> {
 }
 
 mod helpers {
-    use super::Pixel;
-
     pub fn calc_nametable_address(base: u16, tile_offset: usize) -> u16 {
         base + (tile_offset as u16)
     }
@@ -662,14 +653,6 @@ mod helpers {
         let col_offset  = col / 4;
 
         base + row_offset + col_offset
-    }
-
-    pub fn color_to_pixel(c: u32) -> Pixel {
-        (
-            ((c >> 16) & 0xFF) as u8,
-            ((c >> 8) & 0xFF) as u8,
-            (c & 0xFF) as u8,
-        )
     }
 
     // Determine the pixel priority given the background and sprite data
@@ -798,7 +781,7 @@ mod tests {
             assert!(pixel.is_none());
         }
 
-        let target_color = helpers::color_to_pixel(COLOR_INDEX_TO_RGB[0x01]);
+        let target_color = ppu_rgb(&ppu, 0x01);
 
         // Sprites cannot be displayed on the first scanline
         // Run for one more scanline
@@ -847,7 +830,7 @@ mod tests {
             assert!(pixel.is_none());
         }
 
-        let target_color = helpers::color_to_pixel(COLOR_INDEX_TO_RGB[0x01]);
+        let target_color = ppu_rgb(&ppu, 0x01);
 
         // Sprites cannot be displayed on the first scanline
         // Run for one more scanline
@@ -896,7 +879,7 @@ mod tests {
             assert!(pixel.is_none());
         }
 
-        let target_color = helpers::color_to_pixel(COLOR_INDEX_TO_RGB[0x01]);
+        let target_color = ppu_rgb(&ppu, 0x01);
 
         // Sprites cannot be displayed on the first scanline
         // Run for one more scanline
@@ -943,7 +926,7 @@ mod tests {
             assert!(pixel.is_none());
         }
 
-        let target_color = helpers::color_to_pixel(COLOR_INDEX_TO_RGB[0x01]);
+        let target_color = ppu_rgb(&ppu, 0x01);
 
         // Run for all but the last scanline
         for _ in 0..239 {
@@ -1001,7 +984,7 @@ mod tests {
             assert!(pixel.is_none());
         }
 
-        let target_color = helpers::color_to_pixel(COLOR_INDEX_TO_RGB[0x01]);
+        let target_color = ppu_rgb(&ppu, 0x01);
 
         // Run for all but the last scanline
         for _ in 0..239 {
@@ -1057,7 +1040,7 @@ mod tests {
             assert!(pixel.is_none());
         }
 
-        let target_color = helpers::color_to_pixel(COLOR_INDEX_TO_RGB[0x01]);
+        let target_color = ppu_rgb(&ppu, 0x01);
 
         // Sprites cannot be displayed on the first scanline
         // Run for one more scanline
@@ -1113,7 +1096,7 @@ mod tests {
 
         // The color of the pixel should be the index one of the color table
         let color = pixel.unwrap();
-        assert_eq!(color, helpers::color_to_pixel(COLOR_INDEX_TO_RGB[0x01]), "Color was: RGB{:?}", color);
+        assert_eq!(color, ppu_rgb(&ppu, 0x01), "Color was: RGB{:?}", color);
     }
 
     #[test]
@@ -1146,7 +1129,7 @@ mod tests {
             assert!(ppu.tick().is_none());
         }
 
-        let target_color = helpers::color_to_pixel(COLOR_INDEX_TO_RGB[0x01]);
+        let target_color = ppu_rgb(&ppu, 0x01);
 
         // The first tile has no data
         for _ in 0..8 {
@@ -1293,6 +1276,16 @@ mod tests {
 
         assert_eq!(ppu.scanline, 0);
     }
+
+    fn ppu_rgb(ppu: &Ppu<FakeBus>, color: usize) -> (u8, u8, u8) {
+        let idx = color * 3;
+        (
+            ppu.rgb_palette[idx],
+            ppu.rgb_palette[idx + 1],
+            ppu.rgb_palette[idx + 2]
+        )
+    }
+
     struct FakeBus {
         vram: [u8; 0x4000],
     }
