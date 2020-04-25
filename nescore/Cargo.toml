@@ -3,3 +3,10 @@ name = "nescore"
 version = "0.1.0"
 authors = ["Natesh Narain <nnaraindev@gmail.com>"]
 edition = "2018"
+
+[dev-dependencies]
+criterion = "0.3"
+
+[[bench]]
+name = "bench_nescore"
+harness = false
