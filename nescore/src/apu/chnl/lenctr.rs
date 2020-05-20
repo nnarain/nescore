@@ -6,6 +6,29 @@
 //
 use crate::common::Clockable;
 
+pub trait LengthCounterUnit {
+    fn enable_length(&mut self, e: bool);
+    fn clock_length(&mut self);
+    fn length_status(&self) -> bool;
+}
+
+#[macro_export]
+macro_rules! impl_length_counter {
+    ($t:ident, $f:ident) => {
+        impl LengthCounterUnit for $t {
+            fn enable_length(&mut self, e: bool) {
+                self.$f.set_enable(e);
+            }
+            fn clock_length(&mut self) {
+                self.$f.tick();
+            }
+            fn length_status(&self) -> bool {
+                !self.$f.mute()
+            }
+        }
+    };
+}
+
 const LOAD_LOOKUP_TABLE: [usize; 0x20] = [
     10, 254, 20, 2, 40, 4, 80, 6, 160, 8, 60, 10, 14, 12, 26, 14,
     12, 16, 24, 18, 48, 20, 96, 22, 192, 24, 72, 26, 16, 28, 32, 30,

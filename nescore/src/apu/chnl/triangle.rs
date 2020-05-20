@@ -5,7 +5,7 @@
 // @date Apr 03 2020
 //
 use crate::common::{Clockable, IoAccess};
-use super::{SoundChannel, LengthCounter};
+use super::{SoundChannel, LengthCounter, LengthCounterUnit};
 
 #[derive(Default)]
 pub struct Triangle {
@@ -14,18 +14,20 @@ pub struct Triangle {
     lenctr: LengthCounter,
 }
 
+impl_length_counter!(Triangle, lenctr);
+
 impl SoundChannel for Triangle {
-    fn clock_length(&mut self) {
-        self.lenctr.tick();
-    }
+    // fn clock_length(&mut self) {
+    //     self.lenctr.tick();
+    // }
 
-    fn enable_length(&mut self, e: bool) {
-        self.lenctr.set_enable(e);
-    }
+    // fn enable_length(&mut self, e: bool) {
+    //     self.lenctr.set_enable(e);
+    // }
 
-    fn length_status(&self) -> bool {
-        !self.lenctr.mute()
-    }
+    // fn length_status(&self) -> bool {
+    //     !self.lenctr.mute()
+    // }
 }
 
 impl IoAccess for Triangle {

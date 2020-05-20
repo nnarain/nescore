@@ -186,7 +186,7 @@ pub enum LoaderError {
     LoadSave(io::Error),
 }
 
-/// Catridge Loader Helper
+/// Cartridge Loader Helper
 #[derive(Default)]
 pub struct CartridgeLoader {
     rom_path: Option<String>,

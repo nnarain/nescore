@@ -1,22 +1,17 @@
+#[macro_use] mod lenctr;
+#[macro_use] mod envelope;
+
 mod pulse;
 mod triangle;
 mod noise;
-mod lenctr;
 
 pub use pulse::Pulse;
 pub use triangle::Triangle;
 pub use noise::Noise;
-pub use lenctr::LengthCounter;
-
-// TODO: Should SoundChannel be a generic type?
-// i.e. SoundChannel<Pulse>?
+pub use lenctr::{LengthCounter, LengthCounterUnit};
+pub use envelope::{Envelope, EnvelopeUnit};
 
 /// Common Sound Channel Functionality
 pub trait SoundChannel {
-    fn clock_length(&mut self) {}
-    fn clock_envelope(&mut self) {}
     fn is_enabled(&self) -> bool { false }
-    #[allow(unused)]
-    fn enable_length(&mut self, e: bool) {}
-    fn length_status(&self) -> bool { false }
 }

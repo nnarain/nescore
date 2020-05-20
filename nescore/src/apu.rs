@@ -7,8 +7,8 @@
 mod chnl;
 mod seq;
 
-use chnl::{SoundChannel, Pulse, Triangle, Noise};
 use seq::{FrameSequencer, Event};
+use chnl::{SoundChannel, Pulse, Triangle, Noise, LengthCounterUnit};
 
 use crate::common::{IoAccess, Clockable, Register};
 
@@ -24,14 +24,12 @@ pub struct Apu {
 
 impl Clockable for Apu {
     fn tick(&mut self) {
+        // Clock the frame sequencer to generate low frequency clock events and process them
         for event in self.sequencer.tick().iter() {
             match event {
                 Event::Envelop => {}
                 Event::Length => {
-                    self.pulse1.clock_length();
-                    self.pulse2.clock_length();
-                    self.triangle.clock_length();
-                    self.noise.clock_length();
+                    self.clock_length();
                 },
                 Event::Irq => {},
                 Event::None => {}
@@ -88,6 +86,13 @@ impl Apu {
         | (self.pulse2.length_status() as u8) << 1
         | (self.triangle.length_status() as u8) << 2
         | (self.noise.length_status() as u8) << 3
+    }
+
+    fn clock_length(&mut self) {
+        self.pulse1.clock_length();
+        self.pulse2.clock_length();
+        self.triangle.clock_length();
+        self.noise.clock_length();
     }
 }
 
