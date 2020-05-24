@@ -8,11 +8,11 @@ mod chnl;
 mod seq;
 
 use seq::{FrameSequencer, Event};
-use chnl::{SoundChannel, Pulse, Triangle, Noise, LengthCounterUnit};
+use chnl::{SoundChannel, Pulse, Triangle, Noise, LengthCounterUnit, EnvelopeUnit, NegateAddMode};
 
 use crate::common::{IoAccess, Clockable, Register};
 
-#[derive(Default)]
+/// NES APU
 pub struct Apu {
     pulse1: Pulse,
     pulse2: Pulse,
@@ -22,19 +22,35 @@ pub struct Apu {
     sequencer: FrameSequencer,
 }
 
+impl Default for Apu {
+    fn default() -> Self {
+        Apu {
+            pulse1: Pulse::default(),
+            pulse2: Pulse::default().add_mode(NegateAddMode::TwosComplement),
+            triangle: Triangle::default(),
+            noise: Noise::default(),
+            sequencer: FrameSequencer::default(),
+        }
+    }
+}
+
 impl Clockable for Apu {
     fn tick(&mut self) {
         // Clock the frame sequencer to generate low frequency clock events and process them
         for event in self.sequencer.tick().iter() {
             match event {
-                Event::Envelop => {}
-                Event::Length => {
+                Event::Envelop => self.clock_envelope(), // TODO: Clock linear counter
+                Event::LengthAndSweep => {
                     self.clock_length();
+                    self.clock_sweep();
                 },
                 Event::Irq => {},
                 Event::None => {}
             }
         }
+
+        // Clock the pulse channels every APU cycle
+        self.clock_pulse();
     }
 }
 
@@ -50,7 +66,8 @@ impl IoAccess for Apu {
             0x4017 => self.sequencer.value(),
             _ => panic!("Invalid address for APU: ${:04X}", addr),
         }
-     }
+    }
+
     fn write_byte(&mut self, addr: u16, data: u8) {
         match addr {
             0x4000..=0x4003 => self.pulse1.write_byte(addr - 0x4000, data),
@@ -93,6 +110,21 @@ impl Apu {
         self.pulse2.clock_length();
         self.triangle.clock_length();
         self.noise.clock_length();
+    }
+
+    fn clock_envelope(&mut self) {
+        self.pulse1.clock_envelope();
+        self.pulse2.clock_envelope();
+    }
+
+    fn clock_pulse(&mut self) {
+        self.pulse1.tick();
+        self.pulse2.tick();
+    }
+
+    fn clock_sweep(&mut self) {
+        self.pulse1.clock_sweep();
+        self.pulse2.clock_sweep();
     }
 }
 

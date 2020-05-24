@@ -9,7 +9,7 @@ use crate::common::{Clockable, Register};
 pub enum Event {
     None,
     Envelop,
-    Length,
+    LengthAndSweep,
     Irq,
 }
 
@@ -26,6 +26,7 @@ pub enum Step {
 }
 
 /// Provides low frequency clock events
+/// https://wiki.nesdev.com/w/index.php/APU#Frame_Counter_.28.244017.29
 pub struct FrameSequencer {
     cycles: usize,
     mode: Mode,
@@ -63,10 +64,10 @@ impl Clockable<SequencerEvents> for FrameSequencer {
         let events = helpers::cycles_to_step(self.cycles).map(|step| {
             match step {
                 Step::One => [Event::Envelop, Event::None, Event::None],
-                Step::Two => [Event::Envelop, Event::Length, Event::None],
+                Step::Two => [Event::Envelop, Event::LengthAndSweep, Event::None],
                 Step::Three => [Event::Envelop, Event::None, Event::None],
                 Step::Four => helpers::step4(self.mode, self.irq_inhibit),
-                Step::Five => [Event::Envelop, Event::Length, Event::None],
+                Step::Five => [Event::Envelop, Event::LengthAndSweep, Event::None],
             }
         })
         .unwrap_or([Event::None, Event::None, Event::None]);
@@ -96,7 +97,7 @@ mod helpers {
 
     pub fn step4(mode: Mode, irq_inhibit: bool) -> SequencerEvents {
         match mode {
-            Mode::Step4 => [Event::Envelop, Event::Length, if !irq_inhibit {Event::Irq} else {Event::None}],
+            Mode::Step4 => [Event::Envelop, Event::LengthAndSweep, if !irq_inhibit {Event::Irq} else {Event::None}],
             Mode::Step5 => [Event::None, Event::None, Event::None],
         }
     }
@@ -123,7 +124,7 @@ mod tests {
                 // Tick each counter for the corresponding event
                 match event {
                     Event::Envelop => envelope_counter += 1,
-                    Event::Length => length_counter += 1,
+                    Event::LengthAndSweep => length_counter += 1,
                     Event::Irq => irq_counter += 1,
                     Event::None => {}
                 }
@@ -152,7 +153,7 @@ mod tests {
                 // Tick each counter for the corresponding event
                 match event {
                     Event::Envelop => envelope_counter += 1,
-                    Event::Length => length_counter += 1,
+                    Event::LengthAndSweep => length_counter += 1,
                     Event::Irq => irq_counter += 1,
                     Event::None => {}
                 }

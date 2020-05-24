@@ -4,15 +4,15 @@
 // @author Natesh Narain <nnaraindev@gmail.com>
 // @date May 17 2020
 //
+use super::Divider;
 use crate::common::Clockable;
 
-const DECAY_RELOAD: u32 = 15;
+const DECAY_RELOAD: u8 = 15;
 
 pub trait EnvelopeUnit {
     fn clock_envelope(&mut self);
     // fn envelope_start(&mut self);
 }
-
 
 #[macro_export]
 macro_rules! impl_envelope {
@@ -25,64 +25,37 @@ macro_rules! impl_envelope {
     };
 }
 
-// TODO: If used later, this should be generic
-#[derive(Default)]
-struct DownCounter {
-    counter: u32,
-}
-
-impl Clockable<bool> for DownCounter {
-    fn tick(&mut self) -> bool {
-        let event = if self.counter == 0 {
-            true
-        }
-        else {
-            self.counter -= 1;
-            false
-        };
-
-        event
-    }
-}
-
-impl DownCounter {
-    pub fn reload(&mut self, reload: u32) {
-        self.counter = reload;
-    }
-
-    pub fn count(&self) -> u32 {
-        self.counter
-    }
-}
-
 #[derive(Default)]
 pub struct Envelope {
-    start_flag: bool,
-    divider: DownCounter,
-    decay: DownCounter,
+    divider: Divider,
+    decay: u8,
 
     volume: u8,
     constant: bool,
     loop_flag: bool,
+
+    start_flag: bool,
 }
 
 impl Clockable for Envelope {
     fn tick(&mut self) {
         if !self.start_flag {
             if self.divider.tick() {
-                self.divider.reload(self.volume as u32);
 
-                if self.decay.tick() {
+                if self.decay == 0 {
                     if self.loop_flag {
-                        self.decay.reload(DECAY_RELOAD);
+                        self.decay = DECAY_RELOAD;
                     }
+                }
+                else {
+                    self.decay -= 1;
                 }
             }
         }
         else {
             self.start_flag = false;
-            self.divider.reload(self.volume as u32);
-            self.decay.reload(DECAY_RELOAD);
+            self.divider.set_period(self.volume as u32);
+            self.decay = DECAY_RELOAD;
         }
     }
 }
@@ -109,7 +82,7 @@ impl Envelope {
             self.volume
         }
         else {
-            self.decay.count() as u8
+            self.decay
         }
     }
 }
@@ -189,18 +162,6 @@ mod tests {
         }
 
         assert_eq!(envelope.output(), 15);
-    }
-
-    #[test]
-    fn down_counter() {
-        // Down counter's period is RELOAD + 1
-        let mut counter = DownCounter::default();
-        counter.reload(3);
-
-        assert_eq!(counter.tick(), false);
-        assert_eq!(counter.tick(), false);
-        assert_eq!(counter.tick(), false);
-        assert_eq!(counter.tick(), true);
     }
 
     fn clock_period(envelope: &mut Envelope, period: u32) {

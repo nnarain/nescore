@@ -17,17 +17,13 @@ pub struct Triangle {
 impl_length_counter!(Triangle, lenctr);
 
 impl SoundChannel for Triangle {
-    // fn clock_length(&mut self) {
-    //     self.lenctr.tick();
+    // fn is_enabled(&self) -> bool {
+    //     false
     // }
 
-    // fn enable_length(&mut self, e: bool) {
-    //     self.lenctr.set_enable(e);
-    // }
-
-    // fn length_status(&self) -> bool {
-    //     !self.lenctr.mute()
-    // }
+    fn output(&self) -> u8 {
+        0
+    }
 }
 
 impl IoAccess for Triangle {

@@ -15,7 +15,13 @@ pub struct Noise {
 impl_length_counter!(Noise, lenctr);
 
 impl SoundChannel for Noise {
+    // fn is_enabled(&self) -> bool {
+    //     false
+    // }
 
+    fn output(&self) -> u8 {
+        0
+    }
 }
 
 impl Clockable for Noise {
