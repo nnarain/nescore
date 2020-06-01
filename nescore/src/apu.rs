@@ -43,7 +43,10 @@ impl Clockable<Sample> for Apu {
         // Clock the frame sequencer to generate low frequency clock events and process them
         for event in self.sequencer.tick().iter() {
             match event {
-                Event::Envelop => self.clock_envelope(), // TODO: Clock linear counter
+                Event::EnvelopAndLinear => {
+                    self.clock_envelope();
+                    self.triangle.clock_linear();
+                },
                 Event::LengthAndSweep => {
                     self.clock_length();
                     self.clock_sweep();
@@ -54,7 +57,12 @@ impl Clockable<Sample> for Apu {
         }
 
         // Clock the pulse channels every APU cycle
-        self.clock_pulse();
+        self.pulse1.tick();
+        self.pulse2.tick();
+
+        // The triangle channel is clocked at twice the rate of the APU
+        self.triangle.tick();
+        self.triangle.tick();
 
         self.mix()
     }
@@ -138,11 +146,6 @@ impl Apu {
     fn clock_envelope(&mut self) {
         self.pulse1.clock_envelope();
         self.pulse2.clock_envelope();
-    }
-
-    fn clock_pulse(&mut self) {
-        self.pulse1.tick();
-        self.pulse2.tick();
     }
 
     fn clock_sweep(&mut self) {

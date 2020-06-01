@@ -25,15 +25,18 @@ impl Timer {
     pub fn set_period_high(&mut self, hi: u8) {
         self.period = (self.period & 0x00FF) | ((hi as u16) << 8);
         self.divider.set_period(self.period as u32);
+        self.divider.reset();
     }
 
     pub fn set_period_low(&mut self, lo: u8) {
         self.period = (self.period & 0xFF00) | lo as u16;
         self.divider.set_period(self.period as u32);
+        self.divider.reset();
     }
 
     pub fn set_period(&mut self, period: u16) {
         self.period = period;
+        self.divider.set_period(self.period as u32);
     }
 
     pub fn count(&self) -> u32 {

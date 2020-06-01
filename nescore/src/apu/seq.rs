@@ -8,7 +8,7 @@ use crate::common::{Clockable, Register};
 
 pub enum Event {
     None,
-    Envelop,
+    EnvelopAndLinear,
     LengthAndSweep,
     Irq,
 }
@@ -64,11 +64,11 @@ impl Clockable<SequencerEvents> for FrameSequencer {
         // Step 4 is the only thing different between step 4 and 5 mode (expect the extra step in 5 mode)
         let events = helpers::cycles_to_step(self.cycles).map(|step| {
             match step {
-                Step::One => [Event::Envelop, Event::None, Event::None],
-                Step::Two => [Event::Envelop, Event::LengthAndSweep, Event::None],
-                Step::Three => [Event::Envelop, Event::None, Event::None],
+                Step::One => [Event::EnvelopAndLinear, Event::None, Event::None],
+                Step::Two => [Event::EnvelopAndLinear, Event::LengthAndSweep, Event::None],
+                Step::Three => [Event::EnvelopAndLinear, Event::None, Event::None],
                 Step::Four => helpers::step4(self.mode, self.irq_inhibit),
-                Step::Five => [Event::Envelop, Event::LengthAndSweep, Event::None],
+                Step::Five => [Event::EnvelopAndLinear, Event::LengthAndSweep, Event::None],
             }
         })
         .unwrap_or([Event::None, Event::None, Event::None]);
@@ -98,7 +98,7 @@ mod helpers {
 
     pub fn step4(mode: Mode, irq_inhibit: bool) -> SequencerEvents {
         match mode {
-            Mode::Step4 => [Event::Envelop, Event::LengthAndSweep, if !irq_inhibit {Event::Irq} else {Event::None}],
+            Mode::Step4 => [Event::EnvelopAndLinear, Event::LengthAndSweep, if !irq_inhibit {Event::Irq} else {Event::None}],
             Mode::Step5 => [Event::None, Event::None, Event::None],
         }
     }
@@ -124,7 +124,7 @@ mod tests {
             for event in frame_sequencer.tick().iter() {
                 // Tick each counter for the corresponding event
                 match event {
-                    Event::Envelop => envelope_counter += 1,
+                    Event::EnvelopAndLinear => envelope_counter += 1,
                     Event::LengthAndSweep => length_counter += 1,
                     Event::Irq => irq_counter += 1,
                     Event::None => {}
@@ -153,7 +153,7 @@ mod tests {
             for event in frame_sequencer.tick().iter() {
                 // Tick each counter for the corresponding event
                 match event {
-                    Event::Envelop => envelope_counter += 1,
+                    Event::EnvelopAndLinear => envelope_counter += 1,
                     Event::LengthAndSweep => length_counter += 1,
                     Event::Irq => irq_counter += 1,
                     Event::None => {}
