@@ -10,6 +10,10 @@ mod seq;
 use seq::{FrameSequencer, Event};
 use chnl::{SoundChannel, Pulse, Triangle, Noise, LengthCounterUnit, EnvelopeUnit, NegateAddMode};
 
+pub type Sample = f32;
+
+pub const APU_OUTPUT_RATE: usize = 1_790_000;
+
 use crate::common::{IoAccess, Clockable, Register};
 
 /// NES APU
@@ -34,8 +38,8 @@ impl Default for Apu {
     }
 }
 
-impl Clockable for Apu {
-    fn tick(&mut self) {
+impl Clockable<Sample> for Apu {
+    fn tick(&mut self) -> Sample {
         // Clock the frame sequencer to generate low frequency clock events and process them
         for event in self.sequencer.tick().iter() {
             match event {
@@ -51,6 +55,8 @@ impl Clockable for Apu {
 
         // Clock the pulse channels every APU cycle
         self.clock_pulse();
+
+        self.mix()
     }
 }
 
@@ -98,6 +104,23 @@ impl IoAccess for Apu {
 }
 
 impl Apu {
+    fn mix(&self) -> Sample {
+        // TODO: There are other methods such as linear approximation and a look up table
+
+        let pulse1_out = self.pulse1.output() as f32;
+        let pulse2_out = self.pulse2.output() as f32;
+
+        let pulse_out = 95.88 / ((8128.0 / (pulse1_out + pulse2_out) + 100.0));
+
+        let triangle_out = self.triangle.output() as f32;
+        let noise_out = self.noise.output() as f32;
+        let dmc_out = 0f32;
+
+        let tnd_out = 159.79 / (1.0 / ((triangle_out / 8227.0) + (noise_out / 12241.0) + (dmc_out / 22638.0)) + 100.0);
+
+        pulse_out + tnd_out
+    }
+
     fn status(&self) -> u8 {
         (self.pulse1.length_status() as u8)
         | (self.pulse2.length_status() as u8) << 1

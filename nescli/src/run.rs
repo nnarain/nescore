@@ -7,13 +7,14 @@
 
 use clap::Clap;
 
+use sdl2::audio::{AudioCallback, AudioSpecDesired};
 use sdl2::pixels::{Color, PixelFormatEnum};
 use sdl2::rect::Rect;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use std::time::Duration;
 
-use nescore::{Nes, CartridgeLoader, Button};
+use nescore::{Nes, CartridgeLoader, Button, Sample, SampleBuffer};
 use nescore::{DISPLAY_WIDTH, DISPLAY_HEIGHT};
 
 use std::io::prelude::*;
@@ -31,20 +32,37 @@ pub struct Options {
     pub rom: String,
 }
 
-fn map_nes_key(keycode: Keycode) -> Option<Button> {
-    match keycode {
-        Keycode::W => Some(Button::Up),
-        Keycode::A => Some(Button::Left),
-        Keycode::D => Some(Button::Right),
-        Keycode::S => Some(Button::Down),
+struct AudioStreamSource {
+    buffers: [Vec<Sample>; 2],
+    buffer_idx: usize,
+}
 
-        Keycode::J => Some(Button::A),
-        Keycode::K => Some(Button::B),
+impl Default for AudioStreamSource {
+    fn default() -> Self {
+        AudioStreamSource {
+            buffers: [vec![], vec![]],
+            buffer_idx: 0,
+        }
+    }
+}
 
-        Keycode::Return => Some(Button::Start),
-        Keycode::RShift => Some(Button::Select),
+impl AudioCallback for AudioStreamSource {
+    type Channel = Sample;
 
-        _ => None,
+    fn callback(&mut self, out: &mut [Self::Channel]) {
+        for (i, out) in out.iter_mut().enumerate() {
+            let buffer = &self.buffers[self.buffer_idx];
+            if i < buffer.len() {
+                *out = buffer[i];
+            }
+        }
+    }
+}
+
+impl AudioStreamSource {
+    pub fn update(&mut self, buffer: SampleBuffer) {
+        self.buffers[self.buffer_idx] = buffer.to_vec();
+        self.buffer_idx = (self.buffer_idx + 1) % self.buffers.len();
     }
 }
 
@@ -60,6 +78,7 @@ pub fn dispatch(opts: Options) {
 
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
+    let audio_subsystem = sdl_context.audio().unwrap();
 
     let window = video_subsystem.window("nescore", WINDOW_WIDTH, WINDOW_HEIGHT)
                                 .position_centered()
@@ -73,6 +92,18 @@ pub fn dispatch(opts: Options) {
     let mut display = texture_creator.create_texture_streaming(PixelFormatEnum::RGB24,
                                                                DISPLAY_WIDTH as u32,
                                                                DISPLAY_HEIGHT as u32).unwrap();
+
+    let desired_spec = AudioSpecDesired {
+        freq: Some(44_100),
+        channels: Some(1),
+        samples: None,
+    };
+
+    let mut audio_device = audio_subsystem.open_playback(None, &desired_spec, |_| {
+        AudioStreamSource::default()
+    }).unwrap();
+
+    audio_device.resume();
 
     canvas.set_draw_color(Color::RGB(0, 0, 0));
 
@@ -101,7 +132,13 @@ pub fn dispatch(opts: Options) {
         }
 
         // Run the nescore for a single frame
-        let framebuffer = nes.emulate_frame();
+        let (framebuffer, samplebuffer) = nes.emulate_frame();
+
+        {
+            // update audio stream
+            let mut audio_lock = audio_device.lock();
+            audio_lock.update(samplebuffer);
+        }
 
         // Update screen
         canvas.clear();
@@ -123,5 +160,22 @@ pub fn dispatch(opts: Options) {
             file.write_all(&save_buffer[..]).unwrap();
         },
         Err(e) => println!("{}", e),
+    }
+}
+
+fn map_nes_key(keycode: Keycode) -> Option<Button> {
+    match keycode {
+        Keycode::W => Some(Button::Up),
+        Keycode::A => Some(Button::Left),
+        Keycode::D => Some(Button::Right),
+        Keycode::S => Some(Button::Down),
+
+        Keycode::J => Some(Button::A),
+        Keycode::K => Some(Button::B),
+
+        Keycode::Return => Some(Button::Start),
+        Keycode::RShift => Some(Button::Select),
+
+        _ => None,
     }
 }

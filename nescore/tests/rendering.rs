@@ -131,7 +131,7 @@ fn render_one_pixel() {
     let mut nes = Nes::default().with_cart(cart).entry(0x8000).debug_mode(false);
 
     // Now actually run a frame we care about..
-    let framebuffer = nes.emulate_frame();
+    let (framebuffer, _) = nes.emulate_frame();
     let rgb1 = (framebuffer[0], framebuffer[1], framebuffer[2]);
     let rgb2 = (framebuffer[3], framebuffer[4], framebuffer[5]);
 

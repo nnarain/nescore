@@ -47,6 +47,7 @@ impl Register<u8> for FrameSequencer {
     fn load(&mut self, data: u8) {
         self.mode = if bit_is_set!(data, 7) { Mode::Step5 } else { Mode::Step4 };
         self.irq_inhibit = bit_is_set!(data, 6);
+        self.cycles = 0;
     }
 
     fn value(&self) -> u8 {
