@@ -146,6 +146,7 @@ impl Apu {
     fn clock_envelope(&mut self) {
         self.pulse1.clock_envelope();
         self.pulse2.clock_envelope();
+        self.noise.clock_envelope();
     }
 
     fn clock_sweep(&mut self) {
