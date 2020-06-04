@@ -33,6 +33,7 @@ enum Flags {
 pub mod events {
     use super::{Instruction, AddressingMode};
     /// Representation of CPU and current instruction state
+    #[derive(Debug)]
     pub struct InstructionData {
         pub instr: Instruction,
         pub mode: AddressingMode,
@@ -179,7 +180,10 @@ impl<Io: IoAccess> Cpu<Io> {
                         };
 
                         if let Some(ref logger) = self.logger {
-                            logger.send(events::CpuEvent::Instruction(data)).unwrap();
+                            match logger.send(events::CpuEvent::Instruction(data)) {
+                                Ok(_) => {},
+                                Err(_) => self.logger = None,
+                            }
                         }
                     }
                 }
@@ -1500,9 +1504,9 @@ impl<Io: IoAccess> Cpu<Io> {
 
         self.set_flag_bit(Flags::InterruptDisable, true);
 
-        if self.debug {
-            println!("NMI raised in CPU: {:04X}", self.pc);
-        }
+        // if self.debug {
+        //     println!("NMI raised in CPU: {:04X}", self.pc);
+        // }
     }
 }
 

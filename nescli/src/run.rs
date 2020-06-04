@@ -20,6 +20,8 @@ use nescore::{DISPLAY_WIDTH, DISPLAY_HEIGHT};
 use std::io::prelude::*;
 use std::fs::File;
 
+use std::thread;
+
 const WINDOW_WIDTH: u32 = 800;
 const WINDOW_HEIGHT: u32 = 600;
 
@@ -75,6 +77,18 @@ pub fn dispatch(opts: Options) {
                         .load()
                         .map(|cart| Nes::default().with_cart(cart).debug_mode(opts.debug))
                         .unwrap();
+
+    // Setup console logger
+    let cpu_events = nes.cpu_event_channel();
+
+    thread::spawn(move || loop {
+        match cpu_events.recv() {
+            Ok(event) => {
+                nescore::log::console(event);
+            },
+            Err(_) => break,
+        }
+    });
 
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();

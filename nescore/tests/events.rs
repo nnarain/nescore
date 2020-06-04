@@ -3,7 +3,6 @@ use nescore::{Nes, Cartridge};
 use nescore::{Instruction, AddressingMode};
 use nescore::events::CpuEvent;
 
-
 #[test]
 fn cpu_event() {
     let prg = vec![

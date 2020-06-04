@@ -13,11 +13,13 @@ mod apu;
 mod mapper;
 mod joy;
 
+pub mod log;
+
+pub use cpu::{Instruction, AddressingMode};
 pub mod cart;
 pub use cart::{Cartridge, CartridgeLoader};
 pub use ppu::{DISPLAY_WIDTH, DISPLAY_HEIGHT};
 pub use joy::{Controller, Button};
-pub use cpu::{Instruction, AddressingMode};
 
 pub use apu::Sample;
 
