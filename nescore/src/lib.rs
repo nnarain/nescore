@@ -17,6 +17,7 @@ pub mod cart;
 pub use cart::{Cartridge, CartridgeLoader};
 pub use ppu::{DISPLAY_WIDTH, DISPLAY_HEIGHT};
 pub use joy::{Controller, Button};
+pub use cpu::{Instruction, AddressingMode};
 
 pub use apu::Sample;
 
@@ -35,6 +36,14 @@ use common::Clockable;
 
 use std::rc::Rc;
 use std::cell::RefCell;
+
+#[cfg(feature="events")]
+use std::sync::mpsc::{channel, Receiver};
+
+#[cfg(feature="events")]
+pub mod events {
+    pub use super::cpu::events::*;
+}
 
 /// Size of the display frame buffer: display size * RGB (3 bytes)
 const FRAME_BUFFER_SIZE: usize = DISPLAY_WIDTH * DISPLAY_HEIGHT * 3;
@@ -219,6 +228,17 @@ impl Nes {
     /// ```
     pub fn eject(self) -> Vec<u8> {
         self.mapper.map_or(vec![], |mapper| mapper.borrow().get_battery_ram())
+    }
+
+    //------------------------------------------------------------------------------------------------------------------
+    // Event Logging
+    //------------------------------------------------------------------------------------------------------------------
+    #[cfg(feature="events")]
+    pub fn cpu_event_channel(&mut self) -> Receiver<events::CpuEvent> {
+        let (tx, rx) = channel::<events::CpuEvent>();
+        self.cpu.borrow_mut().set_event_sender(tx);
+
+        rx
     }
 
     //------------------------------------------------------------------------------------------------------------------

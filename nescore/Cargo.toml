@@ -4,6 +4,15 @@ version = "0.1.0"
 authors = ["Natesh Narain <nnaraindev@gmail.com>"]
 edition = "2018"
 
+[features]
+default = []
+events = []
+
+[[test]]
+name = "events"
+path = "tests/events.rs"
+required-features = ["events"]
+
 [dev-dependencies]
 criterion = "0.3"
 

@@ -12,8 +12,12 @@ mod state;
 // use bus::CpuIoBus;
 use crate::common::{IoAccess, Clockable, Interrupt};
 use state::*;
+pub use state::{Instruction, AddressingMode};
 
 use std::num::Wrapping;
+
+#[cfg(feature="events")]
+use std::sync::mpsc::Sender;
 
 /// CPU Flags
 enum Flags {
@@ -23,6 +27,28 @@ enum Flags {
     Decimal          = 1 << 3,
     Overflow         = 1 << 6,
     Negative         = 1 << 7,
+}
+
+#[cfg(feature="events")]
+pub mod events {
+    use super::{Instruction, AddressingMode};
+    /// Representation of CPU and current instruction state
+    pub struct InstructionData {
+        pub instr: Instruction,
+        pub mode: AddressingMode,
+        pub opcode_data: [u8; 3],
+        pub addr: u16,
+        pub a: u8,
+        pub x: u8,
+        pub y: u8,
+        pub p: u8,
+        pub pc: u16,
+        pub sp: u8,
+    }
+    /// Enum of CPU events
+    pub enum CpuEvent {
+        Instruction(InstructionData),
+    }
 }
 
 const STACK_PAGE_OFFSET: u16 = 0x100;
@@ -44,6 +70,10 @@ pub struct Cpu<Io: IoAccess> {
 
     debug: bool,                    // Debug mode
     is_holding: bool,               // CPU is in an infinite loop state
+
+    // Event logging
+    #[cfg(feature="events")]
+    logger: Option<Sender<events::CpuEvent>>,
 }
 
 impl<Io: IoAccess> Default for Cpu<Io> {
@@ -63,6 +93,9 @@ impl<Io: IoAccess> Default for Cpu<Io> {
 
             debug: false,
             is_holding: false,
+
+            #[cfg(feature="events")]
+            logger: None,
         }
     }
 }
@@ -81,6 +114,11 @@ impl<Io: IoAccess> Cpu<Io> {
 
     pub fn set_debug(&mut self, debug: bool) {
         self.debug = debug;
+    }
+
+    #[cfg(feature="events")]
+    pub fn set_event_sender(&mut self, sender: Sender<events::CpuEvent>) {
+        self.logger = Some(sender);
     }
 
     pub fn get_pc(&self) -> u16 {
@@ -125,11 +163,25 @@ impl<Io: IoAccess> Cpu<Io> {
                 let operand_data = &opcode_data[1..];
 
                 if self.debug {
-                    println!("${:04X} | {} | {} | A={:02X}, X={:02X}, Y={:02X}, P={:02X}, SP={:04X}",
-                            self.pc - (mode.operand_len() + 1) as u16,
-                            format::operands(opcode_data, mode.operand_len()),
-                            format::disassemble(*instr, *mode, operand_data),
-                            self.a, self.x, self.y, self.p, self.sp);
+                    #[cfg(feature = "events")]
+                    {
+                        let data = events::InstructionData {
+                            instr: instr.clone(),
+                            mode: mode.clone(),
+                            opcode_data: opcode_data.clone(),
+                            addr: self.pc - (mode.operand_len() + 1) as u16,
+                            a: self.a,
+                            x: self.x,
+                            y: self.y,
+                            p: self.p,
+                            pc: self.pc,
+                            sp: self.sp,
+                        };
+
+                        if let Some(ref logger) = self.logger {
+                            logger.send(events::CpuEvent::Instruction(data)).unwrap();
+                        }
+                    }
                 }
                 
                 // Apply addressing mode
@@ -152,10 +204,6 @@ impl<Io: IoAccess> Cpu<Io> {
                 let read_mem = |addr: u16| -> u8 {
                     self.read_u8(addr)
                 };
-
-                // let byte = addressing_result.to_byte(read_mem);
-                // let addr = addressing_result.to_address();
-                // let offset = addressing_result.to_offset();
 
                 match instr {
                     Instruction::NOP => {},
