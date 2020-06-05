@@ -16,6 +16,23 @@ pub const APU_OUTPUT_RATE: usize = 1_790_000;
 
 use crate::common::{IoAccess, Clockable, Register};
 
+
+#[cfg(feature="events")]
+use std::sync::mpsc::Sender;
+
+#[cfg(feature="events")]
+pub mod events {
+    #[derive(Debug)]
+    pub struct ApuEvent {
+        pub pulse1: f32,
+        pub pulse2: f32,
+        pub triangle: f32,
+        pub noise: f32,
+        pub dmc: f32,
+        pub mixer: f32,
+    }
+}
+
 /// NES APU
 pub struct Apu {
     pulse1: Pulse,
@@ -24,6 +41,10 @@ pub struct Apu {
     noise: Noise,
 
     sequencer: FrameSequencer,
+
+    // Event logging
+    #[cfg(feature="events")]
+    logger: Option<Sender<events::ApuEvent>>,
 }
 
 impl Default for Apu {
@@ -34,6 +55,9 @@ impl Default for Apu {
             triangle: Triangle::default(),
             noise: Noise::default(),
             sequencer: FrameSequencer::default(),
+
+            #[cfg(feature="events")]
+            logger: None,
         }
     }
 }
@@ -117,16 +141,36 @@ impl Apu {
 
         let pulse1_out = self.pulse1.output() as f32;
         let pulse2_out = self.pulse2.output() as f32;
-
-        let pulse_out = 95.88 / ((8128.0 / (pulse1_out + pulse2_out) + 100.0));
-
         let triangle_out = self.triangle.output() as f32;
         let noise_out = self.noise.output() as f32;
         let dmc_out = 0f32;
 
+        let pulse_out = 95.88 / ((8128.0 / (pulse1_out + pulse2_out) + 100.0));
+
         let tnd_out = 159.79 / (1.0 / ((triangle_out / 8227.0) + (noise_out / 12241.0) + (dmc_out / 22638.0)) + 100.0);
 
-        pulse_out + tnd_out
+        let mixed = pulse_out + tnd_out;
+
+        #[cfg(feature="events")]
+        {
+            let data = events::ApuEvent {
+                pulse1: pulse1_out,
+                pulse2: pulse2_out,
+                triangle: triangle_out,
+                noise: noise_out,
+                dmc: dmc_out,
+                mixer: mixed,
+            };
+
+            if let Some(ref logger) = self.logger {
+                match logger.send(data) {
+                    Ok(_) => {},
+                    Err(_) => {},
+                }
+            }
+        }
+
+        mixed
     }
 
     fn status(&self) -> u8 {
@@ -152,6 +196,11 @@ impl Apu {
     fn clock_sweep(&mut self) {
         self.pulse1.clock_sweep();
         self.pulse2.clock_sweep();
+    }
+
+    #[cfg(feature="events")]
+    pub fn set_event_sender(&mut self, sender: Sender<events::ApuEvent>) {
+        self.logger = Some(sender);
     }
 }
 

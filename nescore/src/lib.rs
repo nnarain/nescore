@@ -45,6 +45,7 @@ use std::sync::mpsc::{channel, Receiver};
 #[cfg(feature="events")]
 pub mod events {
     pub use super::cpu::events::*;
+    pub use super::apu::events::*;
 }
 
 /// Size of the display frame buffer: display size * RGB (3 bytes)
@@ -239,6 +240,14 @@ impl Nes {
     pub fn cpu_event_channel(&mut self) -> Receiver<events::CpuEvent> {
         let (tx, rx) = channel::<events::CpuEvent>();
         self.cpu.borrow_mut().set_event_sender(tx);
+
+        rx
+    }
+
+    #[cfg(feature="events")]
+    pub fn apu_event_channel(&mut self) -> Receiver<events::ApuEvent> {
+        let (tx, rx) = channel::<events::ApuEvent>();
+        self.apu.borrow_mut().set_event_sender(tx);
 
         rx
     }
