@@ -14,5 +14,6 @@ fn main() {
         Command::Run(opts)  => nescli::run::dispatch(opts),
         Command::Info(opts) => nescli::info::dispatch(opts),
         Command::Img(opts)  => nescli::img::dispatch(opts),
+        Command::Apu(opts)  => nescli::apu::dispatch(opts),
     }
 }
