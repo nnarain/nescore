@@ -1499,14 +1499,10 @@ impl<Io: IoAccess> Cpu<Io> {
         // Load the vector for the specified interrupt
         self.pc = match int_type {
             Interrupt::Nmi => self.read_u16(memorymap::NMI_VECTOR),
-            // Interrupt::Irq => self.read_u16(memorymap::IRQ_VECTOR),
+            Interrupt::Irq => self.read_u16(memorymap::IRQ_VECTOR),
         };
 
         self.set_flag_bit(Flags::InterruptDisable, true);
-
-        // if self.debug {
-        //     println!("NMI raised in CPU: {:04X}", self.pc);
-        // }
     }
 }
 
@@ -1521,9 +1517,9 @@ impl<Io: IoAccess> IoAccess for Cpu<Io> {
 impl<Io: IoAccess> Clockable for Cpu<Io> {
     /// Execute one CPU cycle
     fn tick(&mut self) {
-        // Get the currnet PC
+        // Get the current PC
         let prev_pc = self.pc;
-        // Implement one cycle of the CPU using a state machince
+        // Implement one cycle of the CPU using a state machine
         // Execute the cycle based on the current CPU state and return the next CPU state
         self.state = self.run_cycle(self.state);
         // Is the PC pointing at the same location?

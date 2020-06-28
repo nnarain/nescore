@@ -114,8 +114,6 @@ impl Pulse {
     }
 
     pub fn clock_sweep(&mut self) {
-        // TODO: need shifter result to mute channel if it exceeds $7FF
-
         let event = self.sweep_divider.tick();
 
         if self.sweep_reload {

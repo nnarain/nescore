@@ -4,18 +4,18 @@
 // @author Natesh Narain <nnaraindev@gmail.com>
 // @date Mar 31 2020
 //
+pub mod bus;
 mod chnl;
 mod seq;
 
 use seq::{FrameSequencer, Event};
-use chnl::{SoundChannel, Pulse, Triangle, Noise, LengthCounterUnit, EnvelopeUnit, NegateAddMode};
+use chnl::{SoundChannel, Pulse, Triangle, Noise, Dmc, LengthCounterUnit, EnvelopeUnit, NegateAddMode};
 
 pub type Sample = f32;
 
 pub const APU_OUTPUT_RATE: usize = 1_790_000;
 
-use crate::common::{IoAccess, Clockable, Register};
-
+use crate::common::{IoAccess, IoAccessRef, Clockable, Register, Interrupt};
 
 #[cfg(feature="events")]
 use std::sync::mpsc::Sender;
@@ -39,8 +39,11 @@ pub struct Apu {
     pulse2: Pulse,
     triangle: Triangle,
     noise: Noise,
+    dmc: Dmc,
 
     sequencer: FrameSequencer,
+
+    bus: Option<IoAccessRef>,
 
     // Event logging
     #[cfg(feature="events")]
@@ -54,7 +57,11 @@ impl Default for Apu {
             pulse2: Pulse::default().add_mode(NegateAddMode::TwosComplement),
             triangle: Triangle::default(),
             noise: Noise::default(),
+            dmc: Dmc::default(),
+
             sequencer: FrameSequencer::default(),
+
+            bus: None,
 
             #[cfg(feature="events")]
             logger: None,
@@ -75,7 +82,12 @@ impl Clockable<Sample> for Apu {
                     self.clock_length();
                     self.clock_sweep();
                 },
-                Event::Irq => {},
+                Event::Irq => {
+                    // FIXME: APU IRQ
+                    // if let Some(ref mut bus) = self.bus {
+                    //     bus.raise_interrupt(Interrupt::Irq);
+                    // }
+                },
                 Event::None => {}
             }
         }
@@ -88,6 +100,12 @@ impl Clockable<Sample> for Apu {
         self.triangle.tick();
         self.triangle.tick();
 
+        // Clock noise channel
+        self.noise.tick();
+
+        // Clock DMC
+        self.dmc.tick();
+
         self.mix()
     }
 }
@@ -99,7 +117,7 @@ impl IoAccess for Apu {
             0x4004..=0x4007 => self.pulse2.read_byte(addr - 0x4004),
             0x4008..=0x400B => self.triangle.read_byte(addr - 0x4008),
             0x400C..=0x400F => self.noise.read_byte(addr - 0x400C),
-            0x4010..=0x4013 => 0, // TODO: DMC
+            0x4010..=0x4013 => self.dmc.read_byte(addr - 0x4010),
             0x4015 => self.status(),
             0x4017 => self.sequencer.value(),
             _ => panic!("Invalid address for APU: ${:04X}", addr),
@@ -112,12 +130,13 @@ impl IoAccess for Apu {
             0x4004..=0x4007 => self.pulse2.write_byte(addr - 0x4004, data),
             0x4008..=0x400B => self.triangle.write_byte(addr - 0x4008, data),
             0x400C..=0x400F => self.noise.write_byte(addr - 0x400C, data),
-            0x4010..=0x4013 => {}, // TODO: DMC
+            0x4010..=0x4013 => self.dmc.write_byte(addr - 0x4010, data),
             0x4015 => {
                 self.pulse1.enable_length(bit_is_set!(data, 0));
                 self.pulse2.enable_length(bit_is_set!(data, 1));
                 self.triangle.enable_length(bit_is_set!(data, 2));
                 self.noise.enable_length(bit_is_set!(data, 3));
+                self.dmc.set_enable(bit_is_set!(data, 4));
             },
             0x4017 => {
                 self.sequencer.load(data);
@@ -143,7 +162,7 @@ impl Apu {
         let pulse2_out = self.pulse2.output() as f32;
         let triangle_out = self.triangle.output() as f32;
         let noise_out = self.noise.output() as f32;
-        let dmc_out = 0f32;
+        let dmc_out = self.dmc.output() as f32;
 
         let pulse_out = 95.88 / ((8128.0 / (pulse1_out + pulse2_out) + 100.0));
 
@@ -178,6 +197,7 @@ impl Apu {
         | (self.pulse2.length_status() as u8) << 1
         | (self.triangle.length_status() as u8) << 2
         | (self.noise.length_status() as u8) << 3
+        | (self.dmc.status() as u8) << 4
     }
 
     fn clock_length(&mut self) {
@@ -198,6 +218,11 @@ impl Apu {
         self.pulse2.clock_sweep();
     }
 
+    pub fn load_bus(&mut self, bus: IoAccessRef) {
+        self.dmc.load_bus(bus.clone());
+        self.bus = Some(bus);
+    }
+
     #[cfg(feature="events")]
     pub fn set_event_sender(&mut self, sender: Sender<events::ApuEvent>) {
         self.logger = Some(sender);
@@ -207,9 +232,13 @@ impl Apu {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use std::rc::Rc;
+    use std::cell::RefCell;
+
     #[test]
     fn pulse_lenctr() {
-        let mut apu = Apu::default();
+        let mut apu = init_apu();
 
         // Mode Step4
         apu.write_byte(0x4017, 0x00);
@@ -245,9 +274,37 @@ mod tests {
         assert!(bit_is_clear!(status, 1));
     }
 
-    fn run_for_step4_frame(apu: &mut Apu) {
+    fn run_for_step4_frame(apu: &mut dyn Clockable<Sample>) {
         for _ in 0..14915 {
             apu.tick();
         }
+    }
+
+    struct FakeBus {
+        vram: [u8; 0x4000],
+    }
+
+    impl Default for FakeBus {
+        fn default() -> Self {
+            FakeBus {
+                vram: [0; 0x4000],
+            }
+        }
+    }
+
+    impl IoAccess for FakeBus {
+        fn read_byte(&self, addr: u16) -> u8 {
+            self.vram[addr as usize]
+        }
+        fn write_byte(&mut self, addr: u16, value: u8) {
+            self.vram[addr as usize] = value;
+        }
+    }
+
+    fn init_apu() -> Apu {
+        let mut apu: Apu = Apu::default();
+        apu.load_bus(Rc::new(RefCell::new(FakeBus::default())));
+
+        apu
     }
 }

@@ -13,6 +13,7 @@ mod apu;
 mod mapper;
 mod joy;
 
+#[cfg(feature = "events")]
 pub mod log;
 
 pub use cpu::{Instruction, AddressingMode};
@@ -27,11 +28,9 @@ pub type FrameBuffer = [u8; FRAME_BUFFER_SIZE];
 pub type SampleBuffer = [apu::Sample; AUDIO_BUFFER_SIZE];
 
 
-use cpu::Cpu;
-use cpu::bus::CpuIoBus;
-use ppu::Ppu;
-use ppu::bus::PpuIoBus;
-use apu::Apu;
+use cpu::{Cpu, bus::CpuIoBus};
+use ppu::{Ppu, bus::PpuIoBus};
+use apu::{Apu, bus::ApuIoBus};
 use joy::Joy;
 use mapper::Mapper;
 use common::Clockable;
@@ -218,6 +217,9 @@ impl Nes {
 
         let ppu_bus = PpuIoBus::new(self.cpu.clone(), mapper.clone());
         self.ppu.borrow_mut().load_bus(ppu_bus);
+
+        let apu_bus = Rc::new(RefCell::new(ApuIoBus::new(self.cpu.clone(), mapper.clone())));
+        self.apu.borrow_mut().load_bus(apu_bus);
 
         self.mapper = Some(mapper);
     }

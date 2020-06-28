@@ -13,10 +13,12 @@ mod timer;
 mod pulse;
 mod triangle;
 mod noise;
+mod dmc;
 
 pub use pulse::{Pulse, NegateAddMode};
 pub use triangle::Triangle;
 pub use noise::Noise;
+pub use dmc::Dmc;
 
 pub use lenctr::{LengthCounter, LengthCounterUnit};
 pub use envelope::{Envelope, EnvelopeUnit};

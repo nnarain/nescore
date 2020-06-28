@@ -18,20 +18,23 @@ const FPS: u64 = 30;
 pub struct Options {
     /// ROM file
     rom: String,
-    /// Enabled pulse 1 plot
-    #[clap(long = "enable-pulse1")]
+    /// Enable pulse 1 plot
+    #[clap(long = "pulse1")]
     enable_pulse1: bool,
-    /// Enabled pulse 2 plot
-    #[clap(long = "enable-pulse2")]
+    /// Enable pulse 2 plot
+    #[clap(long = "pulse2")]
     enable_pulse2: bool,
-    /// Enabled triangle
-    #[clap(long = "enable-triangle")]
+    /// Enable triangle
+    #[clap(long = "triangle")]
     enable_triangle: bool,
-    /// Enabled noise
-    #[clap(long = "enable-noise")]
+    /// Enable noise
+    #[clap(long = "noise")]
     enable_noise: bool,
-    /// Enabled mixer plot
-    #[clap(long = "enable-mixer")]
+    /// Enable DMC
+    #[clap(long = "dmc")]
+    enable_dmc: bool,
+    /// Enable mixer plot
+    #[clap(long = "mixer")]
     enable_mixer: bool,
 }
 
@@ -110,10 +113,18 @@ pub fn dispatch(opts: Options) {
             .label("Noise");
         }
 
+        if opts.enable_dmc {
+            cc.draw_series(LineSeries::new(
+                (0..).zip(data.iter()).map(|(x, data)| (x, data.dmc as f64)),
+                &Palette99::pick(4),
+            ))?
+            .label("DMC");
+        }
+
         if opts.enable_mixer {
             cc.draw_series(LineSeries::new(
                 (0..).zip(data.iter()).map(|(x, data)| (x, data.mixer as f64)),
-                &Palette99::pick(4),
+                &Palette99::pick(5),
             ))?
             .label("Mixer");
         }
