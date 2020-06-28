@@ -18,6 +18,7 @@ macro_rules! kb {
 #[derive(Copy, Clone)]
 pub enum Interrupt {
     Nmi,
+    // Irq,
 }
 
 /// Access a memory mapped component

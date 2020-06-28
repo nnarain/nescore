@@ -6,22 +6,31 @@
 
 #[macro_use] mod bit;
 #[macro_use] mod common;
+
 mod cpu;
 mod ppu;
 mod apu;
 mod mapper;
 mod joy;
 
+#[cfg(feature = "events")]
+pub mod log;
+
+pub use cpu::{Instruction, AddressingMode};
 pub mod cart;
 pub use cart::{Cartridge, CartridgeLoader};
 pub use ppu::{DISPLAY_WIDTH, DISPLAY_HEIGHT};
 pub use joy::{Controller, Button};
 
-use cpu::Cpu;
-use cpu::bus::CpuIoBus;
-use ppu::Ppu;
-use ppu::bus::PpuIoBus;
-use apu::Apu;
+pub use apu::Sample;
+
+pub type FrameBuffer = [u8; FRAME_BUFFER_SIZE];
+pub type SampleBuffer = [apu::Sample; AUDIO_BUFFER_SIZE];
+
+
+use cpu::{Cpu, bus::CpuIoBus};
+use ppu::{Ppu, bus::PpuIoBus};
+use apu::{Apu, bus::ApuIoBus};
 use joy::Joy;
 use mapper::Mapper;
 use common::Clockable;
@@ -29,8 +38,49 @@ use common::Clockable;
 use std::rc::Rc;
 use std::cell::RefCell;
 
+#[cfg(feature="events")]
+use std::sync::mpsc::{channel, Receiver};
+
+#[cfg(feature="events")]
+pub mod events {
+    pub use super::cpu::events::*;
+    pub use super::apu::events::*;
+}
+
 /// Size of the display frame buffer: display size * RGB (3 bytes)
 const FRAME_BUFFER_SIZE: usize = DISPLAY_WIDTH * DISPLAY_HEIGHT * 3;
+/// Size of the audio sample buffer
+const AUDIO_BUFFER_SIZE: usize = FRAME_BUFFER_SIZE / 6; // TODO: Explain
+
+/// Standard PC audio sample rate
+const AUDIO_SAMPLE_RATE: usize = 44100;
+/// Down sampling buffer size
+const DOWN_SAMPLE_BUFFER_SIZE: usize = apu::APU_OUTPUT_RATE / AUDIO_SAMPLE_RATE;
+
+struct DownSampleBuffer {
+    buffer: [apu::Sample; DOWN_SAMPLE_BUFFER_SIZE],
+    idx: usize,
+}
+
+impl Default for DownSampleBuffer {
+    fn default() -> Self {
+        DownSampleBuffer {
+            buffer: [0.0; DOWN_SAMPLE_BUFFER_SIZE],
+            idx: 0,
+        }
+    }
+}
+
+impl DownSampleBuffer {
+    pub fn update(&mut self, sample: apu::Sample) {
+        self.buffer[self.idx] = sample;
+        self.idx = (self.idx + 1) % DOWN_SAMPLE_BUFFER_SIZE;
+    }
+
+    pub fn average(&self) -> apu::Sample {
+        self.buffer.iter().sum()
+    }
+}
 
 /// Representation of the NES system
 #[derive(Default)]
@@ -39,8 +89,9 @@ pub struct Nes {
     ppu: Rc<RefCell<Ppu<PpuIoBus>>>,    // NES Picture Processing Unit
     apu: Rc<RefCell<Apu>>,              // NES Audio Processing Unit
     joy: Rc<RefCell<Joy>>,              // NES Joystick
-                                        // TODO: APU
-    mapper: Option<Mapper> // Catridge Mapper
+    mapper: Option<Mapper>,             // Cartridge Mapper
+
+    audio_buffer: DownSampleBuffer,
 }
 
 impl Nes {
@@ -76,29 +127,39 @@ impl Nes {
     /// let mut nes = Nes::default();
     /// let framebuffer = nes.emulate_frame();
     /// ```
-    pub fn emulate_frame(&mut self) -> [u8; FRAME_BUFFER_SIZE] {
+    pub fn emulate_frame(&mut self) -> (FrameBuffer, SampleBuffer) {
         let mut framebuffer = [0x00u8; FRAME_BUFFER_SIZE];
-        let mut idx = 0usize;
+        let mut framebuffer_idx = 0usize;
+
+        let mut samplebuffer = [0.0; AUDIO_BUFFER_SIZE];
+        let mut samplebuffer_idx = 0usize;
 
         if self.mapper.is_some() {
             // TODO: Need some kind of clock sequencer
             let mut count = 0;
             for _ in 0..ppu::CYCLES_PER_FRAME {
-                // Clock the PPU and clock the CPU every 3 cycles
-                let pixel = self.clock_components(count % 3 == 0, count % 6 == 0);
+                // Clock the CPU, PPU and APU
+                let (pixel, sample) = self.clock_components(count % 3 == 0, count % 6 == 0);
+
                 if let Some((r, g, b)) = pixel {
                     // Insert RGB data into the frame buffer
-                    framebuffer[idx] = r;
-                    framebuffer[idx + 1] = g;
-                    framebuffer[idx + 2] = b;
-                    idx += 3;
+                    framebuffer[framebuffer_idx] = r;
+                    framebuffer[framebuffer_idx + 1] = g;
+                    framebuffer[framebuffer_idx + 2] = b;
+                    framebuffer_idx += 3;
+                }
+
+                if let Some(sample) = sample {
+                    self.audio_buffer.update(sample);
+                    samplebuffer[samplebuffer_idx] = self.audio_buffer.average();
+                    samplebuffer_idx += 1;
                 }
 
                 count += 1;
             }
         }
 
-        framebuffer
+        (framebuffer, samplebuffer)
     }
 
     /// Apply a button input into the emulator
@@ -123,18 +184,21 @@ impl Nes {
     }
 
     /// Clock the NES components
-    fn clock_components(&mut self, clock_cpu: bool, clock_apu: bool) -> Option<ppu::Pixel> {
+    fn clock_components(&mut self, clock_cpu: bool, clock_apu: bool) -> (Option<ppu::Pixel>, Option<apu::Sample>) {
         let pixel = self.ppu.borrow_mut().tick();
 
         if clock_cpu {
             self.cpu.borrow_mut().tick();
         }
 
-        if clock_apu {
-            self.apu.borrow_mut().tick();
+        let sample = if clock_apu {
+            Some(self.apu.borrow_mut().tick())
         }
+        else {
+            None
+        };
 
-        pixel
+        (pixel, sample)
     }
 
     /// Check if the CPU is in an infinite loop state
@@ -154,6 +218,9 @@ impl Nes {
         let ppu_bus = PpuIoBus::new(self.cpu.clone(), mapper.clone());
         self.ppu.borrow_mut().load_bus(ppu_bus);
 
+        let apu_bus = Rc::new(RefCell::new(ApuIoBus::new(self.cpu.clone(), mapper.clone())));
+        self.apu.borrow_mut().load_bus(apu_bus);
+
         self.mapper = Some(mapper);
     }
 
@@ -166,6 +233,25 @@ impl Nes {
     /// ```
     pub fn eject(self) -> Vec<u8> {
         self.mapper.map_or(vec![], |mapper| mapper.borrow().get_battery_ram())
+    }
+
+    //------------------------------------------------------------------------------------------------------------------
+    // Event Logging
+    //------------------------------------------------------------------------------------------------------------------
+    #[cfg(feature="events")]
+    pub fn cpu_event_channel(&mut self) -> Receiver<events::CpuEvent> {
+        let (tx, rx) = channel::<events::CpuEvent>();
+        self.cpu.borrow_mut().set_event_sender(tx);
+
+        rx
+    }
+
+    #[cfg(feature="events")]
+    pub fn apu_event_channel(&mut self) -> Receiver<events::ApuEvent> {
+        let (tx, rx) = channel::<events::ApuEvent>();
+        self.apu.borrow_mut().set_event_sender(tx);
+
+        rx
     }
 
     //------------------------------------------------------------------------------------------------------------------

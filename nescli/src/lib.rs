@@ -7,6 +7,7 @@
 pub mod run;
 pub mod info;
 pub mod img;
+pub mod apu;
 
 use clap::Clap;
 
@@ -21,6 +22,9 @@ pub enum Command {
     /// Dump the CHR ROM data to an image file
     #[clap(name = "img", version = "1.0", author = "Natesh Narain")]
     Img(img::Options),
+    /// APU plots
+    #[clap(name = "apu", version = "1.0", author = "Natesh Narain")]
+    Apu(apu::Options),
 }
 
 #[derive(Clap)]
