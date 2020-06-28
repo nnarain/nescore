@@ -35,8 +35,8 @@ fn main() {
     let cart = Cartridge::from_path("/path/to/rom.nes").unwrap();
     let mut nes = Nes::default().with_cart(cart);
 
-    // Run the NES for a single frame and return video buffer. Audio is TODO
-    let framebuffer = nes.emulate_frame();
+    // Run the NES for a single frame and return audio/video buffers.
+    let (framebuffer, samplebuffer) = nes.emulate_frame();
 
     // Standard controller input: Press the 'A' button
     nes.input(Button::A, true);

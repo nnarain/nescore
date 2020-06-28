@@ -85,7 +85,7 @@ impl Clockable<Sample> for Apu {
                 Event::Irq => {
                     // FIXME: APU IRQ
                     // if let Some(ref mut bus) = self.bus {
-                    //     bus.raise_interrupt(Interrupt::Irq);
+                    //     bus.borrow_mut().raise_interrupt(Interrupt::Irq);
                     // }
                 },
                 Event::None => {}

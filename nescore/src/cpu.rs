@@ -1499,7 +1499,7 @@ impl<Io: IoAccess> Cpu<Io> {
         // Load the vector for the specified interrupt
         self.pc = match int_type {
             Interrupt::Nmi => self.read_u16(memorymap::NMI_VECTOR),
-            Interrupt::Irq => self.read_u16(memorymap::IRQ_VECTOR),
+            // Interrupt::Irq => self.read_u16(memorymap::IRQ_VECTOR),
         };
 
         self.set_flag_bit(Flags::InterruptDisable, true);
