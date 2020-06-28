@@ -15,7 +15,7 @@ pub type Sample = f32;
 
 pub const APU_OUTPUT_RATE: usize = 1_790_000;
 
-use crate::common::{IoAccess, IoAccessRef, Clockable, Register, Interrupt};
+use crate::common::{IoAccess, IoAccessRef, Clockable, Register};
 
 #[cfg(feature="events")]
 use std::sync::mpsc::Sender;

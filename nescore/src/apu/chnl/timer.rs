@@ -39,10 +39,11 @@ impl Timer {
         self.divider.set_period(self.period as u32);
     }
 
-    pub fn count(&self) -> u32 {
-        self.divider.count()
-    }
+    // pub fn count(&self) -> u32 {
+    //     self.divider.count()
+    // }
 
+    #[cfg(test)]
     pub fn reset(&mut self) {
         self.divider.reset();
     }

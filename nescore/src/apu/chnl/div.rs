@@ -46,9 +46,9 @@ impl Divider {
         self.period = period;
     }
 
-    pub fn count(&self) -> u32 {
-        self.counter
-    }
+    // pub fn count(&self) -> u32 {
+    //     self.counter
+    // }
 }
 
 #[cfg(test)]
