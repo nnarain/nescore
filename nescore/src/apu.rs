@@ -15,7 +15,7 @@ pub type Sample = f32;
 
 pub const APU_OUTPUT_RATE: usize = 1_790_000;
 
-use crate::common::{IoAccess, IoAccessRef, Clockable, Register};
+use crate::common::{IoAccess, IoAccessRef, Clockable, Register, Interrupt};
 
 #[cfg(feature="events")]
 use std::sync::mpsc::Sender;
@@ -83,10 +83,9 @@ impl Clockable<Sample> for Apu {
                     self.clock_sweep();
                 },
                 Event::Irq => {
-                    // FIXME: APU IRQ
-                    // if let Some(ref mut bus) = self.bus {
-                    //     bus.borrow_mut().raise_interrupt(Interrupt::Irq);
-                    // }
+                    if let Some(ref mut bus) = self.bus {
+                        bus.borrow_mut().raise_interrupt(Interrupt::Irq);
+                    }
                 },
                 Event::None => {}
             }

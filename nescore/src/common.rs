@@ -15,10 +15,10 @@ macro_rules! kb {
 }
 
 /// Interrupt
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Interrupt {
     Nmi,
-    // Irq,
+    Irq,
 }
 
 /// Access a memory mapped component

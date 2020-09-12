@@ -144,6 +144,11 @@ impl<Io: IoAccess> Cpu<Io> {
                 State::Fetch
             },
             State::Fetch => {
+                // Filter interrupt
+                let masked = self.get_flag_bit(Flags::InterruptDisable);
+                self.interrupted = self.interrupted.filter(
+                    |int_type| (*int_type == Interrupt::Irq && !masked) || *int_type == Interrupt::Nmi);
+
                 if let Some(int_type) = self.interrupted {
                     self.interrupt(int_type);
                     State::Fetch
@@ -1367,7 +1372,7 @@ impl<Io: IoAccess> Cpu<Io> {
     }
 
     //------------------------------------------------------------------------------------------------------------------
-    // CPU Opertions
+    // CPU Operations
     //------------------------------------------------------------------------------------------------------------------
 
     /// Branch
@@ -1499,7 +1504,7 @@ impl<Io: IoAccess> Cpu<Io> {
         // Load the vector for the specified interrupt
         self.pc = match int_type {
             Interrupt::Nmi => self.read_u16(memorymap::NMI_VECTOR),
-            // Interrupt::Irq => self.read_u16(memorymap::IRQ_VECTOR),
+            Interrupt::Irq => self.read_u16(memorymap::IRQ_VECTOR),
         };
 
         self.set_flag_bit(Flags::InterruptDisable, true);
@@ -2877,8 +2882,39 @@ mod tests {
     }
 
     #[test]
-    fn enter_interrupt() {
-        // TODO: Interrupt test
+    fn irq_interrupt_not_masked() {
+        let prg = vec![
+            0xEA // NOP
+        ];
+
+        let mut cpu = init_cpu(prg);
+        cpu.set_flag_bit(Flags::InterruptDisable, false);
+        cpu.raise_interrupt(Interrupt::Irq);
+
+        // One tick to reset
+        cpu.tick();
+        // Another tick to interrupt
+        cpu.tick();
+        // Verify the IRQ interrupt vector has loaded
+        assert_eq!(cpu.pc, 0x4030);
+    }
+
+    #[test]
+    fn irq_interrupt_masked() {
+        let prg = vec![
+            0xEA // NOP
+        ];
+
+        let mut cpu = init_cpu(prg);
+        cpu.set_flag_bit(Flags::InterruptDisable, true);
+        cpu.raise_interrupt(Interrupt::Irq);
+
+        // One tick to reset
+        cpu.tick();
+        // Another tick to interrupt; should be masked
+        cpu.tick();
+        // Verify the IRQ vector was not loaded
+        assert_eq!(cpu.pc, 0x4021);
     }
 
     ///-----------------------------------------------------------------------------------------------------------------
@@ -2914,6 +2950,10 @@ mod tests {
                 // insert NMI interrupt vector
                 rom[0xFFFA] = 0x20;
                 rom[0xFFFB] = 0x40;
+
+                // insert IRQ interrupt
+                rom[0xFFFE] = 0x30;
+                rom[0xFFFF] = 0x40;
 
                 FakeBus {
                     memmap: rom,
