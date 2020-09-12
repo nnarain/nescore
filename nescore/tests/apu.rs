@@ -17,3 +17,9 @@ fn apu_len_table() {
     let mut nes = common::init_nes("tests/roms/nes-test-roms/apu_test/rom_singles/2-len_table.nes");
     common::run_test(&mut nes, "Length Counter test failed with");
 }
+
+#[test]
+fn apu_irq() {
+    let mut nes = common::init_nes("tests/roms/nes-test-roms/apu_test/rom_singles/3-irq_flag.nes");
+    common::run_test(&mut nes, "IRQ Flag test failed with");
+}

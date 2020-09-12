@@ -217,6 +217,7 @@ impl Apu {
         | (self.triangle.length_status() as u8) << 2
         | (self.noise.length_status() as u8) << 3
         | (self.dmc.status() as u8) << 4
+        | (self.sequencer.irq_status() as u8) << 6
     }
 
     fn clock_length(&mut self) {
