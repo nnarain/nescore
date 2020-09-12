@@ -177,8 +177,6 @@ impl IoAccess for Apu {
 
 impl Apu {
     fn mix(&self) -> Sample {
-        // TODO: There are other methods such as linear approximation and a look up table
-
         let pulse1 = self.pulse1.output() as f32;
         let pulse2 = self.pulse2.output() as f32;
         let triangle = self.triangle.output() as f32;
