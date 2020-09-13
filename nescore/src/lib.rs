@@ -97,7 +97,7 @@ impl Nes {
     /// ```
     /// # use nescore::Nes;
     /// let mut nes = Nes::default();
-    /// let framebuffer = nes.emulate_frame();
+    /// let (framebuffer, samplebuffer) = nes.emulate_frame();
     /// ```
     pub fn emulate_frame(&mut self) -> (FrameBuffer, SampleBuffer) {
         let mut framebuffer = [0x00u8; FRAME_BUFFER_SIZE];
