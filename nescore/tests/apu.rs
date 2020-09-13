@@ -13,6 +13,13 @@ fn apu_len_ctr() {
 }
 
 #[test]
+#[ignore = "Times out"]
+fn apu_len_ctr_blargg() {
+    let mut nes = common::init_nes("tests/roms/nes-test-roms/blargg_apu_2005.07.30/01.len_ctr.nes");
+    common::run_test(&mut nes, "Length Counter test failed with");
+}
+
+#[test]
 fn apu_len_table() {
     let mut nes = common::init_nes("tests/roms/nes-test-roms/apu_test/rom_singles/2-len_table.nes");
     common::run_test(&mut nes, "Length Counter test failed with");

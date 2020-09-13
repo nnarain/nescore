@@ -15,5 +15,6 @@ fn main() {
         Command::Info(opts) => nescli::info::dispatch(opts),
         Command::Img(opts)  => nescli::img::dispatch(opts),
         Command::Apu(opts)  => nescli::apu::dispatch(opts),
+        Command::Audio(opts) => nescli::audio::dispatch(opts),
     }
 }

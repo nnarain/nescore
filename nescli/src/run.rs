@@ -30,6 +30,9 @@ pub struct Options {
     /// Debug mode
     #[clap(short = "d")]
     pub debug: bool,
+    /// Enable saves
+    #[clap(short = "s")]
+    pub save: bool,
     /// The ROM file to run
     pub rom: String,
 }
@@ -62,8 +65,12 @@ impl AudioCallback for AudioStreamSource {
 }
 
 impl AudioStreamSource {
-    pub fn update(&mut self, buffer: SampleBuffer) {
-        self.buffers[self.buffer_idx] = buffer.to_vec();
+    pub fn update(&mut self, buffer: SampleBuffer, buffer_size: usize) {
+        // Truncate the buffer to the specified size
+        let mut buffer = buffer.to_vec();
+        buffer.truncate(buffer_size);
+
+        self.buffers[self.buffer_idx] = buffer;
         self.buffer_idx = (self.buffer_idx + 1) % self.buffers.len();
     }
 }
@@ -146,12 +153,12 @@ pub fn dispatch(opts: Options) {
         }
 
         // Run the nescore for a single frame
-        let (framebuffer, samplebuffer) = nes.emulate_frame();
+        let (framebuffer, (samplebuffer, buffer_size)) = nes.emulate_frame();
 
         {
             // update audio stream
             let mut audio_lock = audio_device.lock();
-            audio_lock.update(samplebuffer);
+            audio_lock.update(samplebuffer, buffer_size);
         }
 
         // Update screen
@@ -167,13 +174,15 @@ pub fn dispatch(opts: Options) {
         std::thread::sleep(Duration::from_millis(16));
     }
 
-    // Write the save file
-    match File::create(&save_file_path) {
-        Ok(ref mut file) => {
-            let save_buffer = nes.eject();
-            file.write_all(&save_buffer[..]).unwrap();
-        },
-        Err(e) => println!("{}", e),
+    if opts.save {
+        // Write the save file
+        match File::create(&save_file_path) {
+            Ok(ref mut file) => {
+                let save_buffer = nes.eject();
+                file.write_all(&save_buffer[..]).unwrap();
+            },
+            Err(e) => println!("{}", e),
+        }
     }
 }
 
