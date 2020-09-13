@@ -11,8 +11,7 @@ use sdl2::audio::AudioSpecDesired;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 
-
-use nescore::{Nes, CartridgeLoader};
+use nescore::{Nes, Cartridge};
 
 use crate::common::audio::AudioStreamSource;
 
@@ -28,7 +27,7 @@ pub fn dispatch(opts: Options) {
     let video_subsystem = sdl_context.video().unwrap();
     let audio_subsystem = sdl_context.audio().unwrap();
 
-    let _window = video_subsystem.window("play audio", 500, 500)
+    let _window = video_subsystem.window("play audio", 250, 250)
                                 .position_centered()
                                 .opengl()
                                 .build()
@@ -50,7 +49,7 @@ pub fn dispatch(opts: Options) {
     let mut event_pump = sdl_context.event_pump().unwrap();
 
     // Load the ROM into a Nes instance
-    let mut nes = CartridgeLoader::default().rom_path(&opts.rom).load().map(Nes::from).unwrap();
+    let mut nes: Nes = Cartridge::from_path(&opts.rom).unwrap().into();
 
     'running: loop {
         // Process events...

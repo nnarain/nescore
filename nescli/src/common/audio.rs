@@ -6,38 +6,33 @@
 //
 
 use sdl2::audio::AudioCallback;
-use nescore::Sample;
+use nescore::{Sample, SampleBuffer};
+use std::collections::VecDeque;
 
+#[derive(Default)]
 pub struct AudioStreamSource {
-    buffers: [Vec<Sample>; 2],
-    buffer_idx: usize,
-}
-
-impl Default for AudioStreamSource {
-    fn default() -> Self {
-        AudioStreamSource {
-            buffers: [vec![], vec![]],
-            buffer_idx: 0,
-        }
-    }
+    queue: VecDeque<Sample>,
 }
 
 impl AudioCallback for AudioStreamSource {
     type Channel = Sample;
 
     fn callback(&mut self, out: &mut [Self::Channel]) {
-        for (i, out) in out.iter_mut().enumerate() {
-            let buffer = &self.buffers[self.buffer_idx];
-            if i < buffer.len() {
-                *out = buffer[i];
+        for item in out.iter_mut() {
+            if let Some(sample) = self.queue.pop_front() {
+                *item = sample;
+            }
+            else {
+                break;
             }
         }
     }
 }
 
 impl AudioStreamSource {
-    pub fn update(&mut self, buffer: Vec<Sample>) {
-        self.buffers[self.buffer_idx] = buffer;
-        self.buffer_idx = (self.buffer_idx + 1) % self.buffers.len();
+    pub fn update(&mut self, buffer: SampleBuffer) {
+        for sample in buffer.iter() {
+            self.queue.push_back(*sample);
+        }
     }
 }

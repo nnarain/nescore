@@ -25,7 +25,7 @@ pub use joy::{Controller, Button};
 pub use apu::Sample;
 
 pub type FrameBuffer = [u8; FRAME_BUFFER_SIZE];
-pub type SampleBuffer = [apu::Sample; AUDIO_BUFFER_SIZE];
+pub type SampleBuffer = Vec<apu::Sample>;
 
 
 use cpu::{Cpu, bus::CpuIoBus};
@@ -49,8 +49,6 @@ pub mod events {
 
 /// Size of the display frame buffer: display size * RGB (3 bytes)
 const FRAME_BUFFER_SIZE: usize = DISPLAY_WIDTH * DISPLAY_HEIGHT * 3;
-/// Size of the audio sample buffer
-const AUDIO_BUFFER_SIZE: usize = FRAME_BUFFER_SIZE / 6; // TODO: Explain
 
 /// Standard PC audio sample rate
 const AUDIO_SAMPLE_RATE: usize = 44100;
@@ -101,12 +99,11 @@ impl Nes {
     /// let mut nes = Nes::default();
     /// let framebuffer = nes.emulate_frame();
     /// ```
-    pub fn emulate_frame(&mut self) -> (FrameBuffer, (SampleBuffer, usize)) {
+    pub fn emulate_frame(&mut self) -> (FrameBuffer, SampleBuffer) {
         let mut framebuffer = [0x00u8; FRAME_BUFFER_SIZE];
         let mut framebuffer_idx = 0usize;
 
-        let mut samplebuffer = [0.0; AUDIO_BUFFER_SIZE];
-        let mut samplebuffer_idx = 0usize;
+        let mut samplebuffer = SampleBuffer::new();
 
         let mut downsample_counter = DOWNSAMPLE_RATE;
 
@@ -130,8 +127,9 @@ impl Nes {
                     if downsample_counter == 0 {
                         downsample_counter = DOWNSAMPLE_RATE;
 
-                        samplebuffer[samplebuffer_idx] = sample;
-                        samplebuffer_idx += 1;
+                        // samplebuffer[samplebuffer_idx] = sample;
+                        // samplebuffer_idx += 1;
+                        samplebuffer.push(sample);
                     }
                 }
 
@@ -139,7 +137,7 @@ impl Nes {
             }
         }
 
-        (framebuffer, (samplebuffer, samplebuffer_idx))
+        (framebuffer, samplebuffer)
     }
 
     pub fn run_audio(&mut self, buffer_size: usize) -> Vec<f32> {
@@ -188,6 +186,8 @@ impl Nes {
 
     /// Clock the NES components
     fn clock_components(&mut self, clock_cpu: bool, clock_apu: bool) -> (Option<ppu::Pixel>, Option<apu::Sample>) {
+        // TODO: This clocking interface needs to be re-worked..
+
         let pixel = self.ppu.borrow_mut().tick();
 
         if clock_cpu {

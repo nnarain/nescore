@@ -7,20 +7,21 @@
 
 use clap::Clap;
 
-use sdl2::audio::{AudioCallback, AudioSpecDesired};
+use sdl2::audio::AudioSpecDesired;
 use sdl2::pixels::{Color, PixelFormatEnum};
 use sdl2::rect::Rect;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use std::time::Duration;
 
-use nescore::{Nes, CartridgeLoader, Button, Sample, SampleBuffer};
+use nescore::{Nes, CartridgeLoader, Button};
 use nescore::{DISPLAY_WIDTH, DISPLAY_HEIGHT};
 
 use std::io::prelude::*;
 use std::fs::File;
-
 use std::thread;
+
+use crate::common::audio::AudioStreamSource;
 
 const WINDOW_WIDTH: u32 = 800;
 const WINDOW_HEIGHT: u32 = 600;
@@ -37,44 +38,6 @@ pub struct Options {
     pub rom: String,
 }
 
-struct AudioStreamSource {
-    buffers: [Vec<Sample>; 2],
-    buffer_idx: usize,
-}
-
-impl Default for AudioStreamSource {
-    fn default() -> Self {
-        AudioStreamSource {
-            buffers: [vec![], vec![]],
-            buffer_idx: 0,
-        }
-    }
-}
-
-impl AudioCallback for AudioStreamSource {
-    type Channel = Sample;
-
-    fn callback(&mut self, out: &mut [Self::Channel]) {
-        for (i, out) in out.iter_mut().enumerate() {
-            let buffer = &self.buffers[self.buffer_idx];
-            if i < buffer.len() {
-                *out = buffer[i];
-            }
-        }
-    }
-}
-
-impl AudioStreamSource {
-    pub fn update(&mut self, buffer: SampleBuffer, buffer_size: usize) {
-        // Truncate the buffer to the specified size
-        let mut buffer = buffer.to_vec();
-        buffer.truncate(buffer_size);
-
-        self.buffers[self.buffer_idx] = buffer;
-        self.buffer_idx = (self.buffer_idx + 1) % self.buffers.len();
-    }
-}
-
 pub fn dispatch(opts: Options) {
     let save_file_path = format!("{}.sav", &opts.rom);
 
@@ -82,7 +45,7 @@ pub fn dispatch(opts: Options) {
                         .rom_path(&opts.rom)
                         .save_path(&save_file_path)
                         .load()
-                        .map(|cart| Nes::default().with_cart(cart).debug_mode(opts.debug))
+                        .map(|cart| Nes::from(cart).debug_mode(opts.debug))
                         .unwrap();
 
     // Setup console logger
@@ -153,12 +116,12 @@ pub fn dispatch(opts: Options) {
         }
 
         // Run the nescore for a single frame
-        let (framebuffer, (samplebuffer, buffer_size)) = nes.emulate_frame();
+        let (framebuffer, samplebuffer) = nes.emulate_frame();
 
         {
             // update audio stream
             let mut audio_lock = audio_device.lock();
-            audio_lock.update(samplebuffer, buffer_size);
+            audio_lock.update(samplebuffer);
         }
 
         // Update screen
