@@ -1,8 +1,13 @@
 [package]
 name = "nescore"
 version = "0.1.0"
+description="NES emulator"
 authors = ["Natesh Narain <nnaraindev@gmail.com>"]
 edition = "2018"
+readme="../README.md"
+license-file="LICENSE"
+repository="https://github.com/nnarain/nescore"
+keywords=["nes", "emulator"]
 
 [features]
 default = []
