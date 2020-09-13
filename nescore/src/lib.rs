@@ -25,7 +25,7 @@ pub use joy::{Controller, Button};
 pub use apu::Sample;
 
 pub type FrameBuffer = [u8; FRAME_BUFFER_SIZE];
-pub type SampleBuffer = [apu::Sample; AUDIO_BUFFER_SIZE];
+pub type SampleBuffer = Vec<apu::Sample>;
 
 
 use cpu::{Cpu, bus::CpuIoBus};
@@ -49,49 +49,21 @@ pub mod events {
 
 /// Size of the display frame buffer: display size * RGB (3 bytes)
 const FRAME_BUFFER_SIZE: usize = DISPLAY_WIDTH * DISPLAY_HEIGHT * 3;
-/// Size of the audio sample buffer
-const AUDIO_BUFFER_SIZE: usize = FRAME_BUFFER_SIZE / 6; // TODO: Explain
 
 /// Standard PC audio sample rate
 const AUDIO_SAMPLE_RATE: usize = 44100;
-/// Down sampling buffer size
-const DOWN_SAMPLE_BUFFER_SIZE: usize = apu::APU_OUTPUT_RATE / AUDIO_SAMPLE_RATE;
+/// Down sampling rate to match host system audio sampling playback
+const DOWNSAMPLE_RATE: usize = apu::APU_OUTPUT_RATE / AUDIO_SAMPLE_RATE;
 
-struct DownSampleBuffer {
-    buffer: [apu::Sample; DOWN_SAMPLE_BUFFER_SIZE],
-    idx: usize,
-}
-
-impl Default for DownSampleBuffer {
-    fn default() -> Self {
-        DownSampleBuffer {
-            buffer: [0.0; DOWN_SAMPLE_BUFFER_SIZE],
-            idx: 0,
-        }
-    }
-}
-
-impl DownSampleBuffer {
-    pub fn update(&mut self, sample: apu::Sample) {
-        self.buffer[self.idx] = sample;
-        self.idx = (self.idx + 1) % DOWN_SAMPLE_BUFFER_SIZE;
-    }
-
-    pub fn average(&self) -> apu::Sample {
-        self.buffer.iter().sum()
-    }
-}
 
 /// Representation of the NES system
 #[derive(Default)]
 pub struct Nes {
-    cpu: Rc<RefCell<Cpu<CpuIoBus>>>,    // NES Central Processing Uni
+    cpu: Rc<RefCell<Cpu<CpuIoBus>>>,    // NES Central Processing Unit
     ppu: Rc<RefCell<Ppu<PpuIoBus>>>,    // NES Picture Processing Unit
     apu: Rc<RefCell<Apu>>,              // NES Audio Processing Unit
     joy: Rc<RefCell<Joy>>,              // NES Joystick
     mapper: Option<Mapper>,             // Cartridge Mapper
-
-    audio_buffer: DownSampleBuffer,
 }
 
 impl Nes {
@@ -131,8 +103,9 @@ impl Nes {
         let mut framebuffer = [0x00u8; FRAME_BUFFER_SIZE];
         let mut framebuffer_idx = 0usize;
 
-        let mut samplebuffer = [0.0; AUDIO_BUFFER_SIZE];
-        let mut samplebuffer_idx = 0usize;
+        let mut samplebuffer = SampleBuffer::new();
+
+        let mut downsample_counter = DOWNSAMPLE_RATE;
 
         if self.mapper.is_some() {
             // TODO: Need some kind of clock sequencer
@@ -150,9 +123,14 @@ impl Nes {
                 }
 
                 if let Some(sample) = sample {
-                    self.audio_buffer.update(sample);
-                    samplebuffer[samplebuffer_idx] = self.audio_buffer.average();
-                    samplebuffer_idx += 1;
+                    downsample_counter -= 1;
+                    if downsample_counter == 0 {
+                        downsample_counter = DOWNSAMPLE_RATE;
+
+                        // samplebuffer[samplebuffer_idx] = sample;
+                        // samplebuffer_idx += 1;
+                        samplebuffer.push(sample);
+                    }
                 }
 
                 count += 1;
@@ -160,6 +138,29 @@ impl Nes {
         }
 
         (framebuffer, samplebuffer)
+    }
+
+    pub fn run_audio(&mut self, buffer_size: usize) -> Vec<f32> {
+        let mut buffer = vec![0f32; 0];
+        let mut count = 0;
+
+        let mut downsample_counter = DOWNSAMPLE_RATE;
+
+        while buffer.len() < buffer_size {
+            let (_, sample) = self.clock_components(count % 3 == 0, count % 6 == 0);
+            count += 1;
+
+            if let Some(sample) = sample {
+                downsample_counter -= 1;
+                if downsample_counter == 0 {
+                    downsample_counter = DOWNSAMPLE_RATE;
+
+                    buffer.push(sample);
+                }
+            }
+        }
+
+        buffer
     }
 
     /// Apply a button input into the emulator
@@ -185,6 +186,8 @@ impl Nes {
 
     /// Clock the NES components
     fn clock_components(&mut self, clock_cpu: bool, clock_apu: bool) -> (Option<ppu::Pixel>, Option<apu::Sample>) {
+        // TODO: This clocking interface needs to be re-worked..
+
         let pixel = self.ppu.borrow_mut().tick();
 
         if clock_cpu {
@@ -276,6 +279,12 @@ impl Nes {
     /// Read a tile from the current nametable
     pub fn read_tile(&self, nametable: u16, x: usize, y: usize) -> u8 {
         self.ppu.borrow().read_tile(nametable, x, y)
+    }
+}
+
+impl From<Cartridge> for Nes {
+    fn from(cart: Cartridge) -> Self {
+        Nes::default().with_cart(cart)
     }
 }
 

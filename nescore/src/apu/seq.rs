@@ -5,6 +5,7 @@
 // @date Apr 01 2020
 //
 use crate::common::{Clockable, Register};
+use std::cell::RefCell;
 
 pub enum Event {
     None,
@@ -31,6 +32,7 @@ pub struct FrameSequencer {
     cycles: usize,
     mode: Mode,
     irq_inhibit: bool,
+    frame_irq: RefCell<bool>,
 }
 
 impl Default for FrameSequencer {
@@ -39,6 +41,7 @@ impl Default for FrameSequencer {
             cycles: 0,
             mode: Mode::Step4,
             irq_inhibit: false,
+            frame_irq: RefCell::new(false),
         }
     }
 }
@@ -47,6 +50,11 @@ impl Register<u8> for FrameSequencer {
     fn load(&mut self, data: u8) {
         self.mode = if bit_is_set!(data, 7) { Mode::Step5 } else { Mode::Step4 };
         self.irq_inhibit = bit_is_set!(data, 6);
+
+        if self.irq_inhibit {
+            *self.frame_irq.borrow_mut() = false;
+        }
+
         self.cycles = 0;
     }
 
@@ -67,7 +75,13 @@ impl Clockable<SequencerEvents> for FrameSequencer {
                 Step::One => [Event::EnvelopAndLinear, Event::None, Event::None],
                 Step::Two => [Event::EnvelopAndLinear, Event::LengthAndSweep, Event::None],
                 Step::Three => [Event::EnvelopAndLinear, Event::None, Event::None],
-                Step::Four => helpers::step4(self.mode, self.irq_inhibit),
+                Step::Four => {
+                    // Set frame IRQ if in mode 4 and the irq is not inhibited
+                    if self.mode == Mode::Step4 && !self.irq_inhibit {
+                        *self.frame_irq.borrow_mut() = true;
+                    }
+                    helpers::step4(self.mode, self.irq_inhibit)
+                },
                 Step::Five => [Event::EnvelopAndLinear, Event::LengthAndSweep, Event::None],
             }
         })
@@ -80,6 +94,15 @@ impl Clockable<SequencerEvents> for FrameSequencer {
         };
 
         events
+    }
+}
+
+impl FrameSequencer {
+    pub fn irq_status(&self) -> bool {
+        let status = *self.frame_irq.borrow();
+        *self.frame_irq.borrow_mut() = false;
+
+        status
     }
 }
 
@@ -135,6 +158,10 @@ mod tests {
         assert_eq!(envelope_counter, 4);
         assert_eq!(length_counter, 2);
         assert_eq!(irq_counter, 1);
+        // Check IRQ status
+        assert_eq!(frame_sequencer.irq_status(), true);
+        // Should automatically clear
+        assert_eq!(frame_sequencer.irq_status(), false);
     }
 
     #[test]

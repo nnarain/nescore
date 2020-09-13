@@ -4,10 +4,13 @@
 // @author Natesh Narain <nnaraindev@gmail.com>
 // @date Mar 13 2020
 //
+mod common;
+
 pub mod run;
 pub mod info;
 pub mod img;
 pub mod apu;
+pub mod audio;
 
 use clap::Clap;
 
@@ -25,6 +28,9 @@ pub enum Command {
     /// APU plots
     #[clap(name = "apu", version = "1.0", author = "Natesh Narain")]
     Apu(apu::Options),
+    /// Just play audio from the ROM file
+    #[clap(name = "audio", version = "1.0", author = "Natesh Narain")]
+    Audio(audio::Options),
 }
 
 #[derive(Clap)]

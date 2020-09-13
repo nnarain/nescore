@@ -43,6 +43,9 @@ pub struct Apu {
 
     sequencer: FrameSequencer,
 
+    pulse_table: [f32; 31],
+    tnd_table: [f32; 203],
+
     bus: Option<IoAccessRef>,
 
     // Event logging
@@ -52,6 +55,21 @@ pub struct Apu {
 
 impl Default for Apu {
     fn default() -> Self {
+        // TODO: Would be nice if this could be done inline with (0..31).map(|n| ...)
+        // Or use const fn?
+
+        // Pulse look up table
+        let mut pulse_table = [0f32; 31];
+        for (n, e) in pulse_table.iter_mut().enumerate() {
+            *e = 95.52 / (8128.0 / (n as f32) + 100f32);
+        }
+
+        // tnd look up table
+        let mut tnd_table = [0f32; 203];
+        for (n, e) in tnd_table.iter_mut().enumerate() {
+            *e = 163.67 / (24329.0 / (n as f32) + 100f32);
+        }
+
         Apu {
             pulse1: Pulse::default(),
             pulse2: Pulse::default().add_mode(NegateAddMode::TwosComplement),
@@ -60,6 +78,10 @@ impl Default for Apu {
             dmc: Dmc::default(),
 
             sequencer: FrameSequencer::default(),
+
+            // Mixer lookup tables
+            pulse_table: pulse_table,
+            tnd_table: tnd_table,
 
             bus: None,
 
@@ -155,28 +177,26 @@ impl IoAccess for Apu {
 
 impl Apu {
     fn mix(&self) -> Sample {
-        // TODO: There are other methods such as linear approximation and a look up table
+        let pulse1 = self.pulse1.output() as f32;
+        let pulse2 = self.pulse2.output() as f32;
+        let triangle = self.triangle.output() as f32;
+        let noise = self.noise.output() as f32;
+        let dmc = self.dmc.output() as f32;
 
-        let pulse1_out = self.pulse1.output() as f32;
-        let pulse2_out = self.pulse2.output() as f32;
-        let triangle_out = self.triangle.output() as f32;
-        let noise_out = self.noise.output() as f32;
-        let dmc_out = self.dmc.output() as f32;
+        let pulse_out = self.pulse_table[(pulse1 + pulse2) as usize];
 
-        let pulse_out = 95.88 / ((8128.0 / (pulse1_out + pulse2_out) + 100.0));
-
-        let tnd_out = 159.79 / (1.0 / ((triangle_out / 8227.0) + (noise_out / 12241.0) + (dmc_out / 22638.0)) + 100.0);
+        let tnd_out = self.tnd_table[(3.0 * triangle + 2.0 * noise + dmc) as usize];
 
         let mixed = pulse_out + tnd_out;
 
         #[cfg(feature="events")]
         {
             let data = events::ApuEvent {
-                pulse1: pulse1_out,
-                pulse2: pulse2_out,
-                triangle: triangle_out,
-                noise: noise_out,
-                dmc: dmc_out,
+                pulse1,
+                pulse2,
+                triangle,
+                noise,
+                dmc,
                 mixer: mixed,
             };
 
@@ -197,6 +217,7 @@ impl Apu {
         | (self.triangle.length_status() as u8) << 2
         | (self.noise.length_status() as u8) << 3
         | (self.dmc.status() as u8) << 4
+        | (self.sequencer.irq_status() as u8) << 6
     }
 
     fn clock_length(&mut self) {
