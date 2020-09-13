@@ -16,7 +16,7 @@ mod joy;
 #[cfg(feature = "events")]
 pub mod log;
 
-pub use cpu::{Instruction, AddressingMode};
+pub use cpu::{Instruction, AddressingMode, format};
 pub mod cart;
 pub use cart::{Cartridge, CartridgeLoader};
 pub use ppu::{DISPLAY_WIDTH, DISPLAY_HEIGHT};
