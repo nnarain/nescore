@@ -3,3 +3,6 @@ members = [
     "nescore",
     "nescli",
 ]
+
+[profile.release]
+debug = true
