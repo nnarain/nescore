@@ -15,7 +15,7 @@ use sdl2::keyboard::Keycode;
 use std::time::Duration;
 
 use nescore::{Nes, CartridgeLoader, Button};
-use nescore::{DISPLAY_WIDTH, DISPLAY_HEIGHT};
+use nescore::specs::{DISPLAY_WIDTH, DISPLAY_HEIGHT};
 
 use std::io::prelude::*;
 use std::fs::File;

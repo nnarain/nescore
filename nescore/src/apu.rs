@@ -11,11 +11,10 @@ mod seq;
 use seq::{FrameSequencer, Event};
 use chnl::{SoundChannel, Pulse, Triangle, Noise, Dmc, LengthCounterUnit, EnvelopeUnit, NegateAddMode};
 
-pub type Sample = f32;
-
-pub const APU_OUTPUT_RATE: usize = 1_790_000;
-
 use crate::common::{IoAccess, IoAccessRef, Clockable, Register, Interrupt};
+
+pub type Sample = f32;
+pub const APU_OUTPUT_RATE: usize = 1_790_000;
 
 #[cfg(feature="events")]
 use std::sync::mpsc::Sender;
