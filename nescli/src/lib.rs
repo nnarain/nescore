@@ -11,6 +11,7 @@ pub mod info;
 pub mod img;
 pub mod apu;
 pub mod audio;
+pub mod perf;
 
 use clap::Clap;
 
@@ -31,6 +32,9 @@ pub enum Command {
     /// Just play audio from the ROM file
     #[clap(name = "audio", version = "1.0", author = "Natesh Narain")]
     Audio(audio::Options),
+    /// Do nothing but run the emulator
+    #[clap(name = "perf", version = "1.0", author = "Natesh Narain")]
+    Perf(perf::Options),
 }
 
 #[derive(Clap)]

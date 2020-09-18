@@ -1,6 +1,14 @@
+# Rust
 **/target/
 **/*.rs.bk
 Cargo.lock
+# Roms for testing
 roms/*
 
+# Logging
 *.log
+
+# perf
+*.svg
+*.data
+*.data.old

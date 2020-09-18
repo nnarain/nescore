@@ -12,6 +12,7 @@ keywords=["nes", "emulator"]
 [features]
 default = []
 events = []
+bench-nescore = []
 
 [[test]]
 name = "events"

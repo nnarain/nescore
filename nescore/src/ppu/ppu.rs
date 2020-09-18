@@ -4,14 +4,9 @@
 // @author Natesh Narain <nnaraindev@gmail.com>
 // @date Nov 10 2019
 //
-pub mod bus;
-mod regs;
-mod hw;
-mod sprite;
-
-use regs::*;
-use hw::*;
-use sprite::Sprite;
+use super::regs::*;
+use super::hw::*;
+use super::sprite::Sprite;
 use crate::common::{IoAccess, Clockable, Register, Interrupt};
 
 use std::cell::RefCell;
@@ -99,7 +94,7 @@ impl<Io: IoAccess> Default for Ppu<Io> {
 
             bus: None,
 
-            rgb_palette: *include_bytes!("ppu/ntscpalette.pal"),
+            rgb_palette: *include_bytes!("ntscpalette.pal"),
         }
     }
 }

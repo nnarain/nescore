@@ -4,15 +4,10 @@
 // @author Natesh Narain <nnaraindev@gmail.com>
 // @date Sep 18 2019
 //
-pub mod bus;
-pub mod format;
-pub mod memorymap;
-mod state;
 
-// use bus::CpuIoBus;
 use crate::common::{IoAccess, Clockable, Interrupt};
-use state::*;
-pub use state::{Instruction, AddressingMode};
+use super::state::*;
+use super::memorymap;
 
 use std::num::Wrapping;
 

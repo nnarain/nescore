@@ -6,7 +6,9 @@
 //
 
 use sdl2::audio::AudioCallback;
-use nescore::{Sample, SampleBuffer};
+
+use nescore::specs::{Sample, SampleBuffer};
+
 use std::collections::VecDeque;
 
 #[derive(Default)]

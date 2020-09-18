@@ -4,17 +4,12 @@
 // @author Natesh Narain <nnaraindev@gmail.com>
 // @date Nov 11 2019
 //
-mod mem;
 
-mod base;
-mod nrom;
-mod mmc1;
-mod unrom;
 
-use base::MapperBase;
-use nrom::Nrom;
-use mmc1::Mmc1;
-use unrom::Unrom;
+use super::base::MapperBase;
+use super::nrom::Nrom;
+use super::mmc1::Mmc1;
+use super::unrom::Unrom;
 
 // use std::boxed::Box;
 use std::rc::Rc;

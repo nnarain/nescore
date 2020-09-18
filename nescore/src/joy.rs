@@ -9,8 +9,6 @@ use crate::common::IoAccess;
 
 use std::cell::RefCell;
 
-// TODO: Support multiple controllers?
-
 pub enum Button {
     A      = 0,
     B      = 1,
