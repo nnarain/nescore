@@ -129,8 +129,6 @@ pub struct Cartridge {
     bat_ram: Vec<u8>,
 }
 
-// TODO: Handling Result for failed ROM loading
-
 impl Cartridge {
     pub fn from(rom: Vec<u8>) -> Result<Cartridge, CartridgeError> {
         CartridgeInfo::from(rom.as_slice()).and_then(|info| {
@@ -168,7 +166,7 @@ impl Cartridge {
         }
     }
 
-    /// Comsume the cartridge and return the info, program ROM and character ROM
+    /// Consume the cartridge and return the info, program ROM and character ROM
     pub fn to_parts(self) -> (CartridgeInfo, Vec<u8>, Vec<u8>, Vec<u8>) {
         (self.info, self.prg_rom, self.chr_rom, self.bat_ram)
     }

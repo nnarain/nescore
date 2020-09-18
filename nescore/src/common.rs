@@ -38,7 +38,6 @@ pub trait Clockable<T=()> {
     fn tick(&mut self) -> T;
 }
 
-// TODO: Too generic for a 'Register'
 pub trait Register<T> {
     fn new(value: T) -> Self
     where Self: Default {
