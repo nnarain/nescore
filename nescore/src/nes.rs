@@ -91,8 +91,7 @@ impl Nes {
 
         if self.mapper.is_some() {
             // TODO: Need some kind of clock sequencer
-            let mut count = 0;
-            for _ in 0..crate::ppu::CYCLES_PER_FRAME {
+            for (count, _) in (0..crate::ppu::CYCLES_PER_FRAME).enumerate() {
                 // Clock the CPU, PPU and APU
                 let (pixel, sample) = self.clock_components(count % 3 == 0, count % 6 == 0);
 
@@ -114,8 +113,6 @@ impl Nes {
                         samplebuffer.push(sample);
                     }
                 }
-
-                count += 1;
             }
         }
 

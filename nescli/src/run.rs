@@ -51,12 +51,9 @@ pub fn dispatch(opts: Options) {
     // Setup console logger
     let cpu_events = nes.cpu_event_channel();
 
-    thread::spawn(move || loop {
-        match cpu_events.recv() {
-            Ok(event) => {
-                nescore::log::console(event);
-            },
-            Err(_) => break,
+    thread::spawn(move || {
+        while let Ok(event) = cpu_events.recv() {
+            nescore::log::console(event);
         }
     });
 

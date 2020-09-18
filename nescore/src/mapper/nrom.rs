@@ -25,7 +25,7 @@ pub struct Nrom {
 
 impl From<Cartridge> for Nrom {
     fn from(cart: Cartridge) -> Self {
-        let (info, prg_rom, chr_rom, sav_ram) = cart.to_parts();
+        let (info, prg_rom, chr_rom, sav_ram) = cart.into_parts();
 
         let mut chr_rom_arr = [0x0u8; CHR_DATA_SIZE];
         for (i, byte) in chr_rom.iter().enumerate() {
@@ -45,7 +45,7 @@ impl From<Cartridge> for Nrom {
 
         Nrom {
             prg_rom: Memory::new(prg_rom, PRG_ROM_BANK_SIZE),
-            prg_ram: prg_ram,
+            prg_ram,
             chr_data: chr_rom_arr,
             mirror_rom: info.prg_rom_banks == 1,
         }
@@ -72,11 +72,8 @@ impl MapperControl for Nrom {
     }
 
     fn write(&mut self, addr: u16, value: u8) {
-        match addr {
-            0x6000..=0x7FFF => self.prg_ram[(addr - 0x6000) as usize] = value,
-            _ => {
-                // No internal registers :O
-            }
+        if let 0x6000..=0x7FFF = addr {
+            self.prg_ram[(addr - 0x6000) as usize] = value
         }
     }
 
@@ -125,7 +122,7 @@ mod tests {
 
         let rom = [&header[..], &prg_rom[..], &chr_rom[..]].concat();
 
-        let nrom = Cartridge::from(rom).map(|cart| Nrom::from(cart)).unwrap();
+        let nrom: Nrom = Cartridge::from(rom).unwrap().into();
 
         let irq_lo = nrom.read(0xFFFE) as u16;
         let irq_hi = nrom.read(0xFFFF) as u16;

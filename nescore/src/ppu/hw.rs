@@ -41,8 +41,8 @@ impl Shifter for TileRegister {
 impl TileRegister {
     /// Load tile data into the upper bytes of the two shift registers
     pub fn load(&mut self, value: (u8, u8)) {
-        self.plane0 = self.plane0 | ((reverse_bits!(value.0) as u16) << 8);
-        self.plane1 = self.plane1 | ((reverse_bits!(value.1) << 8));
+        self.plane0 |= (reverse_bits!(value.0) as u16) << 8;
+        self.plane1 |= reverse_bits!(value.1) << 8;
     }
 }
 
@@ -100,12 +100,10 @@ impl Clockable for SpriteRegister {
             self.x_counter -= 1;
             self.is_active = self.x_counter == 0;
         }
-        else {
-            if self.is_active {
-                // Shift pattern data
-                self.plane0 >>= 1;
-                self.plane1 >>= 1;
-            }
+        else if self.is_active {
+            // Shift pattern data
+            self.plane0 >>= 1;
+            self.plane1 >>= 1;
         }
     }
 }

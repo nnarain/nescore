@@ -59,24 +59,20 @@ impl Clockable for Dmc {
                         if self.loop_enabled {
                             self.start_cycle();
                         }
-                        else {
-                            if self.irq_enabled {
-                                // TODO: Raise IRQ Interrupt
-                            }
+                        else if self.irq_enabled {
+                            // TODO: Raise IRQ Interrupt
                         }
                     }
                 }
             }
 
             // Output unit
-            if !self.silence {
-                if self.output >= 2 && self.output <= 125 {
-                    if bit_is_set!(self.shift, 0) {
-                        self.output += 2;
-                    }
-                    else {
-                        self.output -= 2;
-                    }
+            if !self.silence && self.output >= 2 && self.output <= 125 {
+                if bit_is_set!(self.shift, 0) {
+                    self.output += 2;
+                }
+                else {
+                    self.output -= 2;
                 }
             }
 

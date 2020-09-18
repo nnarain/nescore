@@ -79,12 +79,9 @@ impl IoAccess for Joy {
     }
 
     fn write_byte(&mut self, addr: u16, data: u8) {
-        match addr {
-            0x4016 => {
-                self.strobe = bit_is_set!(data, 0);
-                self.apply_strobe();
-            },
-            _ => {},
+        if let 0x4016 = addr {
+            self.strobe = bit_is_set!(data, 0);
+            self.apply_strobe();
         }
     }
 }
