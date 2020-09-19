@@ -167,9 +167,9 @@ impl<Io: IoAccess> Cpu<Io> {
                     #[cfg(feature = "events")]
                     {
                         let data = events::InstructionData {
-                            instr: instr.clone(),
-                            mode: mode.clone(),
-                            opcode_data: opcode_data.clone(),
+                            instr: *instr,
+                            mode: *mode,
+                            opcode_data: *opcode_data,
                             addr: self.pc - (mode.operand_len() + 1) as u16,
                             a: self.a,
                             x: self.x,
@@ -567,7 +567,7 @@ impl<Io: IoAccess> Cpu<Io> {
             0xCE => (Instruction::DEC, AddressingMode::Absolute),
             0xDE => (Instruction::DEC, AddressingMode::AbsoluteX),
             // DEX
-            0xCa => (Instruction::DEX, AddressingMode::Implied),
+            0xCA => (Instruction::DEX, AddressingMode::Implied),
             // DEY
             0x88 => (Instruction::DEY, AddressingMode::Implied),
             // INC
@@ -743,8 +743,8 @@ impl<Io: IoAccess> Cpu<Io> {
     fn fetch_operand_data(&mut self, num_bytes: usize) -> [u8; 2] {
         let mut operand_data = [0u8; 2];
 
-        for i in 0..num_bytes {
-            operand_data[i] = self.read_next_u8();
+        for item in operand_data.iter_mut().take(num_bytes) {
+            *item = self.read_next_u8();
         }
 
         operand_data
@@ -1418,9 +1418,7 @@ impl<Io: IoAccess> Cpu<Io> {
     /// Pull a value off the stack
     fn pull(&mut self) -> u8 {
         self.sp = self.sp.wrapping_add(1);
-        let data = self.read_u8((self.sp as u16) + STACK_PAGE_OFFSET);
-
-        data
+        self.read_u8((self.sp as u16) + STACK_PAGE_OFFSET)
     }
 
     fn push16(&mut self, data: u16) {
@@ -2966,7 +2964,7 @@ mod tests {
             }
         }
 
-        pub fn simple_test<'a>(prg: Vec<u8>, ticks: usize) -> Cpu<FakeBus> {
+        pub fn simple_test(prg: Vec<u8>, ticks: usize) -> Cpu<FakeBus> {
             let mut cpu = init_cpu(prg);
             cpu.p = 0x00;
 

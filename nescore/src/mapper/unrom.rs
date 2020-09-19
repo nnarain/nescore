@@ -46,7 +46,7 @@ pub struct Unrom {
 impl From<Cartridge> for Unrom {
     fn from(cart: Cartridge) -> Self {
         // Extract info and ROM data, VROM is unused
-        let (_, prg_rom, _, _) = cart.to_parts();
+        let (_, prg_rom, _, _) = cart.into_parts();
 
         Unrom{
             prg_rom: Memory::new(prg_rom, PRG_ROM_BANK_SIZE),
@@ -70,13 +70,8 @@ impl MapperControl for Unrom {
     }
 
     fn write(&mut self, addr: u16, data: u8) {
-        match addr {
-            0x8000..=0xFFFF => {
-                self.rom_bank_selection = (data & 0x0F) as usize;
-            },
-            _ => {
-                
-            }
+        if let 0x8000..=0xFFFF = addr {
+            self.rom_bank_selection = (data & 0x0F) as usize;
         }
     }
 

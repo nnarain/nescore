@@ -66,7 +66,7 @@ pub struct CartridgeInfo {
     pub vs_unisystem: bool,      // VS Unisystem
     pub playchoice10: bool,      // PlayChoice
     pub tv_system_pal: bool,     // NTSC if false, PAL if true
-    pub tv_system_ext: usize,    // Unoffical TV supper, 0 - NTSC, 1 - PAL, 2 - Dual Compat
+    pub tv_system_ext: usize,    // Unofficial TV supper, 0 - NTSC, 1 - PAL, 2 - Dual Compat
     
     // below are NES 2.0 only
     pub submapper: usize,        // Submapper number
@@ -131,7 +131,7 @@ pub struct Cartridge {
 
 impl Cartridge {
     pub fn from(rom: Vec<u8>) -> Result<Cartridge, CartridgeError> {
-        CartridgeInfo::from(rom.as_slice()).and_then(|info| {
+        CartridgeInfo::from(rom.as_slice()).map(|info| {
             // Determine the number of bytes for PRG ROM and CHR ROM
             let prg_rom_size = info.prg_rom_banks * PRG_ROM_BANK_SIZE;
             let chr_rom_size = info.chr_rom_banks * CHR_ROM_BANK_SIZE;
@@ -146,14 +146,14 @@ impl Cartridge {
             // Get a slice for the character ROM
             let chr_rom = rom[(prg_rom_offset+prg_rom_size)..(prg_rom_offset+prg_rom_size+chr_rom_size)].to_vec();
 
-            Ok(Cartridge::from_parts(info, prg_rom, chr_rom, vec![]))
+            Cartridge::from_parts(info, prg_rom, chr_rom, vec![])
         })
     }
 
     pub fn from_path(path: &str) -> Result<Cartridge, CartridgeError> {
         load_file(path)
-            .map_err(|e| CartridgeError::ReadFail(e))
-            .and_then(|rom| Cartridge::from(rom))
+            .map_err(CartridgeError::ReadFail)
+            .and_then(Cartridge::from)
     }
 
     /// Construct a Cartridge from parts
@@ -167,7 +167,7 @@ impl Cartridge {
     }
 
     /// Consume the cartridge and return the info, program ROM and character ROM
-    pub fn to_parts(self) -> (CartridgeInfo, Vec<u8>, Vec<u8>, Vec<u8>) {
+    pub fn into_parts(self) -> (CartridgeInfo, Vec<u8>, Vec<u8>, Vec<u8>) {
         (self.info, self.prg_rom, self.chr_rom, self.bat_ram)
     }
 
@@ -196,9 +196,9 @@ impl CartridgeLoader {
         let cart_result = self.rom_path
             .map_or(Err(LoaderError::NoRomProvided), |path| {
                 load_file(&path)
-                    .map_err(|e| CartridgeError::ReadFail(e))
-                    .and_then(|rom| Cartridge::from(rom))
-                    .map_err(|e| LoaderError::LoadCartridge(e))
+                    .map_err(CartridgeError::ReadFail)
+                    .and_then(Cartridge::from)
+                    .map_err(LoaderError::LoadCartridge)
             });
 
         // This.. This could probably be better...
@@ -220,13 +220,13 @@ impl CartridgeLoader {
         }
     }
 
-    pub fn rom_path(mut self, path: &String) -> Self {
-        self.rom_path = Some(path.clone());
+    pub fn rom_path(mut self, path: &str) -> Self {
+        self.rom_path = Some(path.to_string());
         self
     }
 
-    pub fn save_path(mut self, path: &String) -> Self {
-        self.sav_path = Some(path.clone());
+    pub fn save_path(mut self, path: &str) -> Self {
+        self.sav_path = Some(path.to_string());
         self
     }
 }
@@ -383,17 +383,17 @@ fn get_format(rom_header: &[u8]) -> Result<Format, CartridgeError> {
     let flag7 = rom_header[7];
 
     if (flag7 & 0x0Cu8) == 0x08u8 {
-        return Ok(Format::NES2);
+        Ok(Format::NES2)
     }
     else {
         // if this is an INES format rom, bytes 8-15 should be $00
         let empty_bytes = &rom_header[12..16];
 
         if empty_bytes == [0, 0, 0, 0] {
-            return Ok(Format::INES);
+            Ok(Format::INES)
         }
         else {
-            return Err(CartridgeError::InvalidRom(ParseError::InvalidFormat))
+            Err(CartridgeError::InvalidRom(ParseError::InvalidFormat))
         }
     }
 }

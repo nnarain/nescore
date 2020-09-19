@@ -75,8 +75,8 @@ impl Default for Apu {
             sequencer: FrameSequencer::default(),
 
             // Mixer lookup tables
-            pulse_table: pulse_table,
-            tnd_table: tnd_table,
+            pulse_table,
+            tnd_table,
 
             bus: None,
 
@@ -196,10 +196,7 @@ impl Apu {
             };
 
             if let Some(ref logger) = self.logger {
-                match logger.send(data) {
-                    Ok(_) => {},
-                    Err(_) => {},
-                }
+                if logger.send(data).is_ok() {}
             }
         }
 

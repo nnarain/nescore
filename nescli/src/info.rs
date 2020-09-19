@@ -15,6 +15,6 @@ pub struct Options {
 }
 
 pub fn dispatch(opts: Options) {
-    let (info, _, _, _) = Cartridge::from_path(&opts.rom).unwrap().to_parts();
+    let (info, _, _, _) = Cartridge::from_path(&opts.rom).unwrap().into_parts();
     println!("{}", info);
 }

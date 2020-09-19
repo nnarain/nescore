@@ -24,16 +24,14 @@ impl Default for Divider {
 
 impl Clockable<bool> for Divider {
     fn tick(&mut self) -> bool {
-        let event = if self.counter == 0 {
+        if self.counter == 0 {
             self.reset();
             true
         }
         else {
             self.counter -= 1;
             false
-        };
-
-        event
+        }
     }
 }
 

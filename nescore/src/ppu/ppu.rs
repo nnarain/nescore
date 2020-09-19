@@ -172,17 +172,13 @@ impl<Io: IoAccess> Ppu<Io> {
             1..=256 => {
                 // 4 memory accesses each taking 2 cycles
                 // In addition to all that, the sprite evaluation happens independently
-                if dot % 8 == 0 {
-                    if dot <= 240 {
-                        self.load_shift_registers();
-                    }
+                if dot % 8 == 0 && dot <= 240 {
+                    self.load_shift_registers();
                 }
 
-                if dot == 256 {
+                if dot == 256 && self.mask.rendering_enabled() {
                     // At dot 256 the increment part of v is incremented (if rendering)
-                    if self.mask.rendering_enabled() {
-                        self.v.borrow_mut().increment_v();
-                    }
+                    self.v.borrow_mut().increment_v();
                 }
             },
             257..=320 => {
@@ -441,7 +437,7 @@ impl<Io: IoAccess> Ppu<Io> {
         let color_idx = (self.mask.pal_idx * 64) + (color * 3);
 
         (
-            self.rgb_palette[color_idx + 0],
+            self.rgb_palette[color_idx],
             self.rgb_palette[color_idx + 1],
             self.rgb_palette[color_idx + 2],
         )
@@ -664,13 +660,11 @@ mod helpers {
         else if bg_opaque && !sp_opaque {
             (bg_pattern.0, bg_pattern.1, 0x00)
         }
+        else if !sp_priority {
+            (sp_pattern.0, sp_pattern.1, 0x10)
+        }
         else {
-            if !sp_priority {
-                (sp_pattern.0, sp_pattern.1, 0x10)
-            }
-            else {
-                (bg_pattern.0, bg_pattern.1, 0x00)
-            }
+            (bg_pattern.0, bg_pattern.1, 0x00)
         }
     }
 }

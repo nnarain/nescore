@@ -44,10 +44,8 @@ pub struct LengthCounter {
 
 impl Clockable for LengthCounter {
     fn tick(&mut self) {
-        if self.enabled && !self.halted {
-            if self.counter > 0 {
-                self.counter -= 1;
-            }
+        if self.enabled && !self.halted && self.counter > 0 {
+            self.counter -= 1;
         }
     }
 }

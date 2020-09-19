@@ -53,7 +53,7 @@ pub fn dispatch(opts: Options) {
 
     let apu_events = nes.apu_event_channel();
 
-    while let Some(_) = draw_piston_window(&mut window, |b| {
+    while draw_piston_window(&mut window, |b| {
         // Run the NES emulator for a frame
         let _ = nes.emulate_frame();
 
@@ -135,5 +135,5 @@ pub fn dispatch(opts: Options) {
             .draw()?;
 
         Ok(())
-    }) {}
+    }).is_some() {}
 }

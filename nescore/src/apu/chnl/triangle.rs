@@ -48,10 +48,8 @@ impl SoundChannel for Triangle {
 
 impl Clockable for Triangle {
     fn tick(&mut self) {
-        if self.timer.tick() {
-            if !self.lenctr.mute() && self.linear_counter != 0 {
-                self.sequence_idx = (self.sequence_idx + 1) % self.sequence.len();
-            }
+        if self.timer.tick() && !self.lenctr.mute() && self.linear_counter != 0 {
+            self.sequence_idx = (self.sequence_idx + 1) % self.sequence.len();
         }
     }
 }
