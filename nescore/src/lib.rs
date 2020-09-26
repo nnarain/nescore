@@ -19,6 +19,7 @@ mod joy;
 pub mod log;
 pub mod cart;
 pub mod asm;
+pub mod utils;
 
 // Public re-exports
 pub use nes::Nes;

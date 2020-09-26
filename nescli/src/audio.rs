@@ -63,7 +63,7 @@ pub fn dispatch(opts: Options) {
         }
 
         // Run the emulator...
-        let buffer = nes.run_audio(4096);
+        let buffer = nes.emulate_frame().1;
 
         {
             let mut audio_device = audio_device.lock();

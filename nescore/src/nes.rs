@@ -16,15 +16,12 @@ use crate::ppu::Pixel;
 use crate::apu::Sample;
 use crate::joy::{Controller, Button};
 
+// use crate::utils::sampler::DownSampler;
+
 use crate::ppu::{DISPLAY_WIDTH, DISPLAY_HEIGHT};
 
 /// Size of the display frame buffer: display size * RGB (3 bytes)
 const FRAME_BUFFER_SIZE: usize = DISPLAY_WIDTH * DISPLAY_HEIGHT * 3;
-
-/// Standard PC audio sample rate
-const AUDIO_SAMPLE_RATE: usize = 44100;
-/// Down sampling rate to match host system audio sampling playback
-const DOWNSAMPLE_RATE: usize = crate::apu::APU_OUTPUT_RATE / AUDIO_SAMPLE_RATE;
 
 /// Buffer for video data
 pub type FrameBuffer = [u8; FRAME_BUFFER_SIZE];
@@ -109,18 +106,19 @@ impl Nes {
     }
 
     /// Run the emulator for a single frame
+    /// ```no_run
+    /// # use nescore::{Nes, Cartridge};
+    /// let mut nes: Nes = Cartridge::from_path("/path/to/rom").unwrap().into();
+    /// let (videobuffer, audiobuffer) = nes.emulate_frame();
     /// ```
-    /// # use nescore::Nes;
-    /// let mut nes = Nes::default();
-    /// let (framebuffer, samplebuffer) = nes.emulate_frame();
-    /// ```
+    ///
+    /// * `videobuffer` - A RGB8 frame buffer
+    /// * `audiobuffer` - Raw APU output (This must be down sampled to host playback rate)
     pub fn emulate_frame(&mut self) -> (FrameBuffer, SampleBuffer) {
         let mut framebuffer = [0x00u8; FRAME_BUFFER_SIZE];
         let mut framebuffer_idx = 0usize;
 
-        let mut samplebuffer = SampleBuffer::new();
-
-        let mut downsample_counter = DOWNSAMPLE_RATE;
+        let mut samplebuffer: Vec<Sample> = Vec::new();
 
         if self.mapper.is_some() {
             for _ in 0..crate::ppu::CYCLES_PER_FRAME {
@@ -132,18 +130,11 @@ impl Nes {
                     framebuffer[framebuffer_idx] = r;
                     framebuffer[framebuffer_idx + 1] = g;
                     framebuffer[framebuffer_idx + 2] = b;
-                    framebuffer_idx += 3;
+                    framebuffer_idx = (framebuffer_idx + 3) % FRAME_BUFFER_SIZE;
                 }
 
                 if let Some(sample) = sample {
-                    downsample_counter -= 1;
-                    if downsample_counter == 0 {
-                        downsample_counter = DOWNSAMPLE_RATE;
-
-                        // samplebuffer[samplebuffer_idx] = sample;
-                        // samplebuffer_idx += 1;
-                        samplebuffer.push(sample);
-                    }
+                    samplebuffer.push(sample);
                 }
             }
         }
@@ -154,18 +145,10 @@ impl Nes {
     pub fn run_audio(&mut self, buffer_size: usize) -> Vec<f32> {
         let mut buffer = vec![0f32; 0];
 
-        let mut downsample_counter = DOWNSAMPLE_RATE;
-
         while buffer.len() < buffer_size {
-            let (_, sample) = self.clock_components();
-
+            let sample = self.clock_components().1;
             if let Some(sample) = sample {
-                downsample_counter -= 1;
-                if downsample_counter == 0 {
-                    downsample_counter = DOWNSAMPLE_RATE;
-
-                    buffer.push(sample);
-                }
+                buffer.push(sample);
             }
         }
 
@@ -198,7 +181,6 @@ impl Nes {
     /// Run until the CPU's PC is at address **addr**
     pub fn run_until(&mut self, addr: u16) {
         // TODO: Time limit
-        // TODO: Consistent clocking of components
         if self.mapper.is_some() {
             while self.cpu.borrow().get_pc() != addr {
                 self.clock_components();
@@ -208,22 +190,6 @@ impl Nes {
 
     /// Clock the NES components
     fn clock_components(&mut self) -> (Option<Pixel>, Option<Sample>) {
-        // TODO: This clocking interface needs to be re-worked..
-
-        // let pixel = self.ppu.borrow_mut().tick();
-
-        // if clock_cpu {
-        //     self.cpu.borrow_mut().tick();
-        // }
-
-        // let sample = if clock_apu {
-        //     Some(self.apu.borrow_mut().tick())
-        // }
-        // else {
-        //     None
-        // };
-
-        // (pixel, sample)
         let mut pixel: Option<Pixel> = None;
         let mut sample: Option<Sample> = None;
 
