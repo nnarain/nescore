@@ -1,6 +1,6 @@
 use nescore::{Nes, Cartridge};
 
-use nescore::{Instruction, AddressingMode};
+use nescore::asm::{Instruction, AddressingMode};
 use nescore::events::CpuEvent;
 
 #[test]

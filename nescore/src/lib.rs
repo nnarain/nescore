@@ -18,10 +18,10 @@ mod joy;
 #[cfg(feature = "events")]
 pub mod log;
 pub mod cart;
+pub mod asm;
 
 // Public re-exports
 pub use nes::Nes;
-pub use cpu::{Instruction, AddressingMode, format};
 pub use cart::{Cartridge, CartridgeLoader};
 pub use joy::{Controller, Button};
 
@@ -38,11 +38,3 @@ pub mod events {
     pub use super::cpu::events::*;
     pub use super::apu::events::*;
 }
-
-// For benchmarking
-// #[cfg(test)]
-// pub use cpu::*;
-// #[cfg(test)]
-// pub use ppu::*;
-// #[cfg(test)]
-// pub use apu::*;
