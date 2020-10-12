@@ -19,7 +19,7 @@ pub struct Options {
     /// ROM file
     rom: String,
     /// Output file name
-    #[clap(short = "o", long = "output", default_value = "chr_rom.png")]
+    #[clap(short = 'o', long = "output", default_value = "chr_rom.png")]
     output: String,
 }
 

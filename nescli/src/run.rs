@@ -29,10 +29,10 @@ const WINDOW_HEIGHT: u32 = 600;
 #[derive(Clap, Debug)]
 pub struct Options {
     /// Debug mode
-    #[clap(short = "d")]
+    #[clap(short = 'd')]
     pub debug: bool,
     /// Enable saves
-    #[clap(short = "s")]
+    #[clap(short = 's')]
     pub save: bool,
     /// The ROM file to run
     pub rom: String,
