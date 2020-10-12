@@ -5,14 +5,53 @@
 // @date Sep 18 2019
 //
 
+use crate::asm::{Instruction, AddressingMode, decode, cycle_count};
 use crate::common::{IoAccess, Clockable, Interrupt};
-use super::state::*;
 use super::memorymap;
 
 use std::num::Wrapping;
 
 #[cfg(feature="events")]
 use std::sync::mpsc::Sender;
+
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub enum AddressingModeResult {
+    Byte(u8), Address(u16), Offset(u8), Implied
+}
+
+impl AddressingModeResult {
+    pub fn to_address(&self) -> Option<u16> {
+        match *self {
+            AddressingModeResult::Address(a) => Some(a),
+            _ => None,
+        }
+    }
+
+    pub fn to_byte<A2B>(&self, mut a2b: A2B) -> Option<u8> where A2B: FnMut(u16) -> u8 {
+        match *self {
+            AddressingModeResult::Byte(b) => Some(b),
+            AddressingModeResult::Address(a) => {
+                let b = a2b(a);
+                Some(b)
+            },
+            _ => None,
+        }
+    }
+
+    pub fn to_offset(&self) -> Option<u8> {
+        match *self {
+            AddressingModeResult::Offset(o) => Some(o),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Copy, Clone)]
+pub enum State {
+    Reset,
+    Fetch,
+    Execute(Instruction, AddressingMode, [u8; 3], usize),
+}
 
 /// CPU Flags
 enum Flags {
@@ -442,297 +481,7 @@ impl<Io: IoAccess> Cpu<Io> {
 
     /// Convert opcode into instruction and addressing mode and return an execute state
     fn get_execute_state(&mut self, opcode: u8) -> State {
-        let (instr, mode) = match opcode {
-            // NOP
-            0xEA | 0x1A | 0x3A | 0x5A | 0x7A | 0xDA | 0xFA => (Instruction::NOP, AddressingMode::Implied),
-            0x04 | 0x44 | 0x64 | 0x82 | 0x89 | 0xC2 | 0xE2 => (Instruction::NOP, AddressingMode::Immediate),
-            0x0C => (Instruction::NOP, AddressingMode::Absolute),
-            0x80 => (Instruction::NOP, AddressingMode::ZeroPage),
-            0x14 | 0x34 | 0x54 | 0x74 | 0xD4 | 0xF4 => (Instruction::NOP, AddressingMode::ZeroPageX),
-            0x1C | 0x3C | 0x5C | 0x7C | 0xDC | 0xFC => (Instruction::NOP, AddressingMode::AbsoluteX),
-            // LDA
-            0xA9 => (Instruction::LDA, AddressingMode::Immediate),
-            0xA5 => (Instruction::LDA, AddressingMode::ZeroPage),
-            0xB5 => (Instruction::LDA, AddressingMode::ZeroPageX),
-            0xAD => (Instruction::LDA, AddressingMode::Absolute),
-            0xBD => (Instruction::LDA, AddressingMode::AbsoluteX),
-            0xB9 => (Instruction::LDA, AddressingMode::AbsoluteY),
-            0xA1 => (Instruction::LDA, AddressingMode::IndexedIndirect),
-            0xB1 => (Instruction::LDA, AddressingMode::IndirectIndexed),
-            // LAX
-            0xAB => (Instruction::LAX, AddressingMode::Immediate),
-            0xA7 => (Instruction::LAX, AddressingMode::ZeroPage),
-            0xB7 => (Instruction::LAX, AddressingMode::ZeroPageY),
-            0xAF => (Instruction::LAX, AddressingMode::Absolute),
-            0xBF => (Instruction::LAX, AddressingMode::AbsoluteY),
-            0xA3 => (Instruction::LAX, AddressingMode::IndexedIndirect),
-            0xB3 => (Instruction::LAX, AddressingMode::IndirectIndexed),
-            // SAX
-            0x87 => (Instruction::SAX, AddressingMode::ZeroPage),
-            0x97 => (Instruction::SAX, AddressingMode::ZeroPageY),
-            0x8F => (Instruction::SAX, AddressingMode::Absolute),
-            0x83 => (Instruction::SAX, AddressingMode::IndexedIndirect),
-            // DCP
-            0xC7 => (Instruction::DCP, AddressingMode::ZeroPage),
-            0xD7 => (Instruction::DCP, AddressingMode::ZeroPageX),
-            0xCF => (Instruction::DCP, AddressingMode::Absolute),
-            0xDF => (Instruction::DCP, AddressingMode::AbsoluteX),
-            0xDB => (Instruction::DCP, AddressingMode::AbsoluteY),
-            0xC3 => (Instruction::DCP, AddressingMode::IndexedIndirect),
-            0xD3 => (Instruction::DCP, AddressingMode::IndirectIndexed),
-            // JMP
-            0x4C => (Instruction::JMP, AddressingMode::Absolute),
-            0x6C => (Instruction::JMP, AddressingMode::Indirect),
-            // ADC
-            0x69 => (Instruction::ADC, AddressingMode::Immediate),
-            0x65 => (Instruction::ADC, AddressingMode::ZeroPage),
-            0x75 => (Instruction::ADC, AddressingMode::ZeroPageX),
-            0x6D => (Instruction::ADC, AddressingMode::Absolute),
-            0x7D => (Instruction::ADC, AddressingMode::AbsoluteX),
-            0x79 => (Instruction::ADC, AddressingMode::AbsoluteY),
-            0x61 => (Instruction::ADC, AddressingMode::IndexedIndirect),
-            0x71 => (Instruction::ADC, AddressingMode::IndirectIndexed),
-            // AND
-            0x29 => (Instruction::AND, AddressingMode::Immediate),
-            0x25 => (Instruction::AND, AddressingMode::ZeroPage),
-            0x35 => (Instruction::AND, AddressingMode::ZeroPageX),
-            0x2D => (Instruction::AND, AddressingMode::Absolute),
-            0x3D => (Instruction::AND, AddressingMode::AbsoluteX),
-            0x39 => (Instruction::AND, AddressingMode::AbsoluteY),
-            0x21 => (Instruction::AND, AddressingMode::IndexedIndirect),
-            0x31 => (Instruction::AND, AddressingMode::IndirectIndexed),
-            // ANC
-            0x0B | 0x2B => (Instruction::ANC, AddressingMode::Immediate),
-            // ASL
-            0x0A => (Instruction::ASL, AddressingMode::Accumulator),
-            0x06 => (Instruction::ASL, AddressingMode::ZeroPage),
-            0x16 => (Instruction::ASL, AddressingMode::ZeroPageX),
-            0x0E => (Instruction::ASL, AddressingMode::Absolute),
-            0x1E => (Instruction::ASL, AddressingMode::AbsoluteX),
-            // STA
-            0x85 => (Instruction::STA, AddressingMode::ZeroPage),
-            0x95 => (Instruction::STA, AddressingMode::ZeroPageX),
-            0x8D => (Instruction::STA, AddressingMode::Absolute),
-            0x9D => (Instruction::STA, AddressingMode::AbsoluteX),
-            0x99 => (Instruction::STA, AddressingMode::AbsoluteY),
-            0x81 => (Instruction::STA, AddressingMode::IndexedIndirect),
-            0x91 => (Instruction::STA, AddressingMode::IndirectIndexed),
-            // BCC
-            0x90 => (Instruction::BCC, AddressingMode::Relative),
-            // BCS
-            0xB0 => (Instruction::BCS, AddressingMode::Relative),
-            // BEQ
-            0xF0 => (Instruction::BEQ, AddressingMode::Relative),
-            // BNE
-            0xD0 => (Instruction::BNE, AddressingMode::Relative),
-            // BMI
-            0x30 => (Instruction::BMI, AddressingMode::Relative),
-            // BPL
-            0x10 => (Instruction::BPL, AddressingMode::Relative),
-            // BIT
-            0x24 => (Instruction::BIT, AddressingMode::ZeroPage),
-            0x2C => (Instruction::BIT, AddressingMode::Absolute),
-            // BVC
-            0x50 => (Instruction::BVC, AddressingMode::Relative),
-            // BVS
-            0x70 => (Instruction::BVS, AddressingMode::Relative),
-            // CLC
-            0x18 => (Instruction::CLC, AddressingMode::Implied),
-            // CLD
-            0xD8 => (Instruction::CLD, AddressingMode::Implied),
-            // CLI
-            0x58 => (Instruction::CLI, AddressingMode::Implied),
-            // CLV
-            0xB8 => (Instruction::CLV, AddressingMode::Implied),
-            // CMP
-            0xC9 => (Instruction::CMP, AddressingMode::Immediate),
-            0xC5 => (Instruction::CMP, AddressingMode::ZeroPage),
-            0xD5 => (Instruction::CMP, AddressingMode::ZeroPageX),
-            0xCD => (Instruction::CMP, AddressingMode::Absolute),
-            0xDD => (Instruction::CMP, AddressingMode::AbsoluteX),
-            0xD9 => (Instruction::CMP, AddressingMode::AbsoluteY),
-            0xC1 => (Instruction::CMP, AddressingMode::IndexedIndirect),
-            0xD1 => (Instruction::CMP, AddressingMode::IndirectIndexed),
-            // CPX
-            0xE0 => (Instruction::CPX, AddressingMode::Immediate),
-            0xE4 => (Instruction::CPX, AddressingMode::ZeroPage),
-            0xEC => (Instruction::CPX, AddressingMode::Absolute),
-            // CPY
-            0xC0 => (Instruction::CPY, AddressingMode::Immediate),
-            0xC4 => (Instruction::CPY, AddressingMode::ZeroPage),
-            0xCC => (Instruction::CPY, AddressingMode::Absolute),
-            // DEC
-            0xC6 => (Instruction::DEC, AddressingMode::ZeroPage),
-            0xD6 => (Instruction::DEC, AddressingMode::ZeroPageX),
-            0xCE => (Instruction::DEC, AddressingMode::Absolute),
-            0xDE => (Instruction::DEC, AddressingMode::AbsoluteX),
-            // DEX
-            0xCA => (Instruction::DEX, AddressingMode::Implied),
-            // DEY
-            0x88 => (Instruction::DEY, AddressingMode::Implied),
-            // INC
-            0xE6 => (Instruction::INC, AddressingMode::ZeroPage),
-            0xF6 => (Instruction::INC, AddressingMode::ZeroPageX),
-            0xEE => (Instruction::INC, AddressingMode::Absolute),
-            0xFE => (Instruction::INC, AddressingMode::AbsoluteX),
-            // INX
-            0xE8 => (Instruction::INX, AddressingMode::Implied),
-            // INY
-            0xC8 => (Instruction::INY, AddressingMode::Implied),
-            // EOR
-            0x49 => (Instruction::EOR, AddressingMode::Immediate),
-            0x45 => (Instruction::EOR, AddressingMode::ZeroPage),
-            0x55 => (Instruction::EOR, AddressingMode::ZeroPageX),
-            0x4D => (Instruction::EOR, AddressingMode::Absolute),
-            0x5D => (Instruction::EOR, AddressingMode::AbsoluteX),
-            0x59 => (Instruction::EOR, AddressingMode::AbsoluteY),
-            0x41 => (Instruction::EOR, AddressingMode::IndexedIndirect),
-            0x51 => (Instruction::EOR, AddressingMode::IndirectIndexed),
-            // LDX
-            0xA2 => (Instruction::LDX, AddressingMode::Immediate),
-            0xA6 => (Instruction::LDX, AddressingMode::ZeroPage),
-            0xB6 => (Instruction::LDX, AddressingMode::ZeroPageY),
-            0xAE => (Instruction::LDX, AddressingMode::Absolute),
-            0xBE => (Instruction::LDX, AddressingMode::AbsoluteY),
-            // LDY
-            0xA0 => (Instruction::LDY, AddressingMode::Immediate),
-            0xA4 => (Instruction::LDY, AddressingMode::ZeroPage),
-            0xB4 => (Instruction::LDY, AddressingMode::ZeroPageX),
-            0xAC => (Instruction::LDY, AddressingMode::Absolute),
-            0xBC => (Instruction::LDY, AddressingMode::AbsoluteX),
-            // PHA
-            0x48 => (Instruction::PHA, AddressingMode::Implied),
-            // PHP
-            0x08 => (Instruction::PHP, AddressingMode::Implied),
-            // PLA
-            0x68 => (Instruction::PLA, AddressingMode::Implied),
-            // PLP
-            0x28 => (Instruction::PLP, AddressingMode::Implied),
-            // LSR
-            0x4A => (Instruction::LSR, AddressingMode::Accumulator),
-            0x46 => (Instruction::LSR, AddressingMode::ZeroPage),
-            0x56 => (Instruction::LSR, AddressingMode::ZeroPageX),
-            0x4E => (Instruction::LSR, AddressingMode::Absolute),
-            0x5E => (Instruction::LSR, AddressingMode::AbsoluteX),
-            // ALR
-            0x4B => (Instruction::ALR, AddressingMode::Immediate),
-            // ARR
-            0x6B => (Instruction::ARR, AddressingMode::Immediate),
-            // AXS
-            0xCB => (Instruction::AXS, AddressingMode::Immediate),
-            // ORA
-            0x09 => (Instruction::ORA, AddressingMode::Immediate),
-            0x05 => (Instruction::ORA, AddressingMode::ZeroPage),
-            0x15 => (Instruction::ORA, AddressingMode::ZeroPageX),
-            0x0D => (Instruction::ORA, AddressingMode::Absolute),
-            0x1D => (Instruction::ORA, AddressingMode::AbsoluteX),
-            0x19 => (Instruction::ORA, AddressingMode::AbsoluteY),
-            0x01 => (Instruction::ORA, AddressingMode::IndexedIndirect),
-            0x11 => (Instruction::ORA, AddressingMode::IndirectIndexed),
-            // ROR
-            0x6A => (Instruction::ROR, AddressingMode::Accumulator),
-            0x66 => (Instruction::ROR, AddressingMode::ZeroPage),
-            0x76 => (Instruction::ROR, AddressingMode::ZeroPageX),
-            0x6E => (Instruction::ROR, AddressingMode::Absolute),
-            0x7E => (Instruction::ROR, AddressingMode::AbsoluteX),
-            // ROL
-            0x2A => (Instruction::ROL, AddressingMode::Accumulator),
-            0x26 => (Instruction::ROL, AddressingMode::ZeroPage),
-            0x36 => (Instruction::ROL, AddressingMode::ZeroPageX),
-            0x2E => (Instruction::ROL, AddressingMode::Absolute),
-            0x3E => (Instruction::ROL, AddressingMode::AbsoluteX),
-            // RLA
-            0x27 => (Instruction::RLA, AddressingMode::ZeroPage),
-            0x37 => (Instruction::RLA, AddressingMode::ZeroPageX),
-            0x2F => (Instruction::RLA, AddressingMode::Absolute),
-            0x3F => (Instruction::RLA, AddressingMode::AbsoluteX),
-            0x3B => (Instruction::RLA, AddressingMode::AbsoluteY),
-            0x23 => (Instruction::RLA, AddressingMode::IndexedIndirect),
-            0x33 => (Instruction::RLA, AddressingMode::IndirectIndexed),
-            // RRA
-            0x67 => (Instruction::RRA, AddressingMode::ZeroPage),
-            0x77 => (Instruction::RRA, AddressingMode::ZeroPageX),
-            0x6F => (Instruction::RRA, AddressingMode::Absolute),
-            0x7F => (Instruction::RRA, AddressingMode::AbsoluteX),
-            0x7B => (Instruction::RRA, AddressingMode::AbsoluteY),
-            0x63 => (Instruction::RRA, AddressingMode::IndexedIndirect),
-            0x73 => (Instruction::RRA, AddressingMode::IndirectIndexed),
-            // SRE
-            0x47 => (Instruction::SRE, AddressingMode::ZeroPage),
-            0x57 => (Instruction::SRE, AddressingMode::ZeroPageX),
-            0x4F => (Instruction::SRE, AddressingMode::Absolute),
-            0x5F => (Instruction::SRE, AddressingMode::AbsoluteX),
-            0x5B => (Instruction::SRE, AddressingMode::AbsoluteY),
-            0x43 => (Instruction::SRE, AddressingMode::IndexedIndirect),
-            0x53 => (Instruction::SRE, AddressingMode::IndirectIndexed),
-            // RTI
-            0x40 => (Instruction::RTI, AddressingMode::Implied),
-            // JSR
-            0x20 => (Instruction::JSR, AddressingMode::Absolute),
-            // RTS
-            0x60 => (Instruction::RTS, AddressingMode::Implied),
-            // SBC
-            0xE9 | 0xEB => (Instruction::SBC, AddressingMode::Immediate),
-            0xE5 => (Instruction::SBC, AddressingMode::ZeroPage),
-            0xF5 => (Instruction::SBC, AddressingMode::ZeroPageX),
-            0xED => (Instruction::SBC, AddressingMode::Absolute),
-            0xFD => (Instruction::SBC, AddressingMode::AbsoluteX),
-            0xF9 => (Instruction::SBC, AddressingMode::AbsoluteY),
-            0xE1 => (Instruction::SBC, AddressingMode::IndexedIndirect),
-            0xF1 => (Instruction::SBC, AddressingMode::IndirectIndexed),
-            // ISB
-            0xE7 => (Instruction::ISB, AddressingMode::ZeroPage),
-            0xF7 => (Instruction::ISB, AddressingMode::ZeroPageX),
-            0xEF => (Instruction::ISB, AddressingMode::Absolute),
-            0xFF => (Instruction::ISB, AddressingMode::AbsoluteX),
-            0xFB => (Instruction::ISB, AddressingMode::AbsoluteY),
-            0xE3 => (Instruction::ISB, AddressingMode::IndexedIndirect),
-            0xF3 => (Instruction::ISB, AddressingMode::IndirectIndexed),
-            // SLO
-            0x07 => (Instruction::SLO, AddressingMode::ZeroPage),
-            0x17 => (Instruction::SLO, AddressingMode::ZeroPageX),
-            0x0F => (Instruction::SLO, AddressingMode::Absolute),
-            0x1F => (Instruction::SLO, AddressingMode::AbsoluteX),
-            0x1B => (Instruction::SLO, AddressingMode::AbsoluteY),
-            0x03 => (Instruction::SLO, AddressingMode::IndexedIndirect),
-            0x13 => (Instruction::SLO, AddressingMode::IndirectIndexed),
-            // SEC
-            0x38 => (Instruction::SEC, AddressingMode::Implied),
-            // SED
-            0xF8 => (Instruction::SED, AddressingMode::Implied),
-            // SEI
-            0x78 => (Instruction::SEI, AddressingMode::Implied),
-            // SHY
-            0x9C => (Instruction::SHY, AddressingMode::AbsoluteX),
-            // SHX
-            0x9E => (Instruction::SHX, AddressingMode::AbsoluteY),
-            // STX
-            0x86 => (Instruction::STX, AddressingMode::ZeroPage),
-            0x96 => (Instruction::STX, AddressingMode::ZeroPageY),
-            0x8E => (Instruction::STX, AddressingMode::Absolute),
-            // STY
-            0x84 => (Instruction::STY, AddressingMode::ZeroPage),
-            0x94 => (Instruction::STY, AddressingMode::ZeroPageX),
-            0x8C => (Instruction::STY, AddressingMode::Absolute),
-            // TAX
-            0xAA => (Instruction::TAX, AddressingMode::Implied),
-            // TAY
-            0xA8 => (Instruction::TAY, AddressingMode::Implied),
-            // TSX
-            0xBA => (Instruction::TSX, AddressingMode::Implied),
-            // TXA
-            0x8A => (Instruction::TXA, AddressingMode::Implied),
-            // TXS
-            0x9A => (Instruction::TXS, AddressingMode::Implied),
-            // TYA
-            0x98 => (Instruction::TYA, AddressingMode::Implied),
-            // BRK - Followed by an unused byte
-            0x00 => (Instruction::BRK, AddressingMode::Immediate),
-
-            _ => {
-                panic!("Invalid opcode: ${opcode} at ${addr}", opcode=format!("{:X}", opcode), addr=format!("{:04X}", self.pc-1));
-            }
-        };
+        let (instr, mode) = decode(opcode);
 
         let operand_data = self.fetch_operand_data(mode.operand_len());
         let opcode_data: [u8; 3] = [opcode, operand_data[0], operand_data[1]];
