@@ -10,7 +10,7 @@ use super::chnl::{SoundChannel, Pulse, Triangle, Noise, Dmc, LengthCounterUnit, 
 use crate::common::{IoAccess, IoAccessRef, Clockable, Register, Interrupt};
 
 pub type Sample = f32;
-pub const APU_OUTPUT_RATE: usize = 1_790_000;
+pub const APU_OUTPUT_RATE: f32 = 895_000.0;
 
 #[cfg(feature="events")]
 use std::sync::mpsc::Sender;
@@ -122,6 +122,7 @@ impl Clockable<Sample> for Apu {
         // Clock DMC
         self.dmc.tick();
 
+        // Mix channel outputs into final sample
         self.mix()
     }
 }
@@ -134,8 +135,8 @@ impl IoAccess for Apu {
             0x4008..=0x400B => self.triangle.read_byte(addr - 0x4008),
             0x400C..=0x400F => self.noise.read_byte(addr - 0x400C),
             0x4010..=0x4013 => self.dmc.read_byte(addr - 0x4010),
-            0x4015 => self.status(),
-            0x4017 => self.sequencer.value(),
+            0x4015          => self.status(),
+            0x4017          => self.sequencer.value(),
             _ => panic!("Invalid address for APU: ${:04X}", addr),
         }
     }

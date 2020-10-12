@@ -12,7 +12,6 @@ use sdl2::pixels::{Color, PixelFormatEnum};
 use sdl2::rect::Rect;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
-use std::time::Duration;
 
 use nescore::{Nes, CartridgeLoader, Button};
 use nescore::specs::{DISPLAY_WIDTH, DISPLAY_HEIGHT};
@@ -20,6 +19,7 @@ use nescore::specs::{DISPLAY_WIDTH, DISPLAY_HEIGHT};
 use std::io::prelude::*;
 use std::fs::File;
 use std::thread;
+use std::time::{Duration, Instant};
 
 use crate::common::audio::AudioStreamSource;
 
@@ -91,6 +91,8 @@ pub fn dispatch(opts: Options) {
     let mut event_pump = sdl_context.event_pump().unwrap();
 
     'running: loop {
+        let instant = Instant::now();
+
         for event in event_pump.poll_iter() {
             match event {
                 Event::Quit {..} | Event::KeyDown { keycode: Some(Keycode::Escape), .. } => {
@@ -131,7 +133,16 @@ pub fn dispatch(opts: Options) {
 
         canvas.present();
 
-        std::thread::sleep(Duration::from_millis(16));
+        let refresh_duration = Duration::from_millis(16);
+
+        let sleep_duration = if instant.elapsed() > refresh_duration {
+            Duration::from_millis(1)
+        }
+        else {
+            refresh_duration - instant.elapsed()
+        };
+
+        std::thread::sleep(sleep_duration);
     }
 
     if opts.save {
