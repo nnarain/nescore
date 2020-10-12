@@ -17,7 +17,7 @@ jobs:
       with:
         submodules: true
     - name: Build
-      run: cargo build -v
+      run: cargo build
     - name: Test
       run: cargo test
     # - name: Generate Coverage Report

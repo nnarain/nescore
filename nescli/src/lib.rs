@@ -4,8 +4,6 @@
 // @author Natesh Narain <nnaraindev@gmail.com>
 // @date Mar 13 2020
 //
-#![feature(clamp)]
-
 mod common;
 
 pub mod run;
