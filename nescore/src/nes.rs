@@ -38,6 +38,37 @@ use std::cell::RefCell;
 #[cfg(feature="events")]
 use std::sync::mpsc::{channel, Receiver};
 
+/// Sequencer event
+enum Event {
+    CPU, PPU, APU, None,
+}
+
+type SequencerEvents = [Event; 3];
+
+/// Component frame sequencer
+#[derive(Default)]
+struct FrameSequencer {
+    counter: u32,
+}
+
+impl Clockable<SequencerEvents> for FrameSequencer {
+    fn tick(&mut self) -> SequencerEvents {
+        let events = match self.counter {
+            0 => [Event::PPU, Event::CPU, Event::APU],
+            1 => [Event::PPU, Event::None, Event::None],
+            2 => [Event::PPU, Event::None, Event::None],
+            3 => [Event::PPU, Event::CPU, Event::None],
+            4 => [Event::PPU, Event::None, Event::None],
+            5 => [Event::PPU, Event::None, Event::None],
+            _ => panic!("Invalid clock for sequencer"),
+        };
+
+        self.counter = (self.counter + 1) % 6;
+
+        events
+    }
+}
+
 /// Representation of the NES system
 #[derive(Default)]
 pub struct Nes {
@@ -46,6 +77,8 @@ pub struct Nes {
     apu: Rc<RefCell<Apu>>,           // NES Audio Processing Unit
     joy: Rc<RefCell<Joy>>,           // NES Joystick
     mapper: Option<Mapper>,          // Cartridge Mapper
+
+    sequencer: FrameSequencer,
 }
 
 impl Nes {
@@ -90,10 +123,9 @@ impl Nes {
         let mut downsample_counter = DOWNSAMPLE_RATE;
 
         if self.mapper.is_some() {
-            // TODO: Need some kind of clock sequencer
-            for (count, _) in (0..crate::ppu::CYCLES_PER_FRAME).enumerate() {
+            for _ in 0..crate::ppu::CYCLES_PER_FRAME {
                 // Clock the CPU, PPU and APU
-                let (pixel, sample) = self.clock_components(count % 3 == 0, count % 6 == 0);
+                let (pixel, sample) = self.clock_components();
 
                 if let Some((r, g, b)) = pixel {
                     // Insert RGB data into the frame buffer
@@ -121,13 +153,11 @@ impl Nes {
 
     pub fn run_audio(&mut self, buffer_size: usize) -> Vec<f32> {
         let mut buffer = vec![0f32; 0];
-        let mut count = 0;
 
         let mut downsample_counter = DOWNSAMPLE_RATE;
 
         while buffer.len() < buffer_size {
-            let (_, sample) = self.clock_components(count % 3 == 0, count % 6 == 0);
-            count += 1;
+            let (_, sample) = self.clock_components();
 
             if let Some(sample) = sample {
                 downsample_counter -= 1;
@@ -171,27 +201,46 @@ impl Nes {
         // TODO: Consistent clocking of components
         if self.mapper.is_some() {
             while self.cpu.borrow().get_pc() != addr {
-                self.clock_components(true, false);
+                self.clock_components();
             }
         }
     }
 
     /// Clock the NES components
-    fn clock_components(&mut self, clock_cpu: bool, clock_apu: bool) -> (Option<Pixel>, Option<Sample>) {
+    fn clock_components(&mut self) -> (Option<Pixel>, Option<Sample>) {
         // TODO: This clocking interface needs to be re-worked..
 
-        let pixel = self.ppu.borrow_mut().tick();
+        // let pixel = self.ppu.borrow_mut().tick();
 
-        if clock_cpu {
-            self.cpu.borrow_mut().tick();
-        }
+        // if clock_cpu {
+        //     self.cpu.borrow_mut().tick();
+        // }
 
-        let sample = if clock_apu {
-            Some(self.apu.borrow_mut().tick())
+        // let sample = if clock_apu {
+        //     Some(self.apu.borrow_mut().tick())
+        // }
+        // else {
+        //     None
+        // };
+
+        // (pixel, sample)
+        let mut pixel: Option<Pixel> = None;
+        let mut sample: Option<Sample> = None;
+
+        for event in self.sequencer.tick().iter() {
+            match event {
+                Event::PPU => {
+                    pixel = self.ppu.borrow_mut().tick();
+                },
+                Event::CPU => {
+                    self.cpu.borrow_mut().tick();
+                },
+                Event::APU => {
+                    sample = Some(self.apu.borrow_mut().tick());
+                },
+                Event::None => {},
+            }
         }
-        else {
-            None
-        };
 
         (pixel, sample)
     }
