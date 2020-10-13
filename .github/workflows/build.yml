@@ -20,13 +20,14 @@ jobs:
       run: cargo build
     - name: Test
       run: cargo test
-    # - name: Generate Coverage Report
-    #   run: |
-    #     sudo apt update && sudo apt-get install -y libsdl2-dev libsdl2-2.0-0
-    #     cargo install cargo-tarpaulin
-    #     cargo tarpaulin --out Xml --all-features
-    #   if: matrix.os == 'ubuntu-latest'
-    # - uses: codecov/codecov-action@v1
-    #   with:
-    #     token: ${{ secrets.CODECOV_TOKEN }}
-    #   if: matrix.os == 'ubuntu-latest'
+    - name: Generate Coverage Report
+      run: |
+        sudo apt update && sudo apt-get install -y libsdl2-dev libsdl2-2.0-0
+        cargo install cargo-tarpaulin
+        cd nescore
+        cargo tarpaulin --out Xml --all-features
+      if: matrix.os == 'ubuntu-latest'
+    - uses: codecov/codecov-action@v1
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+      if: matrix.os == 'ubuntu-latest'
