@@ -12,3 +12,6 @@ roms/*
 *.svg
 *.data
 *.data.old
+
+# code coverage
+*.xml
