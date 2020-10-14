@@ -79,6 +79,15 @@ pub struct Nes {
 }
 
 impl Nes {
+    /// Instantiate a NES emulator instance
+    /// ```
+    /// # use nescore::Nes;
+    /// let nes = Nes::new();
+    /// ```
+    pub fn new() -> Self {
+        Nes::default()
+    }
+
     /// Directly set the CPU entry point
     /// ```
     /// # use nescore::Nes;
@@ -108,7 +117,8 @@ impl Nes {
     /// Run the emulator for a single frame
     /// ```no_run
     /// # use nescore::{Nes, Cartridge};
-    /// let mut nes: Nes = Cartridge::from_path("/path/to/rom").unwrap().into();
+    /// # let cart = Cartridge::from_path("/path/to/rom").unwrap();
+    /// let mut nes = Nes::from(cart);
     /// let (videobuffer, audiobuffer) = nes.emulate_frame();
     /// ```
     ///
@@ -142,6 +152,12 @@ impl Nes {
         (framebuffer, samplebuffer)
     }
 
+    /// Run the NES emulator until it fills an audio buffer to the specified size
+    /// ```no_run
+    /// # use nescore::Nes;
+    /// # let mut nes = Nes::default();
+    /// let samplebuffer = nes.run_audio(4096);
+    /// ```
     pub fn run_audio(&mut self, buffer_size: usize) -> Vec<f32> {
         let mut buffer = vec![0f32; 0];
 
