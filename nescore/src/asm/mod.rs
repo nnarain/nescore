@@ -4,6 +4,8 @@
 // @author Natesh Narain <nnaraindev@gmail.com>
 // @date Sep 26 2020
 //
+use std::fmt;
+
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum AddressingMode {
     Accumulator,
@@ -54,6 +56,12 @@ pub enum Instruction {
     JSR, LDA, LDX, LDY, LSR, NOP, ORA, PHA, PHP, PLA, PLP, ROL, ROR, RTI,
     RTS, SBC, SEC, SED, SEI, STA, STX, STY, TAX, TAY, TSX, TXA, TXS, TYA,
     LAX, SAX, DCP, ISB, SLO, RLA, RRA, SRE, ANC, ALR, ARR, AXS, SHY, SHX
+}
+
+impl fmt::Display for Instruction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", *self)
+    }
 }
 
 impl Instruction {

@@ -47,12 +47,11 @@ impl fmt::Debug for ParseError {
 
 #[derive(Debug)]
 pub enum CartridgeError {
-    // FailedToOpen(io::Error),
-    // FailedToLoad(io::Error),
     ReadFail(io::Error),
     InvalidRom(ParseError),
 }
 
+/// Parsed information from the cartridge header
 #[derive(Debug)]
 pub struct CartridgeInfo {
     pub format: Format,
@@ -122,6 +121,9 @@ fn get_mapper_name(mapper: usize) -> String {
     }
 }
 
+/// Representation of a ROM cartridge
+/// A cartridge can be loaded from a byte buffer or from a file on disk. It contains the information parsed from the
+/// header, the program ROM, character ROM (tile data) and battery RAM (The area in memory that holds save data).
 pub struct Cartridge {
     pub info: CartridgeInfo,
     prg_rom: Vec<u8>,
@@ -130,6 +132,12 @@ pub struct Cartridge {
 }
 
 impl Cartridge {
+    /// Instantiate a Cartridge from a byte buffer
+    /// ```no_run
+    /// # use nescore::Cartridge;
+    /// # let data = vec![0u8; 10]; // A buffer of data
+    /// let cart = Cartridge::from(data).unwrap();
+    /// ```
     pub fn from(rom: Vec<u8>) -> Result<Cartridge, CartridgeError> {
         CartridgeInfo::from(rom.as_slice()).map(|info| {
             // Determine the number of bytes for PRG ROM and CHR ROM
@@ -150,6 +158,11 @@ impl Cartridge {
         })
     }
 
+    /// Instantiate a Cartridge from a file
+    /// ```no_run
+    /// # use nescore::Cartridge;
+    /// let cart = Cartridge::from_path("/path/to/rom").unwrap();
+    /// ```
     pub fn from_path(path: &str) -> Result<Cartridge, CartridgeError> {
         load_file(path)
             .map_err(CartridgeError::ReadFail)
@@ -171,6 +184,7 @@ impl Cartridge {
         (self.info, self.prg_rom, self.chr_rom, self.bat_ram)
     }
 
+    /// Insert battery RAM into the cartridge
     pub fn add_battery_ram(mut self, batt: Vec<u8>) -> Self {
         self.bat_ram = batt;
         self
