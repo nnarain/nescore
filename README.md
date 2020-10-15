@@ -50,8 +50,6 @@ fn main() {
 
 Check out `nescli` for a full SDL example.
 
-Note: The interface around streaming audio from the emulator is not fantastic at the moment, so audio will sound a bit choppy.
-
 nescli
 ------
 

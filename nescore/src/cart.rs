@@ -10,9 +10,63 @@ use std::fmt;
 use std::io;
 use std::io::prelude::*;
 use std::fs::File;
+use std::error::Error;
 
 pub const PRG_ROM_BANK_SIZE: usize = kb!(16);
 pub const CHR_ROM_BANK_SIZE: usize = kb!(8);
+
+//
+// Error types
+//
+
+/// Error parsing cartridge header
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum ParseError {
+    InvalidSize(usize),
+    InvalidSig,
+    InvalidFormat
+}
+
+impl fmt::Display for ParseError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            ParseError::InvalidSig     => write!(f, "Invalid signature at start of file. Expected `NES`. Not an NES ROM"),
+            ParseError::InvalidSize(s) => write!(f, "Not enough data to parse header (Size: {})", s),
+            ParseError::InvalidFormat  => write!(f, "The detected header is not valid")
+        }
+    }
+}
+
+impl Error for ParseError {}
+
+/// Error loading ROM
+#[derive(Debug)]
+pub enum CartridgeError {
+    ReadFail(io::Error),
+    InvalidRom(ParseError),
+}
+
+impl fmt::Display for CartridgeError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            CartridgeError::ReadFail(ref e) => write!(f, "Failed to read ROM file: {}", e),
+            CartridgeError::InvalidRom(ref e) => write!(f, "Invalid ROM file: {}", e),
+        }
+    }
+}
+
+impl Error for CartridgeError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match *self {
+            CartridgeError::ReadFail(ref e) => Some(e),
+            CartridgeError::InvalidRom(ref e) => Some(e),
+        }
+    }
+}
+
+//
+// Cartridge structs
+//
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Format {
@@ -29,27 +83,6 @@ impl fmt::Display for Format {
     }
 }
 
-pub enum ParseError {
-    InvalidSize(usize),
-    InvalidSig,
-    InvalidFormat
-}
-
-impl fmt::Debug for ParseError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            ParseError::InvalidSig     => write!(f, "Invalid signature at start of file. Expected `NES`. Not an NES ROM"),
-            ParseError::InvalidSize(s) => write!(f, "Not enough data to parse header (Size: {})", s),
-            ParseError::InvalidFormat  => write!(f, "The detected header is not valid")
-        }
-    }
-}
-
-#[derive(Debug)]
-pub enum CartridgeError {
-    ReadFail(io::Error),
-    InvalidRom(ParseError),
-}
 
 /// Parsed information from the cartridge header
 #[derive(Debug)]
@@ -195,7 +228,27 @@ impl Cartridge {
 pub enum LoaderError {
     NoRomProvided,
     LoadCartridge(CartridgeError),
-    LoadSave(io::Error),
+    // LoadSave(io::Error),
+}
+
+impl fmt::Display for LoaderError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            LoaderError::NoRomProvided =>        write!(f, "No ROM file provided to the loader"),
+            LoaderError::LoadCartridge(ref e) => write!(f, "Failed to load the cartridge: {}", e),
+            // LoaderError::LoadSave(ref e) =>      write!(f, "Failed to load the save file: {}", e),
+        }
+    }
+}
+
+impl Error for LoaderError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match *self {
+            LoaderError::LoadCartridge(ref e) => Some(e),
+            // LoaderError::LoadSave(ref e) => Some(e),
+            _ => None,
+        }
+    }
 }
 
 /// Cartridge Loader Helper
@@ -421,6 +474,9 @@ fn verify_signature(sig: &[u8]) -> bool {
 mod tests {
     use super::*;
 
+    const PRG_ROM_SIZE: usize = 15 * PRG_ROM_BANK_SIZE;
+    const CHR_ROM_SIZE: usize = 15 * CHR_ROM_BANK_SIZE;
+
     fn init_header() -> [u8; 16] {
         [
             0x4E, 0x45, 0x53, 0x1A, // NES<EOF>
@@ -519,9 +575,6 @@ mod tests {
 
     #[test]
     fn load_cart_from_vec() {
-        const PRG_ROM_SIZE: usize = 15 * PRG_ROM_BANK_SIZE;
-        const CHR_ROM_SIZE: usize = 15 * CHR_ROM_BANK_SIZE;
-
         let header = init_header();
         let mut prg_rom = [0u8; PRG_ROM_SIZE];
         let mut chr_rom = [0u8; CHR_ROM_SIZE];
@@ -543,6 +596,26 @@ mod tests {
         assert_eq!(cart.chr_rom.len(), CHR_ROM_SIZE);
         assert_eq!(cart.chr_rom[0x00], 0xBE);
         assert_eq!(cart.chr_rom[CHR_ROM_SIZE-1], 0xEF);
+    }
+
+    #[test]
+    fn load_invalid_sig() {
+        let mut header = init_header();
+        header[0] = 0;
+        let prg_rom = [0u8; PRG_ROM_SIZE];
+        let chr_rom = [0u8; CHR_ROM_SIZE];
+
+        let rom = [&header[..], &prg_rom[..], &chr_rom[..]].concat();
+
+        let err = Cartridge::from(rom).err().unwrap();
+
+        assert!(matches!(err, CartridgeError::InvalidRom(ParseError::InvalidSig)));
+    }
+
+    #[test]
+    fn loader_no_rom() {
+        let err = CartridgeLoader::default().load().err().unwrap();
+        assert!(matches!(err, LoaderError::NoRomProvided));
     }
 }
 
