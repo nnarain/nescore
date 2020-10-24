@@ -737,7 +737,7 @@ impl<Io: IoAccess> Cpu<Io> {
     fn php(&mut self) {
         // The value of $30 is OR'ed in the status register for the 'B' flag values
         // http://wiki.nesdev.com/w/index.php/Status_flags#The_B_flag
-        self.push(self.p | 0x30);
+        self.push(self.p | bv!(4) | bv!(5));
     }
 
     fn pla(&mut self) {
@@ -746,7 +746,9 @@ impl<Io: IoAccess> Cpu<Io> {
     }
 
     fn plp(&mut self) {
-        self.p = self.pull();
+        // Ignore bits 4 (not sure about bit 5)
+        // http://wiki.nesdev.com/w/index.php/Status_flags#The_B_flag
+        self.p = self.pull() & !bv!(4);
     }
 
     fn lsr(&mut self, m: u8) -> u8 {
@@ -823,7 +825,7 @@ impl<Io: IoAccess> Cpu<Io> {
     }
 
     fn rti(&mut self) {
-        self.p = self.pull();
+        self.plp();
         self.pc = self.pull16();
 
         self.set_flag_bit(Flags::InterruptDisable, false);
@@ -960,7 +962,7 @@ impl<Io: IoAccess> Cpu<Io> {
         // The PC is already in the right spot
         self.push16(self.pc);
         // OR with $30 to set the B flag
-        self.push(self.p | 0x30);
+        self.push(self.p | bv!(4) | bv!(5));
 
         self.pc = self.read_u16(memorymap::IRQ_VECTOR);
 
@@ -2290,11 +2292,12 @@ mod tests {
 
         let mut cpu = init_cpu(prg);
         cpu.write_u8(0x10A, 0xFF);
+        cpu.p = 0;
         cpu.sp = 0x09;
 
         simple_test_base(&mut cpu, 4);
 
-        assert_eq!(cpu.p, 0xFF);
+        assert_eq!(cpu.p, 0xEF);
         assert_eq!(cpu.sp, 0x0A);
     }
 
@@ -2659,6 +2662,20 @@ mod tests {
         assert_eq!(cpu.pc, 0x4021);
     }
 
+    #[test]
+    fn b_flag() {
+        // From nestest starting at $C822
+        let prg = vec![
+            0xA9, 0xFF, // LDA $FF
+            0x48,       // PHA
+            0x28,       // PLP
+        ];
+
+        let cpu = simple_test(prg, 9);
+
+        assert_eq!(cpu.p, 0xEF);
+    }
+
     ///-----------------------------------------------------------------------------------------------------------------
     /// Helper functions
     ///-----------------------------------------------------------------------------------------------------------------
@@ -2729,6 +2746,7 @@ mod tests {
         pub fn init_cpu(prg: Vec<u8>) -> Cpu<FakeBus> {
             let bus = FakeBus::from(prg);
             let mut cpu: Cpu<FakeBus> = Cpu::default();
+            cpu.set_debug(true);
             cpu.load_bus(bus);
             cpu
         }
