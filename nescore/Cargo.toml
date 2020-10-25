@@ -1,6 +1,6 @@
 [package]
 name = "nescore"
-version = "0.1.0"
+version = "0.2.0"
 description="NES emulator"
 authors = ["Natesh Narain <nnaraindev@gmail.com>"]
 edition = "2018"
