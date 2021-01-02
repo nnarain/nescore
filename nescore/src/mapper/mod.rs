@@ -12,6 +12,7 @@ mod base;
 mod nrom;
 mod mmc1;
 mod unrom;
+mod cnrom;
 
 // Public re-exports
 pub use mapper::{Mapper, Mirroring, MapperControl, from_cartridge};
