@@ -10,6 +10,7 @@ use super::base::MapperBase;
 use super::nrom::Nrom;
 use super::mmc1::Mmc1;
 use super::unrom::Unrom;
+use super::cnrom::Cnrom;
 
 // use std::boxed::Box;
 use std::rc::Rc;
@@ -47,6 +48,7 @@ pub fn from_cartridge(cart: Cartridge) -> Mapper {
         0 => create_mapper::<Nrom>(cart),
         1 => create_mapper::<Mmc1>(cart),
         2 => create_mapper::<Unrom>(cart),
+        3 => create_mapper::<Cnrom>(cart),
         _ => panic!("Invalid or unimplemented mapper: #{mapper}", mapper=cart.info.mapper),
     }
 }
