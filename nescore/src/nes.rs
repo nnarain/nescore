@@ -20,20 +20,34 @@ use crate::joy::{Controller, Button};
 
 use crate::ppu::{DISPLAY_WIDTH, DISPLAY_HEIGHT};
 
-/// Size of the display frame buffer: display size * RGB (3 bytes)
-const FRAME_BUFFER_SIZE: usize = DISPLAY_WIDTH * DISPLAY_HEIGHT * 3;
-
-/// Buffer for video data
-pub type FrameBuffer = [u8; FRAME_BUFFER_SIZE];
 /// Buffer for audio data
 pub type SampleBuffer = Vec<crate::apu::Sample>;
 
 
-use std::rc::Rc;
+use std::{rc::Rc, vec};
 use std::cell::RefCell;
 
 #[cfg(feature="events")]
 use std::sync::mpsc::{channel, Receiver};
+
+#[derive(Clone, Copy)]
+pub enum PixelFormat {
+    RGB8,
+    RGBA8,
+    GBRA8,
+    BGRA8,
+}
+
+impl PixelFormat {
+    pub fn num_bytes(&self) -> usize {
+        match *self {
+            PixelFormat::RGB8 => 3,
+            PixelFormat::RGBA8 => 4,
+            PixelFormat::GBRA8 => 4,
+            PixelFormat::BGRA8 => 4,
+        }
+    }
+}
 
 /// Sequencer event
 enum Event {
@@ -67,7 +81,6 @@ impl Clockable<SequencerEvents> for FrameSequencer {
 }
 
 /// Representation of the NES system
-#[derive(Default)]
 pub struct Nes {
     cpu: Rc<RefCell<Cpu<CpuIoBus>>>, // NES Central Processing Unit
     ppu: Rc<RefCell<Ppu<PpuIoBus>>>, // NES Picture Processing Unit
@@ -75,7 +88,30 @@ pub struct Nes {
     joy: Rc<RefCell<Joy>>,           // NES Joystick
     mapper: Option<Mapper>,          // Cartridge Mapper
 
-    sequencer: FrameSequencer,
+    sequencer: FrameSequencer,       // Used to clock components in the right order
+
+    framebuffer: Vec<u8>,
+    pixel_format: PixelFormat,       // Pixel format
+}
+
+impl Default for Nes {
+    fn default() -> Self {
+        let pixel_format = PixelFormat::RGB8;
+        let framebuffer = vec![0; DISPLAY_WIDTH * DISPLAY_HEIGHT * pixel_format.num_bytes()];
+
+        Nes {
+            cpu: Rc::default(),
+            ppu: Rc::default(),
+            apu: Rc::default(),
+            joy: Rc::default(),
+            mapper: None,
+
+            sequencer: FrameSequencer::default(),
+
+            framebuffer,
+            pixel_format,
+        }
+    }
 }
 
 impl Nes {
@@ -104,6 +140,14 @@ impl Nes {
         self
     }
 
+    /// Set color output format
+    pub fn pixel_format(mut self, pixel_format: PixelFormat) -> Self {
+        self.pixel_format = pixel_format;
+        self.framebuffer = vec![0; DISPLAY_WIDTH * DISPLAY_HEIGHT * pixel_format.num_bytes()];
+
+        self
+    }
+
     /// Builder function to set debug mode
     /// ```
     /// # use nescore::Nes;
@@ -124,8 +168,8 @@ impl Nes {
     ///
     /// * `videobuffer` - A RGB8 frame buffer
     /// * `audiobuffer` - Raw APU output (This must be down sampled to host playback rate)
-    pub fn emulate_frame(&mut self) -> (FrameBuffer, SampleBuffer) {
-        let mut framebuffer = [0x00u8; FRAME_BUFFER_SIZE];
+    pub fn emulate_frame(&mut self) -> (&[u8], SampleBuffer) {
+        // let mut framebuffer = [0x00u8; FRAME_BUFFER_SIZE];
         let mut framebuffer_idx = 0usize;
 
         let mut samplebuffer: Vec<Sample> = Vec::new();
@@ -135,12 +179,14 @@ impl Nes {
                 // Clock the CPU, PPU and APU
                 let (pixel, sample) = self.clock_components();
 
-                if let Some((r, g, b)) = pixel {
-                    // Insert RGB data into the frame buffer
-                    framebuffer[framebuffer_idx] = r;
-                    framebuffer[framebuffer_idx + 1] = g;
-                    framebuffer[framebuffer_idx + 2] = b;
-                    framebuffer_idx = (framebuffer_idx + 3) % FRAME_BUFFER_SIZE;
+                if let Some(pixel) = pixel {
+                    let bytes = self.format_color_output(pixel);
+                    // TODO: This produces a clippy warning. However, `i` is not necessarily used to index the entirety
+                    // of `bytes`. There's probably a better way to do this...
+                    for i in 0..self.pixel_format.num_bytes() {
+                        self.framebuffer[framebuffer_idx] = bytes[i];
+                        framebuffer_idx = (framebuffer_idx + 1) % self.framebuffer.len();
+                    }
                 }
 
                 if let Some(sample) = sample {
@@ -149,7 +195,18 @@ impl Nes {
             }
         }
 
-        (framebuffer, samplebuffer)
+        (&self.framebuffer, samplebuffer)
+    }
+
+    /// Covert a PPU RGB pixel into different color formats
+    /// return 4 bytes with the color data and a bool that indicates if the last byte is used
+    fn format_color_output(&self, pixel: Pixel) -> [u8; 4] {
+        match self.pixel_format {
+            PixelFormat::RGB8 =>  [pixel.0, pixel.1, pixel.2, 0],
+            PixelFormat::RGBA8 => [pixel.0, pixel.1, pixel.2, 255],
+            PixelFormat::GBRA8 => [pixel.1, pixel.2, pixel.0, 255],
+            PixelFormat::BGRA8 => [pixel.2, pixel.1, pixel.0, 255],
+        }
     }
 
     /// Run the NES emulator until it fills an audio buffer to the specified size

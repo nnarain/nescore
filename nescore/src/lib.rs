@@ -29,6 +29,7 @@ pub use joy::{Controller, Button};
 /// NES system specifications and associated types
 pub mod specs {
     pub use super::ppu::{DISPLAY_WIDTH, DISPLAY_HEIGHT};
+    pub use super::nes::PixelFormat;
 
     pub use super::apu::{Sample, APU_OUTPUT_RATE};
     pub type SampleBuffer = Vec<super::apu::Sample>;

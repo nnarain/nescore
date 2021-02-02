@@ -172,7 +172,11 @@ impl Cartridge {
     /// let cart = Cartridge::from(data).unwrap();
     /// ```
     pub fn from(rom: Vec<u8>) -> Result<Cartridge, CartridgeError> {
-        CartridgeInfo::from(rom.as_slice()).map(|info| {
+        Cartridge::from_slice(rom.as_slice())
+    }
+
+    pub fn from_slice(rom: &[u8]) -> Result<Cartridge, CartridgeError> {
+        CartridgeInfo::from(rom).map(|info| {
             // Determine the number of bytes for PRG ROM and CHR ROM
             let prg_rom_size = info.prg_rom_banks * PRG_ROM_BANK_SIZE;
             let chr_rom_size = info.chr_rom_banks * CHR_ROM_BANK_SIZE;

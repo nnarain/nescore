@@ -127,7 +127,7 @@ pub fn dispatch(opts: Options) {
         canvas.clear();
 
         // Update the on screen texture
-        display.update(None, &framebuffer, DISPLAY_WIDTH * 3).unwrap();
+        display.update(None, framebuffer, DISPLAY_WIDTH * 3).unwrap();
         // Update the canvas
         canvas.copy(&display, None, Some(Rect::new(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT))).unwrap();
 

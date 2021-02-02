@@ -1,0 +1,12 @@
+[package]
+name = "nescore-retro"
+version = "0.1.0"
+authors = ["Natesh Narain <nnaraindev@gmail.com>"]
+edition = "2018"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+nescore = {path="../nescore"}
+libretro-backend = "0.2"

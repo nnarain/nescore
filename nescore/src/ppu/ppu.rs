@@ -15,6 +15,7 @@ const NUM_SCANLINES: usize = 262;
 const CYCLES_PER_SCANLINE: usize = 341;
 const TILES_PER_ROW: usize = 32;
 
+/// RGB Pixel
 pub type Pixel = (u8, u8, u8);
 pub const DISPLAY_WIDTH: usize = 256;
 pub const DISPLAY_HEIGHT: usize = 240;
