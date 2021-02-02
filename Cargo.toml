@@ -2,6 +2,7 @@
 members = [
     "nescore",
     "nescli",
+    "nescore-retro"
 ]
 
 [profile.release]
