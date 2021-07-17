@@ -64,3 +64,12 @@ nescli img  <ROM>   # Dump CHR ROM to a PNG file
 
 nescli audio <ROM>  # Just play ROM audio
 ```
+
+nescore-retro
+-------------
+
+This is `libretro` core made with nescore and `libretro_backend`.
+
+```
+retroarch -L /path/to/nescore_retro.<so/dll> /path/to/rom
+```
