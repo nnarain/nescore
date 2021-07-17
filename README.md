@@ -68,7 +68,7 @@ nescli audio <ROM>  # Just play ROM audio
 nescore-retro
 -------------
 
-This is `libretro` core made with nescore and `libretro_backend`.
+This is a `libretro` core made with nescore and `libretro_backend`.
 
 ```
 retroarch -L /path/to/nescore_retro.<so/dll> /path/to/rom
